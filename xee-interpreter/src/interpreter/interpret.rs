@@ -1558,10 +1558,12 @@ impl<'a> Interpreter<'a> {
                     let text_node = self.state.xot.new_text(&text);
                     Ok(Some(sequence::Item::Node(text_node).into()))
                 }
-                xot::Value::Attribute(_) => {
-                    // Text-only-copy should skip attributes - they may be processed
-                    // by explicit templates, but don't contribute to text-only-copy output
-                    Ok(None)
+                xot::Value::Attribute(attribute) => {
+                    // When an attribute node is directly applied (not as part of element children),
+                    // text-only-copy should output its text value
+                    let value = attribute.value().to_string();
+                    let text_node = self.state.xot.new_text(&value);
+                    Ok(Some(sequence::Item::Node(text_node).into()))
                 }
                 _ => Ok(None),
             },
