@@ -619,6 +619,48 @@ fn test_apply_templates_current_uses_current_mode_inside_template_rule() {
 }
 
 #[test]
+fn test_rooted_variable_pattern_matches_in_xslt_30() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><foo><baz att1=\"wrong\"/></foo></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:variable name="x" select="/doc"/>
+
+  <xsl:template match="doc">
+    <out><xsl:apply-templates/></out>
+  </xsl:template>
+
+  <xsl:template match="$x//baz">
+    <hit><xsl:value-of select="name(.)"/></hit>
+  </xsl:template>
+
+  <xsl:template match="text()"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><hit>baz</hit></out>");
+}
+
+#[test]
+fn test_rooted_variable_pattern_is_rejected_in_xslt_20() {
+    let static_context = StaticContextBuilder::default().build();
+    let error = parse(
+        static_context,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:variable name="x" select="/doc"/>
+  <xsl:template match="$x"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE0340);
+}
+
+#[test]
 fn test_apply_templates_current_falls_back_to_unnamed_mode_outside_template_rule() {
     let mut xot = Xot::new();
     let output = evaluate(

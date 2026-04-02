@@ -13,6 +13,30 @@ use crate::tokenize::split_whitespace_with_spans;
 use crate::{ast_core::Span, value_template::ValueTemplateTokenizer};
 use xot::{NameId, SpanInfoKey};
 
+fn has_rooted_pattern(pattern: &xee_xpath_ast::Pattern<xpath_ast::ExprS>) -> bool {
+    match pattern {
+        xee_xpath_ast::Pattern::Predicate(_) => false,
+        xee_xpath_ast::Pattern::Expr(expr_pattern) => has_rooted_expr_pattern(expr_pattern),
+    }
+}
+
+fn has_rooted_expr_pattern(
+    expr_pattern: &xee_xpath_ast::pattern::ExprPattern<xpath_ast::ExprS>,
+) -> bool {
+    match expr_pattern {
+        xee_xpath_ast::pattern::ExprPattern::Path(path_expr) => {
+            matches!(
+                path_expr.root,
+                xee_xpath_ast::pattern::PathRoot::Rooted { .. }
+            )
+        }
+        xee_xpath_ast::pattern::ExprPattern::BinaryExpr(binary_expr) => {
+            has_rooted_expr_pattern(&binary_expr.left)
+                || has_rooted_expr_pattern(&binary_expr.right)
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Attributes<'a> {
     pub(crate) content: Content<'a>,
@@ -576,10 +600,14 @@ impl<'a> Attributes<'a> {
     }
 
     fn _pattern(&self, s: &str, span: Span) -> Result<ast::Pattern, AttributeError> {
-        Ok(ast::Pattern {
-            pattern: self.content.parser_context().parse_pattern(s)?,
-            span,
-        })
+        let pattern = self.content.parser_context().parse_pattern(s)?;
+        if has_rooted_pattern(&pattern) && !self.content.context.supports_rooted_patterns() {
+            return Err(AttributeError::StaticError {
+                code: "XTSE0340",
+                span,
+            });
+        }
+        Ok(ast::Pattern { pattern, span })
     }
 
     pub(crate) fn pattern(

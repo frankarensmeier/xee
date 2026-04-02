@@ -562,6 +562,11 @@ pub enum Error {
     /// It is a static error if an XSLT element has an attribute that is not
     /// permitted for that instruction.
     XTSE0090,
+    /// Pattern is not allowed in this XSLT version.
+    ///
+    /// It is a static error if a pattern uses syntax that is only available in
+    /// a later XSLT version than the containing stylesheet.
+    XTSE0340,
     /// Duplicate local parameter name.
     ///
     /// It is a static error if two xsl:param declarations within the same

@@ -27,6 +27,13 @@ pub(crate) trait PredicateMatcher {
 
     fn xot(&self) -> &Xot;
 
+    fn rooted_pattern_sequence(
+        &mut self,
+        _root: &pattern::RootExpr,
+    ) -> Option<crate::sequence::Sequence> {
+        None
+    }
+
     fn matches(&mut self, pattern: &pattern::Pattern<InlineFunctionId>, item: &Item) -> bool {
         match pattern {
             pattern::Pattern::Expr(expr_pattern) => self.matches_expr_pattern(expr_pattern, item),
@@ -93,12 +100,9 @@ pub(crate) trait PredicateMatcher {
         node: xot::Node,
     ) -> bool {
         match &path_expr.root {
-            // this one awaits support for variables in patterns. also there are various
-            // possible function calls
-            pattern::PathRoot::Rooted {
-                root: _,
-                predicates: _,
-            } => todo!(),
+            pattern::PathRoot::Rooted { root, predicates } => {
+                self.matches_rooted_path_expr(root, predicates, &path_expr.steps, node)
+            }
             pattern::PathRoot::AbsoluteSlash => self.matches_absolute_steps(&path_expr.steps, node),
             pattern::PathRoot::AbsoluteDoubleSlash => {
                 self.matches_absolute_double_slash_steps(&path_expr.steps, node)
@@ -110,6 +114,109 @@ pub(crate) trait PredicateMatcher {
                 }
             }
         }
+    }
+
+    fn matches_rooted_path_expr(
+        &mut self,
+        root: &pattern::RootExpr,
+        predicates: &[InlineFunctionId],
+        steps: &[pattern::StepExpr<InlineFunctionId>],
+        node: xot::Node,
+    ) -> bool {
+        let Some(sequence) = self.rooted_pattern_sequence(root) else {
+            return false;
+        };
+        let matches = sequence.iter().any(|item| {
+            let Item::Node(root_node) = item else {
+                return false;
+            };
+            let root_item = Item::Node(root_node);
+            if predicates
+                .iter()
+                .any(|predicate| !self.match_predicate(*predicate, &root_item))
+            {
+                return false;
+            }
+            self.matches_forward_steps(root_node, steps, node)
+        });
+        matches
+    }
+
+    fn matches_forward_steps(
+        &mut self,
+        anchor: xot::Node,
+        steps: &[pattern::StepExpr<InlineFunctionId>],
+        target: xot::Node,
+    ) -> bool {
+        if steps.is_empty() {
+            return anchor == target;
+        }
+        let step = &steps[0];
+        let remaining_steps = &steps[1..];
+        match step {
+            pattern::StepExpr::AxisStep(axis_step) => {
+                for candidate in self.forward_axis_nodes(anchor, axis_step.forward) {
+                    if !self.matches_axis_node_test(axis_step, candidate) {
+                        continue;
+                    }
+                    let item = Item::Node(candidate);
+                    let (position, size) =
+                        self.forward_axis_predicate_context(axis_step, anchor, candidate);
+                    if axis_step.predicates.iter().any(|predicate| {
+                        !self.match_predicate_with_context(*predicate, &item, position, size)
+                    }) {
+                        continue;
+                    }
+                    if self.matches_forward_steps(candidate, remaining_steps, target) {
+                        return true;
+                    }
+                }
+                false
+            }
+            pattern::StepExpr::PostfixExpr(postfix_expr) => {
+                self.matches_postfix_expr(postfix_expr, anchor)
+                    && self.matches_forward_steps(anchor, remaining_steps, target)
+            }
+        }
+    }
+
+    fn forward_axis_nodes(&self, anchor: xot::Node, axis: pattern::ForwardAxis) -> Vec<xot::Node> {
+        match axis {
+            pattern::ForwardAxis::Child => self.xot().children(anchor).collect(),
+            pattern::ForwardAxis::Descendant => self.xot().descendants(anchor).collect(),
+            pattern::ForwardAxis::Attribute => self
+                .xot()
+                .attributes(anchor)
+                .keys()
+                .filter_map(|name| self.xot().attributes(anchor).get_node(name))
+                .collect(),
+            pattern::ForwardAxis::Self_ => vec![anchor],
+            pattern::ForwardAxis::DescendantOrSelf => std::iter::once(anchor)
+                .chain(self.xot().descendants(anchor))
+                .collect(),
+            pattern::ForwardAxis::Namespace => Vec::new(),
+        }
+    }
+
+    fn forward_axis_predicate_context(
+        &self,
+        step: &pattern::AxisStep<InlineFunctionId>,
+        anchor: xot::Node,
+        candidate: xot::Node,
+    ) -> (usize, usize) {
+        let matching_nodes = self
+            .forward_axis_nodes(anchor, step.forward)
+            .into_iter()
+            .filter(|possible| self.matches_axis_node_test(step, *possible))
+            .collect::<Vec<_>>();
+
+        let position = matching_nodes
+            .iter()
+            .position(|possible| *possible == candidate)
+            .map(|index| index + 1)
+            .unwrap_or(1);
+        let size = matching_nodes.len().max(1);
+        (position, size)
     }
 
     fn matches_absolute_steps(
@@ -355,6 +462,7 @@ mod tests {
     use xee_xpath_ast::pattern::transform_pattern;
 
     use crate::atomic::Atomic;
+    use crate::sequence::Sequence;
 
     use super::*;
 
@@ -380,6 +488,7 @@ mod tests {
     struct BasicPredicateMatcher<'a> {
         xot: &'a Xot,
         predicate_matches: bool,
+        rooted_sequences: Vec<(pattern::RootExpr, Sequence)>,
     }
 
     impl<'a> BasicPredicateMatcher<'a> {
@@ -387,6 +496,7 @@ mod tests {
             Self {
                 xot,
                 predicate_matches: false,
+                rooted_sequences: Vec::new(),
             }
         }
 
@@ -394,7 +504,13 @@ mod tests {
             Self {
                 xot,
                 predicate_matches: true,
+                rooted_sequences: Vec::new(),
             }
+        }
+
+        fn with_root_sequence(mut self, root: pattern::RootExpr, sequence: Sequence) -> Self {
+            self.rooted_sequences.push((root, sequence));
+            self
         }
     }
 
@@ -411,6 +527,13 @@ mod tests {
 
         fn xot(&self) -> &Xot {
             self.xot
+        }
+
+        fn rooted_pattern_sequence(&mut self, root: &pattern::RootExpr) -> Option<Sequence> {
+            self.rooted_sequences
+                .iter()
+                .find(|(stored_root, _)| stored_root == root)
+                .map(|(_, sequence)| sequence.clone())
         }
     }
 
@@ -516,6 +639,42 @@ mod tests {
         let mut pm = BasicPredicateMatcher::new(&xot);
         let pattern = parse_pattern("bar/foo");
         assert!(pm.matches(&pattern, &item));
+    }
+
+    #[test]
+    fn test_match_rooted_variable_pattern() {
+        let mut xot = Xot::new();
+        let root = xot.parse(r#"<doc><foo><baz/></foo></doc>"#).unwrap();
+        let document_element = xot.document_element(root).unwrap();
+        let baz = xot
+            .children(document_element)
+            .find(|node| xot.is_element(*node))
+            .and_then(|foo| xot.first_child(foo))
+            .unwrap();
+
+        let pattern = parse_pattern("$v//baz");
+        let variable_name = xee_name::Name::new("v".to_string(), "".to_string(), "".to_string());
+        let root_expr = pattern::RootExpr::VarRef(variable_name);
+        let variable_sequence = Sequence::from(vec![Item::from(document_element)]);
+
+        let mut pm =
+            BasicPredicateMatcher::new(&xot).with_root_sequence(root_expr, variable_sequence);
+        assert!(pm.matches(&pattern, &Item::from(baz)));
+    }
+
+    #[test]
+    fn test_match_rooted_variable_pattern_without_steps_matches_document_node() {
+        let mut xot = Xot::new();
+        let root = xot.parse(r#"<doc><YYY/></doc>"#).unwrap();
+
+        let pattern = parse_pattern("$v");
+        let variable_name = xee_name::Name::new("v".to_string(), "".to_string(), "".to_string());
+        let root_expr = pattern::RootExpr::VarRef(variable_name);
+        let variable_sequence = Sequence::from(vec![Item::from(root)]);
+
+        let mut pm =
+            BasicPredicateMatcher::new(&xot).with_root_sequence(root_expr, variable_sequence);
+        assert!(pm.matches(&pattern, &Item::from(root)));
     }
 
     #[test]

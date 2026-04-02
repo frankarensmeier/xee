@@ -248,6 +248,7 @@ impl<'a> DeclarationCompiler<'a> {
                 name: global_variable.name.clone(),
                 function_id,
                 original_name: global_variable.original_name.clone(),
+                external: global_variable.external,
                 required: global_variable.required,
             },
         );

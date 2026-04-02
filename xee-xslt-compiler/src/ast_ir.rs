@@ -147,6 +147,15 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
                     span: Some((span.start..span.end).into()),
                 }
             }
+            AttributeError::StaticError { code, span } => error::SpannedError {
+                error: match code {
+                    "XTSE0340" => error::Error::XTSE0340,
+                    _ => {
+                        error::Error::Unsupported(format!("Unknown XSLT static error code: {code}"))
+                    }
+                },
+                span: Some((span.start..span.end).into()),
+            },
             other => error::Error::Unsupported(format!("Failed parsing XSLT: {:?}", other)).into(),
         },
         ElementError::Unexpected { span } => {
@@ -472,7 +481,8 @@ impl<'a> IrConverter<'a> {
                     })?;
                     globals.push(ir::GlobalVariable {
                         name,
-                        original_name: None,
+                        original_name: Some(var.name.clone()),
+                        external: false,
                         required: false,
                         params: expr.0,
                         expr: expr.1,
@@ -494,6 +504,7 @@ impl<'a> IrConverter<'a> {
                     globals.push(ir::GlobalVariable {
                         name,
                         original_name: Some(param.name.clone()),
+                        external: true,
                         required: param.required,
                         params: expr.0,
                         expr: expr.1,
@@ -521,6 +532,7 @@ impl<'a> IrConverter<'a> {
                     globals.push(ir::GlobalVariable {
                         name,
                         original_name: None,
+                        external: false,
                         required: false,
                         params,
                         expr,

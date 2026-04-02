@@ -824,7 +824,10 @@ impl<'a> Interpreter<'a> {
             .inline_function(self.state.frame().function())
     }
 
-    fn resolve_global_variable(&mut self, index: usize) -> error::Result<sequence::Sequence> {
+    pub(crate) fn resolve_global_variable(
+        &mut self,
+        index: usize,
+    ) -> error::Result<sequence::Sequence> {
         match self.global_variables[index].clone() {
             GlobalValueState::Resolved(value) => Ok(value),
             GlobalValueState::Resolving => Err(error::Error::XTDE0640),
@@ -835,7 +838,12 @@ impl<'a> Interpreter<'a> {
                     .declarations
                     .global_variable(index)
                     .clone();
-                if let Some(original_name) = &global.original_name {
+                if global.external {
+                    let Some(original_name) = &global.original_name else {
+                        return Err(error::Error::Unsupported(
+                            "External global declaration missing original name".to_string(),
+                        ));
+                    };
                     if let Some(value) = self
                         .runnable
                         .dynamic_context()

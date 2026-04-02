@@ -8,6 +8,7 @@ pub struct GlobalVariableDeclaration {
     pub name: function::Name,
     pub function_id: function::InlineFunctionId,
     pub original_name: Option<OwnedName>,
+    pub external: bool,
     pub required: bool,
 }
 

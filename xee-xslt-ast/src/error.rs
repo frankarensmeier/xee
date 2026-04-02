@@ -13,6 +13,8 @@ pub enum AttributeError {
     InvalidEqName { value: String, span: Span },
     // XPath parser error
     XPathParser(xee_xpath_ast::ParserError),
+    // XSLT static error with an explicit error code
+    StaticError { code: &'static str, span: Span },
     // A value template could not be parsed
     ValueTemplate(value_template::Error),
     // Internal error; should not happen

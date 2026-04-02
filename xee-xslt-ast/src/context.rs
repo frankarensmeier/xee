@@ -206,6 +206,10 @@ impl Context {
         self.version < Decimal::from_str("2.0").unwrap()
     }
 
+    pub(crate) fn supports_rooted_patterns(&self) -> bool {
+        self.version >= Decimal::from_str("3.0").unwrap()
+    }
+
     pub(crate) fn parser_context(&self, state: &State) -> XPathParserContext {
         let namespaces = self.namespaces(state);
         XPathParserContext::new(namespaces, self.variable_names.clone())

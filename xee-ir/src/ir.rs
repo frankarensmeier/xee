@@ -434,6 +434,7 @@ pub enum ModeTyped {
 pub struct GlobalVariable {
     pub name: Name,
     pub original_name: Option<xmlname::OwnedName>,
+    pub external: bool,
     pub required: bool,
     pub params: Vec<Param>,
     pub expr: ExprS,

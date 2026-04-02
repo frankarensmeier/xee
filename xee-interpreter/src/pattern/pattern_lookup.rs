@@ -49,6 +49,27 @@ impl PredicateMatcher for Interpreter<'_> {
     fn xot(&self) -> &Xot {
         self.xot()
     }
+
+    fn rooted_pattern_sequence(
+        &mut self,
+        root: &xee_xpath_ast::pattern::RootExpr,
+    ) -> Option<crate::sequence::Sequence> {
+        match root {
+            xee_xpath_ast::pattern::RootExpr::VarRef(name) => {
+                if let Some(sequence) = self.runnable().dynamic_context().variables().get(name) {
+                    return Some(sequence.clone());
+                }
+
+                let declarations = &self.runnable().program().declarations;
+                declarations
+                    .global_variables
+                    .iter()
+                    .position(|global| global.original_name.as_ref() == Some(name))
+                    .and_then(|index| self.resolve_global_variable(index).ok())
+            }
+            xee_xpath_ast::pattern::RootExpr::FunctionCall(_) => None,
+        }
+    }
 }
 
 impl<V: Clone> PatternLookup<V> {
