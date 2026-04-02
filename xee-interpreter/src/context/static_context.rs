@@ -83,6 +83,15 @@ impl StaticContext {
         )
     }
 
+    pub fn clone_with_namespaces(&self, namespaces: Namespaces) -> Self {
+        Self::new(
+            namespaces,
+            self.parser_context.variable_names.clone(),
+            self.disabled_functions.clone(),
+            self.static_base_uri.clone(),
+        )
+    }
+
     pub fn namespaces(&self) -> &Namespaces {
         &self.parser_context.namespaces
     }

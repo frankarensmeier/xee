@@ -16,7 +16,7 @@ use xee_xslt_ast::{
     error::{AttributeError, ElementError},
     parse_transform,
 };
-use xot::xmlname::{NameStrInfo, OwnedName};
+use xot::{xmlname::{NameStrInfo, OwnedName}, Xot};
 
 use crate::priority::default_priority;
 
@@ -70,6 +70,7 @@ pub fn parse_with_base_dir_and_initial_mode(
     base_dir: Option<std::path::PathBuf>,
     initial_mode: Option<String>,
 ) -> error::SpannedResult<interpreter::Program> {
+    let static_context = augment_static_context_with_stylesheet_namespaces(static_context, xslt);
     let transform = parse_transform(xslt);
     // TODO: better error handling
     let mut transform = match transform {
@@ -90,6 +91,28 @@ pub fn parse_with_base_dir_and_initial_mode(
     } else {
         compile_with_initial_mode(transform, static_context, initial_mode)
     }
+}
+
+fn augment_static_context_with_stylesheet_namespaces(
+    static_context: StaticContext,
+    xslt: &str,
+) -> StaticContext {
+    let mut xot = Xot::new();
+    let Ok(root) = xot.parse(xslt) else {
+        return static_context;
+    };
+    let Ok(document_element) = xot.document_element(root) else {
+        return static_context;
+    };
+
+    let mut namespaces = static_context.namespaces().clone();
+    for (prefix_id, namespace_id) in xot.namespaces_in_scope(document_element) {
+        let prefix = xot.prefix_str(prefix_id);
+        let namespace = xot.namespace_str(namespace_id);
+        namespaces.add(&[(prefix, namespace)]);
+    }
+
+    static_context.clone_with_namespaces(namespaces)
 }
 
 fn parse_initial_mode_value(
@@ -639,6 +662,33 @@ impl<'a> IrConverter<'a> {
                 sequence_type: sequence_type.clone(),
                 error,
             }),
+        ))
+    }
+
+    fn with_param(
+        &mut self,
+        with_param: &ast::WithParam,
+    ) -> error::SpannedResult<(ir::WithParam, Bindings)> {
+        let bindings = if let Some(select) = &with_param.select {
+            self.expression(select)?
+        } else if with_param.sequence_constructor.is_empty() {
+            let expr = self.empty_sequence();
+            Bindings::new(self.variables.new_binding(expr.value, expr.span))
+        } else {
+            self.sequence_constructor(&with_param.sequence_constructor)?
+        };
+
+        let bindings = self.convert_bindings(bindings, with_param.as_.as_ref(), RaisedError::XTTE0570)?;
+        let (select_atom, bindings) = bindings.atom_bindings();
+
+        Ok((
+            ir::WithParam {
+                name: ir::Name::new(with_param.name.local_name().to_string()),
+                select: Some(select_atom),
+                sequence_constructor: None,
+                tunnel: with_param.tunnel,
+            },
+            bindings,
         ))
     }
 
@@ -1359,24 +1409,9 @@ impl<'a> IrConverter<'a> {
             match content {
                 ast::ApplyTemplatesContent::Sort(sort) => sorts.push(sort),
                 ast::ApplyTemplatesContent::WithParam(with_param) => {
-                    let (select_atom, select_bindings) = if let Some(select) = &with_param.select {
-                        let (atom, bindings) = self.expression(select)?.atom_bindings();
-                        (Some(atom), bindings)
-                    } else {
-                        let sc_bindings =
-                            self.sequence_constructor(&with_param.sequence_constructor)?;
-                        let (atom, bindings) = sc_bindings.atom_bindings();
-                        (Some(atom), bindings)
-                    };
-
+                    let (param, select_bindings) = self.with_param(with_param)?;
                     param_bindings = param_bindings.concat(select_bindings);
-
-                    params.push(ir::WithParam {
-                        name: ir::Name::new(with_param.name.local_name().to_string()),
-                        select: select_atom,
-                        sequence_constructor: None,
-                        tunnel: with_param.tunnel,
-                    });
+                    params.push(param);
                 }
             }
         }
@@ -1438,23 +1473,9 @@ impl<'a> IrConverter<'a> {
         let mut param_bindings = Bindings::empty();
 
         for with_param in with_params {
-            let (select_atom, select_bindings) = if let Some(select) = &with_param.select {
-                let (atom, bindings) = self.expression(select)?.atom_bindings();
-                (Some(atom), bindings)
-            } else {
-                let sc_bindings = self.sequence_constructor(&with_param.sequence_constructor)?;
-                let (atom, bindings) = sc_bindings.atom_bindings();
-                (Some(atom), bindings)
-            };
-
+            let (param, select_bindings) = self.with_param(with_param)?;
             param_bindings = param_bindings.concat(select_bindings);
-
-            params.push(ir::WithParam {
-                name: ir::Name::new(with_param.name.local_name().to_string()),
-                select: select_atom,
-                sequence_constructor: None,
-                tunnel: with_param.tunnel,
-            });
+            params.push(param);
         }
 
         Ok(param_bindings.bind_expr_no_span(
@@ -1672,23 +1693,9 @@ impl<'a> IrConverter<'a> {
         let mut param_bindings = Bindings::empty();
 
         for with_param in &call_template.with_params {
-            let (select_atom, select_bindings) = if let Some(select) = &with_param.select {
-                let (atom, bindings) = self.expression(select)?.atom_bindings();
-                (Some(atom), bindings)
-            } else {
-                let sc_bindings = self.sequence_constructor(&with_param.sequence_constructor)?;
-                let (atom, bindings) = sc_bindings.atom_bindings();
-                (Some(atom), bindings)
-            };
-
+            let (param, select_bindings) = self.with_param(with_param)?;
             param_bindings = param_bindings.concat(select_bindings);
-
-            params.push(ir::WithParam {
-                name: ir::Name::new(with_param.name.local_name().to_string()),
-                select: select_atom,
-                sequence_constructor: None, // Already flattened into select_atom above
-                tunnel: with_param.tunnel,
-            });
+            params.push(param);
         }
 
         let call_template_expr = ir::Expr::CallTemplate(ir::CallTemplate {

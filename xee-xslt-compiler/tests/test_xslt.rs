@@ -202,6 +202,59 @@ fn test_apply_templates_sort_with_param() {
 }
 
 #[test]
+fn test_apply_templates_with_param_as_validates_value_type() {
+    let mut xot = Xot::new();
+  let error = evaluate(
+        &mut xot,
+        "<doc><item/></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                exclude-result-prefixes="xs">
+  <xsl:template match="doc">
+    <out>
+      <xsl:apply-templates select="item">
+        <xsl:with-param name="value" select="'43'" as="xs:integer"/>
+      </xsl:apply-templates>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="item">
+    <xsl:param name="value"/>
+    <xsl:value-of select="$value"/>
+    <xsl:value-of select="$value instance of xs:integer"/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTTE0570);
+}
+
+#[test]
+fn test_stylesheet_namespace_available_to_xs_qname() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                xmlns:my="http://myexamplefunc.org"
+                exclude-result-prefixes="xs my">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="xs:QName('my:local') instance of xs:QName"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true</out>");
+}
+
+#[test]
 fn test_whitespace_padded_required_attribute_values() {
     let mut xot = Xot::new();
     let output = evaluate(

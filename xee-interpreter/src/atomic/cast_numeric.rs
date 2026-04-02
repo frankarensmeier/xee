@@ -75,21 +75,21 @@ impl atomic::Atomic {
     // which is allowed by the XML Schema spec
 
     pub(crate) fn parse_float(s: &str) -> error::Result<f32> {
-        let options = lexical::ParseFloatOptionsBuilder::new()
-            .inf_string(Some(b"INF"))
-            .build()
-            .unwrap();
-        lexical::parse_with_options::<f32, _, { lexical::format::XML }>(s, &options)
-            .map_err(|_| error::Error::FORG0001)
+        match s {
+            "INF" => Ok(f32::INFINITY),
+            "-INF" => Ok(f32::NEG_INFINITY),
+            "NaN" => Ok(f32::NAN),
+            _ => s.parse::<f32>().map_err(|_| error::Error::FORG0001),
+        }
     }
 
     pub(crate) fn parse_double(s: &str) -> error::Result<f64> {
-        let options = lexical::ParseFloatOptionsBuilder::new()
-            .inf_string(Some(b"INF"))
-            .build()
-            .unwrap();
-        lexical::parse_with_options::<f64, _, { lexical::format::XML }>(s, &options)
-            .map_err(|_| error::Error::FORG0001)
+        match s {
+            "INF" => Ok(f64::INFINITY),
+            "-INF" => Ok(f64::NEG_INFINITY),
+            "NaN" => Ok(f64::NAN),
+            _ => s.parse::<f64>().map_err(|_| error::Error::FORG0001),
+        }
     }
 
     pub(crate) fn cast_to_numeric(self) -> error::Result<atomic::Atomic> {
@@ -651,6 +651,14 @@ mod tests {
         assert_eq!(
             atomic::Atomic::parse_atomic::<f64>("1.0E10").unwrap(),
             atomic::Atomic::Double(OrderedFloat(1.0e10))
+        );
+    }
+
+    #[test]
+    fn test_parse_double_underflow_to_zero() {
+        assert_eq!(
+            atomic::Atomic::parse_atomic::<f64>("5.4321E-1001").unwrap(),
+            atomic::Atomic::Double(OrderedFloat(0.0))
         );
     }
 
