@@ -1,7 +1,6 @@
+use ahash::HashSetExt;
 use chumsky::{input::ValueInput, prelude::*};
 use std::borrow::Cow;
-use xot::xmlname::NameStrInfo;
-
 use xee_xpath_lexer::Token;
 
 use crate::ast::Span;
@@ -59,23 +58,94 @@ where
         .map(|predicates| pattern::PredicatePattern { predicates })
         .boxed();
 
-    let outer_function_name = name.try_map(|name, span| {
-        let name = name.value;
-        if name.namespace() == FN_NAMESPACE || name.namespace().is_empty() {
-            {
-                match name.local_name() {
-                    "doc" => Ok(pattern::OuterFunctionName::Doc),
-                    "id" => Ok(pattern::OuterFunctionName::Id),
-                    "element-with-id" => Ok(pattern::OuterFunctionName::ElementWithId),
-                    "key" => Ok(pattern::OuterFunctionName::Key),
-                    "root" => Ok(pattern::OuterFunctionName::Root),
-                    _ => Err(ParserError::IllegalFunctionInPattern { name, span }),
-                }
+    let outer_function_name_unprefixed = select! {
+        Token::NCName("doc") => pattern::OuterFunctionName::Doc,
+        Token::NCName("id") => pattern::OuterFunctionName::Id,
+        Token::NCName("element-with-id") => pattern::OuterFunctionName::ElementWithId,
+        Token::NCName("key") => pattern::OuterFunctionName::Key,
+        Token::NCName("root") => pattern::OuterFunctionName::Root,
+    }
+    .boxed();
+
+    let outer_function_name_prefixed = select! {
+        Token::PrefixedQName(prefixed_qname) => prefixed_qname
+    }
+    .try_map_with(|prefixed_qname, extra| {
+        let span = extra.span();
+        let state: &mut chumsky::inspector::SimpleState<super::types::State> = extra.state();
+        let namespace = state.namespaces.by_prefix(prefixed_qname.prefix).ok_or_else(|| {
+            ParserError::UnknownPrefix {
+                prefix: prefixed_qname.prefix.to_string(),
+                span,
             }
-        } else {
-            Err(ParserError::IllegalFunctionInPattern { name, span })
+        })?;
+        if namespace != FN_NAMESPACE {
+            return Err(ParserError::IllegalFunctionInPattern {
+                name: ast::Name::prefixed(
+                    prefixed_qname.prefix,
+                    prefixed_qname.local_name,
+                    move |prefix| state.namespaces.by_prefix(prefix).map(|s| s.to_string()),
+                )
+                .unwrap(),
+                span,
+            });
         }
-    });
+        match prefixed_qname.local_name {
+            "doc" => Ok(pattern::OuterFunctionName::Doc),
+            "id" => Ok(pattern::OuterFunctionName::Id),
+            "element-with-id" => Ok(pattern::OuterFunctionName::ElementWithId),
+            "key" => Ok(pattern::OuterFunctionName::Key),
+            "root" => Ok(pattern::OuterFunctionName::Root),
+            _ => Err(ParserError::IllegalFunctionInPattern {
+                name: ast::Name::prefixed(
+                    prefixed_qname.prefix,
+                    prefixed_qname.local_name,
+                    move |prefix| state.namespaces.by_prefix(prefix).map(|s| s.to_string()),
+                )
+                .unwrap(),
+                span,
+            }),
+        }
+    })
+    .boxed();
+
+    let outer_function_name_uri_qualified = select! {
+        Token::URIQualifiedName(uri_qualified_name) => uri_qualified_name
+    }
+    .try_map(|uri_qualified_name, span| {
+        if uri_qualified_name.uri != FN_NAMESPACE {
+            return Err(ParserError::IllegalFunctionInPattern {
+                name: ast::Name::namespaced(
+                    uri_qualified_name.local_name.to_string(),
+                    uri_qualified_name.uri.to_string(),
+                    |_| Some(String::new()),
+                )
+                .unwrap(),
+                span,
+            });
+        }
+        match uri_qualified_name.local_name {
+            "doc" => Ok(pattern::OuterFunctionName::Doc),
+            "id" => Ok(pattern::OuterFunctionName::Id),
+            "element-with-id" => Ok(pattern::OuterFunctionName::ElementWithId),
+            "key" => Ok(pattern::OuterFunctionName::Key),
+            "root" => Ok(pattern::OuterFunctionName::Root),
+            _ => Err(ParserError::IllegalFunctionInPattern {
+                name: ast::Name::namespaced(
+                    uri_qualified_name.local_name.to_string(),
+                    uri_qualified_name.uri.to_string(),
+                    |_| Some(String::new()),
+                )
+                .unwrap(),
+                span,
+            }),
+        }
+    })
+    .boxed();
+
+    let outer_function_name = outer_function_name_unprefixed
+        .or(outer_function_name_prefixed)
+        .or(outer_function_name_uri_qualified);
 
     let argument = var_ref
         .clone()
@@ -278,17 +348,20 @@ where
                 _ => unreachable!(),
             });
 
-        let expr_pattern = (path_expr.clone().map(pattern::ExprPattern::Path))
-            .foldl(
-                operator.then(path_expr.clone()).repeated(),
-                |left, (operator, right)| {
-                    pattern::ExprPattern::BinaryExpr(pattern::BinaryExpr {
+        let expr_pattern = path_expr
+            .clone()
+            .then(operator.then(path_expr.clone()).repeated().collect::<Vec<_>>())
+            .map(|(left, rest)| {
+                let mut left = pattern::ExprPattern::Path(left);
+                for (operator, right) in rest {
+                    left = pattern::ExprPattern::BinaryExpr(pattern::BinaryExpr {
                         operator,
                         left: Box::new(left),
                         right: Box::new(pattern::ExprPattern::Path(right)),
-                    })
-                },
-            )
+                    });
+                }
+                left
+            })
             .boxed();
 
         expr_pattern
@@ -310,13 +383,77 @@ where
     PatternParserOutput { pattern }
 }
 
+fn parse_top_level_binary_pattern(
+    input: &str,
+    namespaces: &Namespaces,
+) -> Option<Result<pattern::Pattern<ast::ExprS>, ParserError>> {
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut segment_start = 0usize;
+    let mut segments = Vec::new();
+    let mut operators = Vec::new();
+
+    for (token, span) in xee_xpath_lexer::lexer(input) {
+        match token {
+            Token::LeftParen => paren_depth += 1,
+            Token::RightParen => paren_depth = paren_depth.saturating_sub(1),
+            Token::LeftBracket => bracket_depth += 1,
+            Token::RightBracket => bracket_depth = bracket_depth.saturating_sub(1),
+            Token::Pipe | Token::Union | Token::Intersect | Token::Except
+                if paren_depth == 0 && bracket_depth == 0 =>
+            {
+                segments.push(input[segment_start..span.start].trim());
+                operators.push(match token {
+                    Token::Pipe | Token::Union => pattern::Operator::Union,
+                    Token::Intersect => pattern::Operator::Intersect,
+                    Token::Except => pattern::Operator::Except,
+                    _ => unreachable!(),
+                });
+                segment_start = span.end;
+            }
+            _ => {}
+        }
+    }
+
+    if operators.is_empty() {
+        return None;
+    }
+
+    segments.push(input[segment_start..].trim());
+
+    let first = segments.first().copied()?;
+    let pattern::Pattern::Expr(mut left) = pattern::Pattern::parse(first, namespaces, &VariableNames::new()).ok()? else {
+        return None;
+    };
+
+    for (operator, segment) in operators.into_iter().zip(segments.into_iter().skip(1)) {
+        let pattern::Pattern::Expr(right) = pattern::Pattern::parse(segment, namespaces, &VariableNames::new()).ok()? else {
+            return None;
+        };
+        left = pattern::ExprPattern::BinaryExpr(pattern::BinaryExpr {
+            operator,
+            left: Box::new(left),
+            right: Box::new(right),
+        });
+    }
+
+    Some(Ok(pattern::Pattern::Expr(left)))
+}
+
 impl pattern::Pattern<ast::ExprS> {
     pub fn parse<'a>(
         input: &'a str,
         namespaces: &'a Namespaces,
         _variable_names: &'a VariableNames,
     ) -> Result<Self, ParserError> {
-        let pattern = parse(parser().pattern, tokens(input), Cow::Borrowed(namespaces))?;
+        let pattern = match parse(parser().pattern, tokens(input), Cow::Borrowed(namespaces)) {
+            Ok(pattern) => pattern,
+            Err(error) => match parse_top_level_binary_pattern(input, namespaces) {
+                Some(Ok(pattern)) => pattern,
+                Some(Err(fallback_error)) => return Err(fallback_error),
+                None => return Err(error),
+            },
+        };
         // TODO: do we need to rename variables to unique names? probably
         Ok(pattern)
     }
@@ -432,6 +569,20 @@ mod tests {
             &namespaces,
             &variable_names
         ));
+    }
+
+    #[test]
+    fn test_union_with_node_kind_test() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        let pattern = pattern::Pattern::parse("node()|element(x)", &namespaces, &variable_names)
+            .unwrap();
+
+        let pattern::Pattern::Expr(pattern::ExprPattern::BinaryExpr(binary_expr)) = pattern else {
+            panic!("expected binary expression pattern");
+        };
+
+        assert_eq!(binary_expr.operator, pattern::Operator::Union);
     }
 
     #[test]
