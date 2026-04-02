@@ -35,6 +35,7 @@ pub struct Interpreter<'a> {
     global_variables: Vec<GlobalValueState>,
     tunnel_params: Vec<function::Map>,
     mode_stack: Vec<pattern::ModeId>,
+    template_rule_stack: Vec<function::InlineFunctionId>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +78,7 @@ impl<'a> Interpreter<'a> {
             ],
             tunnel_params: vec![function::Map::new(Vec::new()).unwrap()],
             mode_stack: Vec::new(),
+            template_rule_stack: Vec::new(),
         }
     }
 
@@ -1464,6 +1466,7 @@ impl<'a> Interpreter<'a> {
             let position: IBig = (position + 1).into();
             let function = function::InlineFunctionData::new(function_id, Vec::new()).into();
             self.mode_stack.push(mode);
+            self.template_rule_stack.push(function_id);
             let result = self.call_template_with_params(
                 &function,
                 [
@@ -1474,6 +1477,7 @@ impl<'a> Interpreter<'a> {
                 options.params,
                 options.tunnel_params,
             );
+            self.template_rule_stack.pop();
             self.mode_stack.pop();
             result.map(Some)
         } else {
@@ -1882,7 +1886,11 @@ impl<'a> Interpreter<'a> {
         let position = position_sequence.one()?.try_into_value::<IBig>()?;
         let size_sequence: sequence::Sequence = (&self.state.stack()[base + 2]).try_into()?;
         let size = size_sequence.one()?.try_into_value::<IBig>()?;
-        let current_function = self.state.frame().function();
+        let current_function = *self.template_rule_stack.last().ok_or_else(|| {
+            error::Error::Unsupported(
+                "No current template rule for template continuation".to_string(),
+            )
+        })?;
         let next_function = match behavior {
             0 => self.lookup_pattern_after(mode, current_function, &item),
             1 => {
@@ -1909,6 +1917,7 @@ impl<'a> Interpreter<'a> {
         if let Some(function_id) = next_function {
             let function = function::InlineFunctionData::new(function_id, Vec::new()).into();
             self.mode_stack.push(mode);
+            self.template_rule_stack.push(function_id);
             let result = self.call_template_with_params(
                 &function,
                 [
@@ -1919,6 +1928,7 @@ impl<'a> Interpreter<'a> {
                 params,
                 tunnel_params,
             );
+            self.template_rule_stack.pop();
             self.mode_stack.pop();
             result
         } else {

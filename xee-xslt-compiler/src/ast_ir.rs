@@ -76,9 +76,7 @@ pub fn parse_with_base_dir_and_initial_mode(
     };
 
     // Process xsl:import and xsl:include directives
-    let mut visited = HashSet::new();
-    let declarations =
-        process_imports_and_includes(transform.declarations, base_dir, &mut visited)?;
+    let declarations = process_imports_and_includes(transform.declarations, base_dir)?;
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
     compile_preprocessed_declarations(declarations, static_context, initial_mode)
@@ -187,9 +185,8 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
 fn process_imports_and_includes(
     declarations: ast::Declarations,
     base_dir: Option<std::path::PathBuf>,
-    visited: &mut HashSet<PathBuf>,
 ) -> error::SpannedResult<Vec<PreprocessedDeclaration>> {
-    let modules = process_stylesheet_module(declarations, base_dir, visited)?;
+    let modules = process_stylesheet_module(declarations, base_dir, &mut Vec::new())?;
     let mut result = Vec::new();
     for (import_precedence, declarations) in modules.into_iter().enumerate() {
         for declaration in declarations {
@@ -205,7 +202,7 @@ fn process_imports_and_includes(
 fn process_stylesheet_module(
     declarations: ast::Declarations,
     base_dir: Option<std::path::PathBuf>,
-    visited: &mut HashSet<PathBuf>,
+    active_paths: &mut Vec<PathBuf>,
 ) -> error::SpannedResult<Vec<ast::Declarations>> {
     let mut local_declarations = Vec::new();
     let mut imports = Vec::new();
@@ -214,34 +211,36 @@ fn process_stylesheet_module(
         match &decl {
             ast::Declaration::Import(import) => {
                 // Load and parse the imported stylesheet
-                let (imported_decls, resolved_path) =
+                let (imported_decls, resolved_path, imported_base_dir) =
                     load_stylesheet(&import.href.to_string(), base_dir.as_ref())?;
-                if visited.contains(&resolved_path) {
+                if active_paths.contains(&resolved_path) {
                     return Err(error::Error::Unsupported(format!(
                         "Circular import detected: '{}'",
                         resolved_path.display()
                     ))
                     .into());
                 }
-                visited.insert(resolved_path);
+                active_paths.push(resolved_path);
                 let processed =
-                    process_stylesheet_module(imported_decls, base_dir.clone(), visited)?;
+                    process_stylesheet_module(imported_decls, imported_base_dir, active_paths)?;
+                active_paths.pop();
                 imports.extend(processed);
             }
             ast::Declaration::Include(include) => {
                 // Load and parse the included stylesheet
-                let (included_decls, resolved_path) =
+                let (included_decls, resolved_path, included_base_dir) =
                     load_stylesheet(&include.href.to_string(), base_dir.as_ref())?;
-                if visited.contains(&resolved_path) {
+                if active_paths.contains(&resolved_path) {
                     return Err(error::Error::Unsupported(format!(
                         "Circular include detected: '{}'",
                         resolved_path.display()
                     ))
                     .into());
                 }
-                visited.insert(resolved_path);
+                active_paths.push(resolved_path);
                 let mut processed =
-                    process_stylesheet_module(included_decls, base_dir.clone(), visited)?;
+                    process_stylesheet_module(included_decls, included_base_dir, active_paths)?;
+                active_paths.pop();
                 if let Some(included_local_declarations) = processed.pop() {
                     local_declarations.extend(included_local_declarations);
                 }
@@ -261,7 +260,7 @@ fn process_stylesheet_module(
 fn load_stylesheet(
     href: &str,
     base_dir: Option<&std::path::PathBuf>,
-) -> error::SpannedResult<(ast::Declarations, PathBuf)> {
+) -> error::SpannedResult<(ast::Declarations, PathBuf, Option<PathBuf>)> {
     // Resolve the file path
     let path = if let Some(base_dir) = base_dir {
         base_dir.join(href)
@@ -270,6 +269,10 @@ fn load_stylesheet(
     };
 
     let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+    let next_base_dir = canonical
+        .parent()
+        .or_else(|| path.parent())
+        .map(std::path::Path::to_path_buf);
 
     // Try to read the file
     let content = std::fs::read_to_string(&path).map_err(|e| {
@@ -289,7 +292,7 @@ fn load_stylesheet(
         ))
     })?;
 
-    Ok((transform.declarations, canonical))
+    Ok((transform.declarations, canonical, next_base_dir))
 }
 
 impl<'a> IrConverter<'a> {

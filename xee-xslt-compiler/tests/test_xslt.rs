@@ -512,6 +512,128 @@ fn test_next_match_import_precedence_beats_priority() {
 }
 
 #[test]
+fn test_next_match_inside_named_template_uses_calling_template_rule() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><a><b test='c'>1</b><b test='c'>2</b><b test='c'>3</b></a></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:strip-space elements="*"/>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="b" priority="1">
+    <x>
+      <xsl:apply-templates/>
+    </x>
+  </xsl:template>
+
+  <xsl:template match="b[@test='c']" priority="2">
+    <y>
+      <xsl:call-template name="test"/>
+    </y>
+  </xsl:template>
+
+  <xsl:template name="test">
+    <z>
+      <xsl:next-match/>
+    </z>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out><y><z><x>1</x></z></y><y><z><x>2</x></z></y><y><z><x>3</x></z></y></out>"
+    );
+}
+
+#[test]
+fn test_next_match_allows_same_stylesheet_to_be_imported_and_included() {
+    let temp_dir = unique_temp_dir("next-match-017");
+    fs::write(
+        temp_dir.join("next-match-017.xsl"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:import href="impwparam8.xsl"/>
+  <xsl:include href="impwparam8.xsl"/>
+
+  <xsl:template match="doc">
+    <out>
+      <xsl:text>
+</xsl:text>
+      <xsl:apply-templates select="*">
+        <xsl:with-param name="p1" select="'top'"/>
+      </xsl:apply-templates>
+      <xsl:text>
+</xsl:text>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="tag">
+    <xsl:param name="p1" select="'fallback'"/>
+    <main-t>
+      <xsl:value-of select="$p1"/>
+    </main-t>
+    <xsl:text>
+</xsl:text>
+    <div>
+      <xsl:next-match>
+        <xsl:with-param name="p1" select="'primary template'"/>
+      </xsl:next-match>
+    </div>
+  </xsl:template>
+
+  <xsl:template match="bag">
+    <xsl:text>
+</xsl:text>
+    <bag/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("impwparam8.xsl"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="tag" priority="2">
+    <xsl:param name="p1" select="'default'"/>
+    <imp1-t><xsl:value-of select="$p1"/></imp1-t>
+    <xsl:text>
+</xsl:text>
+    <xsl:next-match>
+      <xsl:with-param name="p1" select="'included template'"/>
+    </xsl:next-match>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let stylesheet_path = temp_dir.join("next-match-017.xsl");
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc><tag>Example of apply-imports</tag><bag>Example of apply-templates</bag></doc>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+      "<out>\n<imp1-t>top</imp1-t>\n<main-t>included template</main-t>\n<div><imp1-t>primary template</imp1-t>\nExample of apply-imports</div>\n<bag/>\n</out>"
+    );
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
 fn test_repeated_local_variable_reference_in_union_expression() {
     let mut xot = Xot::new();
     let output = evaluate(
