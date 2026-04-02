@@ -134,6 +134,20 @@ impl<'a> DeclarationCompiler<'a> {
             }
         }
 
+        self.register_modes_in_function_definition(&declarations.main);
+
+        for global_variable in &declarations.global_variables {
+            self.register_modes_in_expr(&global_variable.expr);
+        }
+
+        for function_binding in &declarations.functions {
+            self.register_modes_in_function_definition(&function_binding.main);
+        }
+
+        for rule in &declarations.rules {
+            self.register_modes_in_function_definition(&rule.function_definition);
+        }
+
         for (mode, mode_id) in &self.mode_ids {
             let declaration = match mode {
                 ir::ApplyTemplatesModeValue::Named(name) => declarations
@@ -149,6 +163,91 @@ impl<'a> DeclarationCompiler<'a> {
                 ir::ApplyTemplatesModeValue::Current => continue,
             };
             self.program.declarations.add_mode(*mode_id, declaration);
+        }
+    }
+
+    fn register_modes_in_function_definition(&mut self, function_definition: &ir::FunctionDefinition) {
+        for param in &function_definition.params {
+            if let Some(default) = &param.default {
+                let expr = xee_xpath_ast::span::Spanned::new((**default).clone(), (0..0).into());
+                self.register_modes_in_expr(&expr);
+            }
+        }
+        self.register_modes_in_expr(&function_definition.body);
+    }
+
+    fn register_modes_in_expr(&mut self, expr: &ir::ExprS) {
+        match &expr.value {
+            ir::Expr::Atom(_)
+            | ir::Expr::Binary(_)
+            | ir::Expr::Unary(_)
+            | ir::Expr::FunctionCall(_)
+            | ir::Expr::Lookup(_)
+            | ir::Expr::WildcardLookup(_)
+            | ir::Expr::Step(_)
+            | ir::Expr::Cast(_)
+            | ir::Expr::Castable(_)
+            | ir::Expr::InstanceOf(_)
+            | ir::Expr::Treat(_)
+            | ir::Expr::ConvertSequence(_)
+            | ir::Expr::MapConstructor(_)
+            | ir::Expr::ArrayConstructor(_)
+            | ir::Expr::XmlName(_)
+            | ir::Expr::XmlDocument(_)
+            | ir::Expr::XmlElement(_)
+            | ir::Expr::XmlAttribute(_)
+            | ir::Expr::XmlNamespace(_)
+            | ir::Expr::XmlText(_)
+            | ir::Expr::XmlComment(_)
+            | ir::Expr::XmlProcessingInstruction(_)
+            | ir::Expr::XmlAppend(_)
+            | ir::Expr::ContinueTemplate(_)
+            | ir::Expr::CallTemplate(_)
+            | ir::Expr::CopyShallow(_)
+            | ir::Expr::CopyDeep(_) => {}
+            ir::Expr::Let(let_) => {
+                self.register_modes_in_expr(&let_.var_expr);
+                self.register_modes_in_expr(&let_.return_expr);
+            }
+            ir::Expr::If(if_) => {
+                self.register_modes_in_expr(&if_.then);
+                self.register_modes_in_expr(&if_.else_);
+            }
+            ir::Expr::FunctionDefinition(function_definition) => {
+                self.register_modes_in_function_definition(function_definition);
+            }
+            ir::Expr::Deduplicate(expr) => self.register_modes_in_expr(expr),
+            ir::Expr::Map(map) => self.register_modes_in_expr(&map.return_expr),
+            ir::Expr::Filter(filter) => self.register_modes_in_expr(&filter.return_expr),
+            ir::Expr::Iterate(iterate) => {
+                for param in &iterate.params {
+                    self.register_modes_in_expr(&param.value);
+                }
+                self.register_modes_in_expr(&iterate.expr);
+                if let Some(on_complete) = &iterate.on_complete {
+                    self.register_modes_in_expr(on_complete);
+                }
+            }
+            ir::Expr::IterateBreak(iterate_break) => {
+                self.register_modes_in_expr(&iterate_break.return_expr);
+            }
+            ir::Expr::IterateLetNext(iterate_let_next) => {
+                for param in &iterate_let_next.params {
+                    self.register_modes_in_expr(&param.value);
+                }
+                self.register_modes_in_expr(&iterate_let_next.return_expr);
+            }
+            ir::Expr::PatternPredicate(pattern_predicate) => {
+                self.register_modes_in_expr(&pattern_predicate.expr);
+            }
+            ir::Expr::Quantified(quantified) => {
+                self.register_modes_in_expr(&quantified.satisifies_expr);
+            }
+            ir::Expr::ApplyTemplates(apply_templates) => {
+                if let ir::ApplyTemplatesModeValue::Named(name) = &apply_templates.mode {
+                    self.register_mode(ir::ApplyTemplatesModeValue::Named(name.clone()));
+                }
+            }
         }
     }
 

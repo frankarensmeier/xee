@@ -246,8 +246,6 @@ analyze-string-093
 analyze-string-094
 analyze-string-095
 analyze-string-096
-analyze-string-097
-analyze-string-097a
 analyze-string-098
 analyze-string-099
 analyze-string-100
@@ -746,8 +744,6 @@ call-template-0110
 call-template-0111
 call-template-0201
 call-template-0401
-call-template-0402
-call-template-0601
 call-template-0801
 call-template-1001
 call-template-1002
@@ -1799,7 +1795,6 @@ cvt-028
 cvt-029
 cvt-030
 cvt-033
-cvt-034
 cvt-035a
 cvt-035b
 cvt-035c
@@ -1818,7 +1813,6 @@ cvt-039c
 cvt-040a
 cvt-040b
 cvt-040c
-cvt-042
 cvt-048
 cvt-050
 = expose
@@ -2464,7 +2458,6 @@ import-schema-161
 import-schema-162
 import-schema-163
 import-schema-164
-import-schema-165
 import-schema-166
 import-schema-167
 import-schema-168
@@ -2966,7 +2959,6 @@ match-240c
 match-241
 match-243
 match-244
-match-245
 match-247
 match-256
 match-257
@@ -3168,8 +3160,6 @@ message-0501
 = mode
 mode-0015
 mode-0016
-mode-0102
-mode-0301
 mode-0801a
 mode-0801b
 mode-0801c
@@ -4362,8 +4352,6 @@ regex-017
 regex-018
 regex-027
 regex-028
-regex-071
-regex-072
 regex-090
 regex-091
 = regex-classes
@@ -8768,10 +8756,6 @@ streamable-093
 streamable-094
 streamable-097
 streamable-098
-streamable-099
-streamable-100
-streamable-101
-streamable-102
 streamable-103
 streamable-104
 streamable-105
@@ -8781,7 +8765,6 @@ streamable-109
 streamable-110
 streamable-111
 streamable-114
-streamable-115
 streamable-116
 streamable-117
 streamable-118
@@ -11906,7 +11889,6 @@ xpath-default-namespace-0503
 xpath-default-namespace-0701
 xpath-default-namespace-0702
 xpath-default-namespace-0703
-xpath-default-namespace-1102
 xpath-default-namespace-1202
 = xsl-document
 xsl-document-0301

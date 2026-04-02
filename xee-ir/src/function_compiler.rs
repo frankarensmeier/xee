@@ -1129,8 +1129,11 @@ impl<'a> FunctionCompiler<'a> {
                         span,
                     );
                 } else {
-                    // the mode was never used by any templates, so compile the empty
-                    // sequence
+                    // The select and both param maps are already on the stack.
+                    // If the mode was never registered, discard them and yield ().
+                    self.builder.emit(Instruction::Pop, span);
+                    self.builder.emit(Instruction::Pop, span);
+                    self.builder.emit(Instruction::Pop, span);
                     self.builder
                         .emit_constant(sequence::Sequence::default(), span);
                 }

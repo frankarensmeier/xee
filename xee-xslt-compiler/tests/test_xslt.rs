@@ -202,6 +202,66 @@ fn test_apply_templates_sort_with_param() {
 }
 
 #[test]
+fn test_apply_templates_missing_mode_uses_builtin_text_only_copy() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<doc><a test="a attribute">a-text</a></doc>"#,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates select="doc/a" mode="z"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="text()" mode="a">
+    <xsl:text>mode-a:</xsl:text>
+    <xsl:value-of select="."/>
+  </xsl:template>
+
+  <xsl:template match="text()">
+    <xsl:text>no-mode:</xsl:text>
+    <xsl:value-of select="."/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+  assert_eq!(xml(&xot, output), "<out>a-text</out>");
+}
+
+#[test]
+fn test_named_template_with_match_is_callable() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><x test=\"why\">content</x><y>why</y></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates select="doc" mode="a"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="doc" mode="a">
+    <xsl:text>Found doc...</xsl:text>
+    <xsl:call-template name="scan"/>
+  </xsl:template>
+
+  <xsl:template name="scan" match="*" mode="a">
+    <xsl:text>Scanned </xsl:text>
+    <xsl:value-of select="name(.)"/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>Found doc...Scanned doc</out>");
+}
+
+#[test]
 fn test_apply_templates_with_param_as_validates_value_type() {
     let mut xot = Xot::new();
   let error = evaluate(

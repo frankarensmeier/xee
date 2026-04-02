@@ -729,7 +729,15 @@ impl<'a> IrConverter<'a> {
         for param in &template.params {
             self.validate_param(param)?;
         }
-        // Determine type of template first before creating function definition
+        let named_template_function = if let Some(name) = &template.name {
+            Some(ir::FunctionBinding {
+                name: ir::Name::new(name.local_name().to_string()),
+                main: self.template_with_params_function(template)?,
+            })
+        } else {
+            None
+        };
+
         if let Some(pattern) = &template.match_ {
             let function_definition = self.matched_template_function(template)?;
             let modes = template
@@ -747,6 +755,9 @@ impl<'a> IrConverter<'a> {
                     })?,
                     function_definition,
                 });
+                if let Some(function_binding) = named_template_function {
+                    declarations.functions.push(function_binding);
+                }
                 return Ok(());
             }
 
@@ -761,14 +772,12 @@ impl<'a> IrConverter<'a> {
                     function_definition: function_definition.clone(),
                 });
             }
+            if let Some(function_binding) = named_template_function {
+                declarations.functions.push(function_binding);
+            }
             Ok(())
-        } else if let Some(name) = &template.name {
-            // Named template - compile with parameters in function signature
-            let function_definition = self.template_with_params_function(template)?;
-            declarations.functions.push(ir::FunctionBinding {
-                name: ir::Name::new(name.local_name().to_string()),
-                main: function_definition,
-            });
+        } else if let Some(function_binding) = named_template_function {
+            declarations.functions.push(function_binding);
             Ok(())
         } else {
             Err(error::Error::Unsupported(
