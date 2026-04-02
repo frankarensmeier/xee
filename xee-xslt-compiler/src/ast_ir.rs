@@ -899,15 +899,20 @@ impl<'a> IrConverter<'a> {
                 .iter()
                 .find(|param| param.name.local_name() == original_name);
             let required = ast_param.map(|param| param.required).unwrap_or(false);
+            let param_type = ast_param.and_then(|param| param.as_.clone());
 
             let default = if let Some(ast_param) = ast_param {
                 if !ast_param.sequence_constructor.is_empty() {
                     let expr_s = self
                         .sequence_constructor(&ast_param.sequence_constructor)?
                         .expr();
+                    let expr_s =
+                        self.convert_expr(expr_s, ast_param.as_.as_ref(), RaisedError::XTTE0590)?;
                     Some(Box::new(expr_s.value))
                 } else if let Some(select_expr) = &ast_param.select {
                     let expr_s = self.expression(select_expr)?.expr();
+                    let expr_s =
+                        self.convert_expr(expr_s, ast_param.as_.as_ref(), RaisedError::XTTE0590)?;
                     Some(Box::new(expr_s.value))
                 } else {
                     None
@@ -918,11 +923,7 @@ impl<'a> IrConverter<'a> {
 
             params.push(ir::Param {
                 name: runtime_name,
-                type_: template
-                    .params
-                    .iter()
-                    .find(|param| param.name.local_name() == original_name)
-                    .and_then(|param| param.as_.clone()),
+                type_: param_type,
                 default,
                 required,
                 original_name: Some(original_name),

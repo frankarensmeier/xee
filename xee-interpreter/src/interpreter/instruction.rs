@@ -4,6 +4,7 @@ use num::{FromPrimitive, ToPrimitive};
 pub enum RaisedError {
     XTDE0700,
     XTTE0570,
+    XTTE0590,
 }
 
 impl RaisedError {
@@ -11,6 +12,7 @@ impl RaisedError {
         match self {
             RaisedError::XTDE0700 => 0,
             RaisedError::XTTE0570 => 1,
+            RaisedError::XTTE0590 => 2,
         }
     }
 
@@ -18,6 +20,7 @@ impl RaisedError {
         match value {
             0 => RaisedError::XTDE0700,
             1 => RaisedError::XTTE0570,
+            2 => RaisedError::XTTE0590,
             _ => panic!("unknown raised error id: {value}"),
         }
     }

@@ -461,6 +461,7 @@ impl<'a> Interpreter<'a> {
                         .map_err(|_| match raised_error {
                             RaisedError::XTDE0700 => error::Error::XTDE0700,
                             RaisedError::XTTE0570 => error::Error::XTTE0570,
+                            RaisedError::XTTE0590 => error::Error::XTTE0590,
                         })?;
                     self.state.push(sequence);
                 }
@@ -758,6 +759,7 @@ impl<'a> Interpreter<'a> {
                     let error = match RaisedError::from_u16(self.read_u16()) {
                         RaisedError::XTDE0700 => error::Error::XTDE0700,
                         RaisedError::XTTE0570 => error::Error::XTTE0570,
+                        RaisedError::XTTE0590 => error::Error::XTTE0590,
                     };
                     return Err(error);
                 }

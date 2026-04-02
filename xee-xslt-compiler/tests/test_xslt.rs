@@ -255,6 +255,39 @@ fn test_stylesheet_namespace_available_to_xs_qname() {
 }
 
 #[test]
+fn test_template_param_default_as_converts_runtime_value_for_tunnel_param() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item1>0</item1><item-list/></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                exclude-result-prefixes="xs">
+  <xsl:template match="/">
+    <xsl:param name="par1" select="//item1" as="xs:double"/>
+    <out>
+      <xsl:apply-templates select="doc/item-list">
+        <xsl:with-param name="par1" select="$par1" tunnel="yes"/>
+      </xsl:apply-templates>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="item-list">
+    <xsl:param name="par1" tunnel="yes"/>
+    <par1>
+      <xsl:value-of select="$par1"/>
+      <xsl:value-of select="$par1 instance of xs:double"/>
+    </par1>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><par1>0true</par1></out>");
+}
+
+#[test]
 fn test_whitespace_padded_required_attribute_values() {
     let mut xot = Xot::new();
     let output = evaluate(
