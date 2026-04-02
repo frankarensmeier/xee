@@ -1430,7 +1430,7 @@ impl<'a> Interpreter<'a> {
         };
 
         for (i, item) in sequence.iter().enumerate() {
-            let sequence = self.apply_templates_item(mode, item, i, size.clone(), &options)?;
+            let sequence = self.apply_templates_item(mode, item.clone(), i, size.clone(), &options)?;
             if let Some(sequence) = sequence {
                 for item in sequence.iter() {
                     r.push(item.clone());
@@ -1558,10 +1558,10 @@ impl<'a> Interpreter<'a> {
                     let text_node = self.state.xot.new_text(&text);
                     Ok(Some(sequence::Item::Node(text_node).into()))
                 }
-                xot::Value::Attribute(attribute) => {
-                    let value = attribute.value().to_string();
-                    let text_node = self.state.xot.new_text(&value);
-                    Ok(Some(sequence::Item::Node(text_node).into()))
+                xot::Value::Attribute(_) => {
+                    // Text-only-copy should skip attributes - they may be processed
+                    // by explicit templates, but don't contribute to text-only-copy output
+                    Ok(None)
                 }
                 _ => Ok(None),
             },
@@ -1584,12 +1584,22 @@ impl<'a> Interpreter<'a> {
                     xot::Value::Document | xot::Value::Element(_)
                 ) =>
             {
-                let children = self
+                // For shallow-skip: process attributes and children (but not the element itself)
+                let mut content: Vec<sequence::Item> = self
                     .state
                     .xot
-                    .children(node)
+                    .attributes(node)
+                    .keys()
+                    .filter_map(|name| self.state.xot.attributes(node).get_node(name))
                     .map(sequence::Item::Node)
-                    .collect::<Vec<_>>();
+                    .collect();
+                content.extend(
+                    self.state
+                        .xot
+                        .children(node)
+                        .map(sequence::Item::Node),
+                );
+                
                 let empty_params = function::Map::new(Vec::new()).unwrap();
                 let params = if builtin_template_params_passthrough {
                     params
@@ -1598,7 +1608,7 @@ impl<'a> Interpreter<'a> {
                 };
                 self.apply_templates_sequence(
                     mode,
-                    children.into(),
+                    content.into(),
                     params,
                     tunnel_params,
                     builtin_template_params_passthrough,
