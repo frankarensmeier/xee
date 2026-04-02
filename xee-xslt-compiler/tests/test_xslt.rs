@@ -634,6 +634,182 @@ fn test_next_match_allows_same_stylesheet_to_be_imported_and_included() {
 }
 
 #[test]
+fn test_next_match_on_atomic_values_uses_builtin_text_copy_fallback() {
+    let mut xot = Xot::new();
+    let program = parse(
+        StaticContextBuilder::default().build(),
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template name="xsl:initial-template">
+    <out>
+      <xsl:apply-templates select="1 to 5"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match=".[. ge 5]" priority="5">E<xsl:next-match/></xsl:template>
+  <xsl:template match=".[. ge 4]" priority="4">D<xsl:next-match/></xsl:template>
+  <xsl:template match=".[. ge 3]" priority="3">C<xsl:next-match/></xsl:template>
+  <xsl:template match=".[. ge 2]" priority="2">B<xsl:next-match/></xsl:template>
+  <xsl:template match=".[. ge 1]" priority="1">A<xsl:next-match/></xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+    let dynamic_context_builder = program.dynamic_context_builder();
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>A1BA2CBA3DCBA4EDCBA5</out>");
+}
+
+#[test]
+fn test_next_match_in_absent_context_named_template_raises_xtde0560() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc><a><b test='c'>1</b></a></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:strip-space elements="*"/>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="b" priority="1">
+    <x>
+      <xsl:apply-templates/>
+    </x>
+  </xsl:template>
+
+  <xsl:template match="b[@test='c']" priority="2">
+    <y>
+      <xsl:call-template name="test"/>
+    </y>
+  </xsl:template>
+
+  <xsl:template name="test">
+    <xsl:context-item use="absent"/>
+    <z>
+      <xsl:next-match/>
+    </z>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE0560);
+}
+
+#[test]
+fn test_next_match_inside_copy_select_raises_xtde0560() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc><a><b test='c'>1</b></a></doc>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:strip-space elements="*"/>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="b" priority="1">
+    <x>
+      <xsl:apply-templates/>
+    </x>
+  </xsl:template>
+
+  <xsl:template match="b[@test='c']" priority="2">
+    <y>
+      <xsl:copy select="..">
+        <xsl:next-match/>
+      </xsl:copy>
+    </y>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE0560);
+}
+
+#[test]
+fn test_next_match_inside_for_each_raises_xtde0560() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc><a><b test='c'>1</b></a></doc>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:strip-space elements="*"/>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="b" priority="1">
+    <x>
+      <xsl:apply-templates/>
+    </x>
+  </xsl:template>
+
+  <xsl:template match="b[@test='c']" priority="2">
+    <y>
+      <xsl:for-each select="..">
+        <xsl:next-match/>
+      </xsl:for-each>
+    </y>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE0560);
+}
+
+#[test]
+fn test_next_match_uses_deep_skip_builtin_rule_without_skipping_document_root() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><tag>Example of apply-imports</tag><bag>Example of apply-templates</bag></doc>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:mode on-no-match="deep-skip"/>
+
+  <xsl:template match="doc">
+    <out>
+      <xsl:apply-templates select="*"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="tag">
+    <tag>
+      <xsl:next-match/>
+    </tag>
+  </xsl:template>
+
+  <xsl:template match="bag">
+    <bag>
+      <xsl:next-match/>
+    </bag>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><tag/><bag/></out>");
+}
+
+#[test]
 fn test_repeated_local_variable_reference_in_union_expression() {
     let mut xot = Xot::new();
     let output = evaluate(

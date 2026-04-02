@@ -103,6 +103,10 @@ impl<'a> FunctionCompiler<'a> {
             ir::Expr::ApplyTemplates(apply_templates) => {
                 self.compile_apply_templates(apply_templates, span)
             }
+            ir::Expr::RaiseError(error) => {
+                self.builder.emit(Instruction::RaiseError(*error), span);
+                Ok(())
+            }
             ir::Expr::ContinueTemplate(continue_template) => {
                 self.compile_continue_template(continue_template, span)
             }
@@ -1438,6 +1442,7 @@ fn expr_value_uses_name(expr: &ir::Expr, name: &ir::Name) -> bool {
                     .iter()
                     .any(|param| with_param_uses_name(param, name))
         }
+        ir::Expr::RaiseError(_) => false,
         ir::Expr::ContinueTemplate(continue_template) => continue_template
             .params
             .iter()
@@ -1515,6 +1520,7 @@ fn expr_value_is_effect_free(expr: &ir::Expr) -> bool {
         ir::Expr::XmlProcessingInstruction(_) => false,
         ir::Expr::XmlAppend(_) => false,
         ir::Expr::ApplyTemplates(_) => false,
+        ir::Expr::RaiseError(_) => false,
         ir::Expr::ContinueTemplate(_) => false,
         ir::Expr::CallTemplate(_) => false,
         ir::Expr::CopyShallow(_) => false,

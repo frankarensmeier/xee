@@ -1585,7 +1585,7 @@ impl InstructionParser for ast::Template {
 
         let parse = TEMPLATE_CONTENT.get_or_init(|| {
             children(
-                instruction(names.context_item)
+                instruction(names.xsl_context_item)
                     .option()
                     .then(instruction(names.xsl_param).many())
                     .then(sequence_constructor()),

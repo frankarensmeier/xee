@@ -58,6 +58,7 @@ pub enum Expr {
     XmlProcessingInstruction(XmlProcessingInstruction),
     XmlAppend(XmlAppend),
     ApplyTemplates(ApplyTemplates),
+    RaiseError(RaisedError),
     ContinueTemplate(ContinueTemplate),
     CallTemplate(CallTemplate),
     CopyShallow(CopyShallow),

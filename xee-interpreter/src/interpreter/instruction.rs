@@ -2,6 +2,7 @@ use num::{FromPrimitive, ToPrimitive};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RaisedError {
+    XTDE0560,
     XTDE0700,
     XTTE0570,
     XTTE0590,
@@ -10,17 +11,19 @@ pub enum RaisedError {
 impl RaisedError {
     pub(crate) fn to_u16(self) -> u16 {
         match self {
-            RaisedError::XTDE0700 => 0,
-            RaisedError::XTTE0570 => 1,
-            RaisedError::XTTE0590 => 2,
+            RaisedError::XTDE0560 => 0,
+            RaisedError::XTDE0700 => 1,
+            RaisedError::XTTE0570 => 2,
+            RaisedError::XTTE0590 => 3,
         }
     }
 
     pub(crate) fn from_u16(value: u16) -> Self {
         match value {
-            0 => RaisedError::XTDE0700,
-            1 => RaisedError::XTTE0570,
-            2 => RaisedError::XTTE0590,
+            0 => RaisedError::XTDE0560,
+            1 => RaisedError::XTDE0700,
+            2 => RaisedError::XTTE0570,
+            3 => RaisedError::XTTE0590,
             _ => panic!("unknown raised error id: {value}"),
         }
     }

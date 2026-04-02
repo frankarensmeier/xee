@@ -26,6 +26,8 @@ struct IrConverter<'a> {
     initial_mode: ast::ApplyTemplatesModeValue,
     xslt_functions: HashMap<(OwnedName, u8), OwnedName>,
     namespace_aliases: HashMap<String, String>,
+    named_templates_with_absent_context: HashSet<String>,
+    template_continuation_available: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -303,7 +305,28 @@ impl<'a> IrConverter<'a> {
             initial_mode,
             xslt_functions: HashMap::new(),
             namespace_aliases: HashMap::new(),
+            named_templates_with_absent_context: HashSet::new(),
+            template_continuation_available: false,
         }
+    }
+
+    fn with_template_continuation_availability<T, F>(
+        &mut self,
+        available: bool,
+        f: F,
+    ) -> error::SpannedResult<T>
+    where
+        F: FnOnce(&mut Self) -> error::SpannedResult<T>,
+    {
+        let previous = self.template_continuation_available;
+        self.template_continuation_available = available;
+        let result = f(self);
+        self.template_continuation_available = previous;
+        result
+    }
+
+    fn raise_error(&mut self, error: RaisedError) -> Bindings {
+        Bindings::empty().bind_expr_no_span(&mut self.variables, ir::Expr::RaiseError(error))
     }
 
     fn main_sequence_constructor(&mut self) -> ast::SequenceConstructor {
@@ -382,6 +405,7 @@ impl<'a> IrConverter<'a> {
         declarations: &[PreprocessedDeclaration],
     ) -> error::SpannedResult<ir::Declarations> {
         self.register_xslt_function_names(declarations)?;
+        self.collect_named_templates_with_absent_context(declarations);
         self.collect_namespace_aliases(declarations);
         // Register global variable/param names early so $var references resolve.
         let global_vars = self.collect_global_variables(declarations)?;
@@ -407,6 +431,28 @@ impl<'a> IrConverter<'a> {
                 namespace_alias.stylesheet_namespace.clone(),
                 namespace_alias.result_namespace.clone(),
             );
+        }
+    }
+
+    fn collect_named_templates_with_absent_context(
+        &mut self,
+        declarations: &[PreprocessedDeclaration],
+    ) {
+        for declaration in declarations {
+            let ast::Declaration::Template(template) = &declaration.declaration else {
+                continue;
+            };
+            let Some(name) = &template.name else {
+                continue;
+            };
+            let has_absent_context = matches!(
+                template.context_item.as_ref().and_then(|context_item| context_item.use_.as_ref()),
+                Some(ast::Use::Absent)
+            );
+            if has_absent_context {
+                self.named_templates_with_absent_context
+                    .insert(name.local_name().to_string());
+            }
         }
     }
 
@@ -805,20 +851,22 @@ impl<'a> IrConverter<'a> {
         &mut self,
         template: &ast::Template,
     ) -> error::SpannedResult<ir::FunctionDefinition> {
-        let context_names = self.variables.push_context();
-        self.variables.push_scope();
-        let param_names = self.register_template_param_names(template)?;
+        self.with_template_continuation_availability(true, |this| {
+            let context_names = this.template_context_names(template);
+            this.variables.push_scope();
+            let param_names = this.register_template_param_names(template)?;
 
-        let bindings = self.sequence_constructor(&template.sequence_constructor)?;
-        let mut params = Self::context_params(&context_names);
-        params.extend(self.template_params(template, param_names)?);
-        self.variables.pop_scope();
-        self.variables.pop_context();
+            let bindings = this.sequence_constructor(&template.sequence_constructor)?;
+            let mut params = Self::context_params(&context_names);
+            params.extend(this.template_params(template, param_names)?);
+            this.variables.pop_scope();
+            this.variables.pop_context();
 
-        Ok(ir::FunctionDefinition {
-            params,
-            return_type: None,
-            body: Box::new(bindings.expr()),
+            Ok(ir::FunctionDefinition {
+                params,
+                return_type: None,
+                body: Box::new(bindings.expr()),
+            })
         })
     }
 
@@ -826,21 +874,38 @@ impl<'a> IrConverter<'a> {
         &mut self,
         template: &ast::Template,
     ) -> error::SpannedResult<ir::FunctionDefinition> {
-        let context_names = self.variables.push_context();
-        self.variables.push_scope();
-        let param_names = self.register_template_param_names(template)?;
-        let bindings = self.sequence_constructor(&template.sequence_constructor)?;
+        self.with_template_continuation_availability(true, |this| {
+            let context_names = this.template_context_names(template);
+            this.variables.push_scope();
+            let param_names = this.register_template_param_names(template)?;
+            let bindings = this.sequence_constructor(&template.sequence_constructor)?;
 
-        let mut params = Self::context_params(&context_names);
-        params.extend(self.template_params(template, param_names)?);
-        self.variables.pop_scope();
-        self.variables.pop_context();
+            let mut params = Self::context_params(&context_names);
+            params.extend(this.template_params(template, param_names)?);
+            this.variables.pop_scope();
+            this.variables.pop_context();
 
-        Ok(ir::FunctionDefinition {
-            params,
-            return_type: None,
-            body: Box::new(bindings.expr()),
+            Ok(ir::FunctionDefinition {
+                params,
+                return_type: None,
+                body: Box::new(bindings.expr()),
+            })
         })
+    }
+
+    fn template_context_names(&mut self, template: &ast::Template) -> ir::ContextNames {
+        let has_absent_context = matches!(
+            template.context_item.as_ref().and_then(|context_item| context_item.use_.as_ref()),
+            Some(ast::Use::Absent)
+        );
+        if has_absent_context {
+            let item_name = self.variables.new_name();
+            let context_names = self.variables.explicit_context_names(item_name);
+            self.variables.push_absent_context();
+            context_names
+        } else {
+            self.variables.push_context()
+        }
     }
 
     fn xslt_function_definition(
@@ -1495,6 +1560,10 @@ impl<'a> IrConverter<'a> {
         with_params: impl Iterator<Item = &'b ast::WithParam>,
         behavior: ir::ContinueBehavior,
     ) -> error::SpannedResult<Bindings> {
+        if !self.template_continuation_available {
+            return Ok(self.raise_error(RaisedError::XTDE0560));
+        }
+
         let mut params = Vec::new();
         let mut param_bindings = Bindings::empty();
 
@@ -1726,7 +1795,14 @@ impl<'a> IrConverter<'a> {
 
         let call_template_expr = ir::Expr::CallTemplate(ir::CallTemplate {
             name: ir::Name::new(call_template.name.local_name().to_string()),
-            context: self.variables.current_context_names(),
+            context: if self
+                .named_templates_with_absent_context
+                .contains(call_template.name.local_name())
+            {
+                None
+            } else {
+                self.variables.current_context_names()
+            },
             backwards_compatible: call_template.backwards_compatible,
             params,
         });
@@ -1975,7 +2051,10 @@ impl<'a> IrConverter<'a> {
         let bindings = bindings.concat(sort_bindings);
 
         let context_names = self.variables.push_context();
-        let return_bindings = self.sequence_constructor(&for_each.sequence_constructor)?;
+        let return_bindings = self
+            .with_template_continuation_availability(false, |this| {
+                this.sequence_constructor(&for_each.sequence_constructor)
+            })?;
         self.variables.pop_context();
         let expr = ir::Expr::Map(ir::Map {
             context_names,
@@ -2022,7 +2101,10 @@ impl<'a> IrConverter<'a> {
         let bindings = bindings.concat(group_bindings);
 
         let context_names = self.variables.push_context();
-        let return_bindings = self.sequence_constructor(&for_each_group.sequence_constructor)?;
+        let return_bindings = self
+            .with_template_continuation_availability(false, |this| {
+                this.sequence_constructor(&for_each_group.sequence_constructor)
+            })?;
         self.variables.pop_context();
         let expr = ir::Expr::Map(ir::Map {
             context_names,
@@ -2087,11 +2169,17 @@ impl<'a> IrConverter<'a> {
             .collect::<error::SpannedResult<Vec<_>>>()?;
 
         let (context_names, loop_name) = self.variables.push_iterate_context();
-        let return_bindings = self.sequence_constructor(&iterate.sequence_constructor)?;
+        let return_bindings = self.with_template_continuation_availability(false, |this| {
+            this.sequence_constructor(&iterate.sequence_constructor)
+        })?;
         let on_complete_bindings = iterate
             .on_completion
             .as_ref()
-            .map(|oc| self.select_or_sequence_constructor(oc))
+            .map(|oc| {
+                self.with_template_continuation_availability(false, |this| {
+                    this.select_or_sequence_constructor(oc)
+                })
+            })
             .transpose()?;
         self.variables.pop_context();
 
@@ -2179,9 +2267,15 @@ impl<'a> IrConverter<'a> {
 
         let copy_expr = ir::Expr::Atom(copy_atom.clone());
 
-        let (sequence_constructor_atom, sequence_constructor_bindings) = self
-            .sequence_constructor(&copy.sequence_constructor)?
-            .atom_bindings();
+        let sequence_constructor_bindings = if copy.select.is_some() {
+            self.with_template_continuation_availability(false, |this| {
+                this.sequence_constructor(&copy.sequence_constructor)
+            })?
+        } else {
+            self.sequence_constructor(&copy.sequence_constructor)?
+        };
+        let (sequence_constructor_atom, sequence_constructor_bindings) =
+            sequence_constructor_bindings.atom_bindings();
 
         let bindings = bindings.concat(sequence_constructor_bindings);
 

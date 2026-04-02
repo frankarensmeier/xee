@@ -37,6 +37,18 @@ impl<'a> Runnable<'a> {
     }
 
     fn run_value(&self, xot: &'a mut Xot) -> error::SpannedResult<stack::Value> {
+        if self.dynamic_context.context_item().is_none()
+            && self
+                .program
+                .declarations
+                .named_template_by_name("initial-template")
+                .is_some()
+        {
+            return self
+                .run_named_template_value("initial-template", xot)
+                .map(Into::into);
+        }
+
         let arguments = self.dynamic_context.arguments().unwrap();
         let mut interpreter = Interpreter::new(self, xot);
 
@@ -78,12 +90,7 @@ impl<'a> Runnable<'a> {
         }
     }
 
-    /// Run the program against a sequence item.
-    pub fn many(&self, xot: &'a mut Xot) -> error::SpannedResult<sequence::Sequence> {
-        Ok(self.run_value(xot)?.try_into()?)
-    }
-
-    pub fn named_template(
+    fn run_named_template_value(
         &self,
         name: &str,
         xot: &'a mut Xot,
@@ -106,6 +113,19 @@ impl<'a> Runnable<'a> {
                 error,
                 span: Some(self.program.span().into()),
             })
+    }
+
+    /// Run the program against a sequence item.
+    pub fn many(&self, xot: &'a mut Xot) -> error::SpannedResult<sequence::Sequence> {
+        Ok(self.run_value(xot)?.try_into()?)
+    }
+
+    pub fn named_template(
+        &self,
+        name: &str,
+        xot: &'a mut Xot,
+    ) -> error::SpannedResult<sequence::Sequence> {
+        self.run_named_template_value(name, xot)
     }
 
     /// Run the program, expect a single item as the result.

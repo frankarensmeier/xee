@@ -202,6 +202,7 @@ impl<'a> DeclarationCompiler<'a> {
             | ir::Expr::XmlComment(_)
             | ir::Expr::XmlProcessingInstruction(_)
             | ir::Expr::XmlAppend(_)
+            | ir::Expr::RaiseError(_)
             | ir::Expr::ContinueTemplate(_)
             | ir::Expr::CallTemplate(_)
             | ir::Expr::CopyShallow(_)

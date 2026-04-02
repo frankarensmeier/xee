@@ -589,6 +589,11 @@ pub enum Error {
     /// It is a static error if the select attribute of xsl:break or
     /// xsl:on-completion is present and the instruction has children.
     XTSE3125,
+    /// xsl:next-match or xsl:apply-imports without a current item.
+    ///
+    /// It is a dynamic error if xsl:next-match or xsl:apply-imports is evaluated
+    /// when there is no current item or current template rule.
+    XTDE0560,
     /// Circularity
     ///
     /// Circularity in global declarations is now allowed.

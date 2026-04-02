@@ -461,6 +461,7 @@ impl<'a> Interpreter<'a> {
                             &|function| self.runnable.function_info(function).signature(),
                         )
                         .map_err(|_| match raised_error {
+                            RaisedError::XTDE0560 => error::Error::XTDE0560,
                             RaisedError::XTDE0700 => error::Error::XTDE0700,
                             RaisedError::XTTE0570 => error::Error::XTTE0570,
                             RaisedError::XTTE0590 => error::Error::XTTE0590,
@@ -764,6 +765,7 @@ impl<'a> Interpreter<'a> {
                 }
                 EncodedInstruction::RaiseError => {
                     let error = match RaisedError::from_u16(self.read_u16()) {
+                        RaisedError::XTDE0560 => error::Error::XTDE0560,
                         RaisedError::XTDE0700 => error::Error::XTDE0700,
                         RaisedError::XTTE0570 => error::Error::XTTE0570,
                         RaisedError::XTTE0590 => error::Error::XTTE0590,
@@ -1515,7 +1517,13 @@ impl<'a> Interpreter<'a> {
                 tunnel_params,
                 builtin_template_params_passthrough,
             ),
-            declaration::ModeOnNoMatch::DeepSkip => Ok(None),
+            declaration::ModeOnNoMatch::DeepSkip => self.apply_builtin_deep_skip_rule(
+                mode,
+                item,
+                params,
+                tunnel_params,
+                builtin_template_params_passthrough,
+            ),
             declaration::ModeOnNoMatch::DeepCopy => self.apply_builtin_deep_copy_rule(item),
             declaration::ModeOnNoMatch::Fail => Err(error::Error::Unsupported(
                 "xsl:mode on-no-match=\"fail\" is not supported yet".to_string(),
@@ -1576,7 +1584,12 @@ impl<'a> Interpreter<'a> {
                 }
                 _ => Ok(None),
             },
-            sequence::Item::Atomic(_) | sequence::Item::Function(_) => Ok(None),
+            sequence::Item::Atomic(atomic) => {
+                let text = atomic.string_value();
+                let text_node = self.state.xot.new_text(&text);
+                Ok(Some(sequence::Item::Node(text_node).into()))
+            }
+            sequence::Item::Function(_) => Ok(None),
         }
     }
 
@@ -1620,6 +1633,41 @@ impl<'a> Interpreter<'a> {
                 self.apply_templates_sequence(
                     mode,
                     content.into(),
+                    params,
+                    tunnel_params,
+                    builtin_template_params_passthrough,
+                )
+                .map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn apply_builtin_deep_skip_rule(
+        &mut self,
+        mode: pattern::ModeId,
+        item: sequence::Item,
+        params: &function::Map,
+        tunnel_params: &function::Map,
+        builtin_template_params_passthrough: bool,
+    ) -> error::Result<Option<sequence::Sequence>> {
+        match item {
+            sequence::Item::Node(node) if matches!(self.state.xot.value(node), xot::Value::Document) => {
+                let children = self
+                    .state
+                    .xot
+                    .children(node)
+                    .map(sequence::Item::Node)
+                    .collect::<Vec<_>>();
+                let empty_params = function::Map::new(Vec::new()).unwrap();
+                let params = if builtin_template_params_passthrough {
+                    params
+                } else {
+                    &empty_params
+                };
+                self.apply_templates_sequence(
+                    mode,
+                    children.into(),
                     params,
                     tunnel_params,
                     builtin_template_params_passthrough,
@@ -1880,7 +1928,10 @@ impl<'a> Interpreter<'a> {
             )
         })?;
         let base = self.state.frame().base();
-        let item_sequence: sequence::Sequence = (&self.state.stack()[base]).try_into()?;
+        let item_sequence: sequence::Sequence = match &self.state.stack()[base] {
+            stack::Value::Sequence(sequence) => sequence.clone(),
+            stack::Value::Absent => return Err(error::Error::XTDE0560),
+        };
         let item = item_sequence.one()?;
         let position_sequence: sequence::Sequence = (&self.state.stack()[base + 1]).try_into()?;
         let position = position_sequence.one()?.try_into_value::<IBig>()?;
