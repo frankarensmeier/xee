@@ -1,10 +1,13 @@
-use xee_xpath_ast::Pattern;
+use std::fs;
+
+use iri_string::types::{IriReferenceStr, IriString};
+use xee_xpath_ast::{ast, pattern, Pattern};
 use xot::Xot;
 
 use crate::function;
 use crate::interpreter::Interpreter;
 use crate::pattern::pattern_core::PredicateMatcher;
-use crate::sequence::Item;
+use crate::sequence::{Item, Sequence};
 
 #[derive(Debug, Default)]
 pub struct PatternLookup<V: Clone> {
@@ -50,25 +53,100 @@ impl PredicateMatcher for Interpreter<'_> {
         self.xot()
     }
 
-    fn rooted_pattern_sequence(
-        &mut self,
-        root: &xee_xpath_ast::pattern::RootExpr,
-    ) -> Option<crate::sequence::Sequence> {
+    fn rooted_pattern_sequence(&mut self, root: &pattern::RootExpr) -> Option<Sequence> {
         match root {
-            xee_xpath_ast::pattern::RootExpr::VarRef(name) => {
-                if let Some(sequence) = self.runnable().dynamic_context().variables().get(name) {
-                    return Some(sequence.clone());
-                }
-
-                let declarations = &self.runnable().program().declarations;
-                declarations
-                    .global_variables
-                    .iter()
-                    .position(|global| global.original_name.as_ref() == Some(name))
-                    .and_then(|index| self.resolve_global_variable(index).ok())
+            pattern::RootExpr::VarRef(name) => self.lookup_root_variable(name),
+            pattern::RootExpr::FunctionCall(function_call) => {
+                self.lookup_root_function(function_call)
             }
-            xee_xpath_ast::pattern::RootExpr::FunctionCall(_) => None,
         }
+    }
+}
+
+impl Interpreter<'_> {
+    fn lookup_root_variable(&mut self, name: &ast::Name) -> Option<Sequence> {
+        if let Some(sequence) = self.runnable().dynamic_context().variables().get(name) {
+            return Some(sequence.clone());
+        }
+
+        let declarations = &self.runnable().program().declarations;
+        declarations
+            .global_variables
+            .iter()
+            .position(|global| global.original_name.as_ref() == Some(name))
+            .and_then(|index| self.resolve_global_variable(index).ok())
+    }
+
+    fn lookup_root_function(&mut self, function_call: &pattern::FunctionCall) -> Option<Sequence> {
+        match function_call.name {
+            pattern::OuterFunctionName::Doc => self.lookup_root_doc(function_call),
+            pattern::OuterFunctionName::Id
+            | pattern::OuterFunctionName::ElementWithId
+            | pattern::OuterFunctionName::Key
+            | pattern::OuterFunctionName::Root => None,
+        }
+    }
+
+    fn lookup_root_doc(&mut self, function_call: &pattern::FunctionCall) -> Option<Sequence> {
+        let [uri_argument] = function_call.args.as_slice() else {
+            return None;
+        };
+        let uri = self.resolve_pattern_argument_string(uri_argument)?;
+        let document_node = self.load_pattern_document(&uri)?;
+        Some(Sequence::from(vec![Item::from(document_node)]))
+    }
+
+    fn resolve_pattern_argument_string(&mut self, argument: &pattern::Argument) -> Option<String> {
+        match argument {
+            pattern::Argument::Literal(literal) => Some(literal_to_string(literal)),
+            pattern::Argument::VarRef(name) => self
+                .lookup_root_variable(name)
+                .and_then(|sequence| sequence.string_value(self.xot()).ok()),
+        }
+    }
+
+    fn load_pattern_document(&mut self, uri: &str) -> Option<xot::Node> {
+        let iri_reference: &IriReferenceStr = uri.try_into().ok()?;
+        let uri = self.absolute_pattern_uri(iri_reference)?;
+
+        let documents = self.runnable().dynamic_context().documents();
+        if let Some(document) = documents.borrow().get_by_uri(&uri) {
+            return Some(document.root());
+        }
+
+        let url = url::Url::parse(uri.as_str()).ok()?;
+        let path = url.to_file_path().ok()?;
+        let xml = fs::read_to_string(&path).ok()?;
+
+        let handle = documents
+            .borrow_mut()
+            .add_string(self.xot_mut(), Some(uri.as_ref()), &xml)
+            .ok()?;
+        let node = documents.borrow().get_node_by_handle(handle);
+        node
+    }
+
+    fn absolute_pattern_uri(&self, uri: &IriReferenceStr) -> Option<IriString> {
+        match uri.to_iri() {
+            Ok(iri) => Some(iri.into()),
+            Err(relative_iri) => {
+                let base = self
+                    .runnable()
+                    .dynamic_context()
+                    .static_context()
+                    .static_base_uri()?;
+                Some(relative_iri.resolve_against(base).into())
+            }
+        }
+    }
+}
+
+fn literal_to_string(literal: &ast::Literal) -> String {
+    match literal {
+        ast::Literal::Decimal(value) => value.to_string(),
+        ast::Literal::Integer(value) => value.to_string(),
+        ast::Literal::Double(value) => value.to_string(),
+        ast::Literal::String(value) => value.clone(),
     }
 }
 

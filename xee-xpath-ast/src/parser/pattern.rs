@@ -262,8 +262,8 @@ where
 
         let path_expr = absolute_slash_path
             .or(absolute_double_slash_path)
-            .or(relative_path)
             .or(rooted_path)
+            .or(relative_path)
             .boxed();
 
         let operator = just(Token::Intersect)
@@ -489,5 +489,48 @@ mod tests {
             &namespaces,
             &variable_names
         ));
+    }
+
+    #[test]
+    fn test_rooted_doc_pattern_parses() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        let pattern =
+            pattern::Pattern::parse("doc('match02.xml')", &namespaces, &variable_names).unwrap();
+
+        let pattern::Pattern::Expr(pattern::ExprPattern::Path(path_expr)) = pattern else {
+            panic!("expected path expression pattern");
+        };
+
+        assert!(matches!(
+            path_expr.root,
+            pattern::PathRoot::Rooted {
+                root: pattern::RootExpr::FunctionCall(_),
+                ..
+            }
+        ));
+        assert!(path_expr.steps.is_empty());
+    }
+
+    #[test]
+    fn test_rooted_doc_pattern_with_steps_parses() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        let pattern =
+            pattern::Pattern::parse("doc('match02.xml')/doc/foo/a", &namespaces, &variable_names)
+                .unwrap();
+
+        let pattern::Pattern::Expr(pattern::ExprPattern::Path(path_expr)) = pattern else {
+            panic!("expected path expression pattern");
+        };
+
+        assert!(matches!(
+            path_expr.root,
+            pattern::PathRoot::Rooted {
+                root: pattern::RootExpr::FunctionCall(_),
+                ..
+            }
+        ));
+        assert_eq!(path_expr.steps.len(), 3);
     }
 }

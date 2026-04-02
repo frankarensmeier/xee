@@ -51,6 +51,17 @@ fn evaluate_with_stylesheet_base(
     runnable.many(xot)
 }
 
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir =
+        std::env::temp_dir().join(format!("xee-{}-{}-{}", prefix, std::process::id(), unique));
+    fs::create_dir_all(&temp_dir).unwrap();
+    temp_dir
+}
+
 #[test]
 fn test_transform() {
     let mut xot = Xot::new();
@@ -653,6 +664,98 @@ fn test_rooted_variable_pattern_is_rejected_in_xslt_20() {
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
   <xsl:variable name="x" select="/doc"/>
   <xsl:template match="$x"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE0340);
+}
+
+#[test]
+fn test_rooted_doc_pattern_matches_in_xslt_30() {
+    let temp_dir = unique_temp_dir("rooted-doc-pattern");
+    fs::write(temp_dir.join("match02.xml"), "<doc><foo><a/></foo></doc>").unwrap();
+
+    let mut xot = Xot::new();
+    let stylesheet_path = temp_dir.join("rooted-doc-pattern.xsl");
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:strip-space elements="*"/>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates select="doc('match02.xml')"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="doc('match02.xml')">
+    <first>
+      <xsl:apply-templates/>
+    </first>
+  </xsl:template>
+
+  <xsl:template match="doc('match02.xml')/doc/foo/a">
+    <two>
+      <xsl:copy-of select="."/>
+    </two>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out><first><two><a/></two></first></out>"
+    );
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_rooted_doc_pattern_without_steps_matches_document_node_in_xslt_30() {
+    let temp_dir = unique_temp_dir("rooted-doc-node-pattern");
+    fs::write(temp_dir.join("match1002.xml"), "<foo/>").unwrap();
+
+    let mut xot = Xot::new();
+    let stylesheet_path = temp_dir.join("rooted-doc-node-pattern.xsl");
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:mode on-no-match="deep-skip"/>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates select="doc('match1002.xml')"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match="doc('match1002.xml')">
+    <ok/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><ok/></out>");
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_rooted_doc_pattern_is_rejected_in_xslt_20() {
+    let static_context = StaticContextBuilder::default().build();
+    let error = parse(
+        static_context,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc('match02.xml')"/>
 </xsl:stylesheet>"#,
     )
     .unwrap_err();
