@@ -331,17 +331,10 @@ square-array-142
 square-array-143
 square-array-201
 = as
-as-0106
 as-0106a
-as-0106b
-as-0110
 as-0110a
-as-0110b
-as-0111
 as-0111a
-as-0111b
 as-0112a
-as-0113
 as-0114
 as-0123
 as-0142
@@ -352,23 +345,16 @@ as-0149
 as-0151
 as-0152
 as-0501a
-as-0601
-as-0701
-as-0702
 as-0801a
 as-0802
 as-0802a
 as-0802b
-as-1001
-as-1101
 as-1201
 as-1222
 as-1602
 as-1701
 as-1705
 as-1706
-as-1707
-as-1708
 as-1711
 as-1712
 as-1803
@@ -385,10 +371,6 @@ as-1813
 as-1814
 as-1903
 as-1904
-as-1905
-as-1906
-as-1907
-as-1908
 as-2001
 as-2002
 as-2101
@@ -396,7 +378,6 @@ as-2201
 as-2301
 as-2401
 as-2601
-as-2602
 as-2801
 as-2804
 as-2901
@@ -6794,9 +6775,7 @@ sequence-0306
 sequence-0307
 sequence-0901
 sequence-1101
-sequence-1201
 sequence-1204
-sequence-1801
 sequence-2101
 sequence-2401a
 sequence-2401b
@@ -9920,13 +9899,11 @@ tunnel-0226
 type-0113
 type-0135
 type-0137
-type-0143
 type-0150
 type-0155
 type-0156
 type-0157
 type-0159
-type-0166
 type-0168a
 type-0168b
 type-0169
@@ -11932,7 +11909,6 @@ xpath-default-namespace-0703
 xpath-default-namespace-1102
 xpath-default-namespace-1202
 = xsl-document
-xsl-document-0106
 xsl-document-0301
 xsl-document-0402
 xsl-document-0404
