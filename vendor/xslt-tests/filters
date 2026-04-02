@@ -262,16 +262,13 @@ conflict-resolution-0401b
 conflict-resolution-0501
 conflict-resolution-0503
 conflict-resolution-1202b
-conflict-resolution-1204
 conflict-resolution-1402
 conflict-resolution-1501
 = arrays
 arrays-301
 arrays-302
-arrays-303
 arrays-304
 arrays-305
-arrays-306
 square-array-001
 square-array-002
 square-array-003
@@ -341,7 +338,6 @@ as-0147
 as-0148
 as-0149
 as-0151
-as-0152
 as-0501a
 as-0801a
 as-0802
@@ -530,7 +526,6 @@ available-system-properties-025
 available-system-properties-026
 available-system-properties-027
 available-system-properties-028
-available-system-properties-101
 = avt
 avt-0303
 avt-0401
@@ -805,7 +800,6 @@ choose-0104
 choose-0105
 choose-0106
 choose-0107
-choose-0202
 choose-0604
 choose-1204
 choose-1803
@@ -861,40 +855,29 @@ construct-node-017
 construct-node-022
 construct-node-024
 = context-item
-context-item-001
 context-item-002
-context-item-003
 context-item-004
 context-item-005
 context-item-006
 context-item-007
-context-item-008
-context-item-009
 context-item-010
 context-item-011
 context-item-012
 context-item-013
 context-item-014
-context-item-015
 context-item-016
-context-item-017
-context-item-018
 context-item-019
 context-item-901
 context-item-902
 context-item-903
-context-item-904
 context-item-905
 context-item-906
 context-item-907
 context-item-908
 context-item-909
-context-item-910
 context-item-911
 context-item-912
 = copy
-copy-0101
-copy-0103
 copy-0104
 copy-0609
 copy-0610
@@ -942,10 +925,7 @@ copy-2101
 copy-2201
 copy-2202
 copy-2301
-copy-2501
-copy-2502
 copy-2601
-copy-2701
 copy-3002
 copy-3003
 copy-3102
@@ -965,7 +945,6 @@ copy-4501
 copy-4601
 copy-4701
 copy-4702
-copy-4801
 copy-4802
 copy-4901
 copy-5001
@@ -1379,8 +1358,6 @@ error-0550f
 error-0555a
 error-0555b
 error-0555c
-error-0560a
-error-0560b
 error-0560c
 error-0560d
 error-0570a
@@ -1403,8 +1380,6 @@ error-0640f
 error-0640g
 error-0640i
 error-0640j
-error-0640k
-error-0640l
 error-0640m
 error-0640n
 error-0640o-1
@@ -1795,26 +1770,6 @@ cvt-028
 cvt-029
 cvt-030
 cvt-033
-cvt-035a
-cvt-035b
-cvt-035c
-cvt-036a
-cvt-036b
-cvt-036c
-cvt-037a
-cvt-037b
-cvt-037c
-cvt-038a
-cvt-038b
-cvt-038c
-cvt-039a
-cvt-039b
-cvt-039c
-cvt-040a
-cvt-040b
-cvt-040c
-cvt-048
-cvt-050
 = expose
 expose-001
 expose-001a
@@ -2155,7 +2110,6 @@ function-1016
 function-1017
 function-1018
 function-1021
-function-1022
 function-1023
 function-1024
 function-1025
@@ -2165,8 +2119,6 @@ function-1028
 function-1029
 function-1030
 function-1031
-function-1034
-function-1035
 function-1101
 function-1201
 function-1701
@@ -2179,7 +2131,6 @@ function-2105
 function-2106
 function-2107
 function-2108
-function-2109
 function-5001
 function-5011
 = function-available
@@ -2196,7 +2147,6 @@ function-available-1018
 = function-lookup
 function-lookup-001
 function-lookup-002
-function-lookup-003
 function-lookup-004
 function-lookup-005
 function-lookup-006
@@ -2224,9 +2174,7 @@ higher-order-functions-020
 higher-order-functions-023
 higher-order-functions-057
 higher-order-functions-058
-higher-order-functions-059
 higher-order-functions-060
-higher-order-functions-061
 higher-order-functions-066
 higher-order-functions-067
 higher-order-functions-068
@@ -2283,28 +2231,14 @@ id-043
 = import
 import-0001
 import-0002
-import-0203
-import-0302
-import-0501
-import-0502a
 import-0502b
-import-0502c
 import-0701
-import-0901
-import-0902a
 import-0902b
-import-0902c
 import-1201
 import-1301
-import-1501
 import-1601
-import-1701
-import-1801
-import-1901
-import-2001
 import-2103
 import-2201
-import-2202
 import-2402
 import-2404
 = import-schema
@@ -2571,14 +2505,10 @@ iterate-027
 iterate-029
 iterate-030
 iterate-031
-iterate-034
 iterate-035
 iterate-036
 iterate-037
-iterate-038
 iterate-039
-iterate-040
-iterate-041
 iterate-042
 iterate-043
 iterate-901
@@ -2751,8 +2681,6 @@ lre-020
 lre-021
 lre-022
 lre-024
-lre-025
-lre-026
 lre-027
 lre-028
 lre-104
@@ -2772,9 +2700,7 @@ maps-007
 maps-008
 maps-009
 maps-012
-maps-014
 maps-015
-maps-016
 maps-017
 maps-901a
 maps-901b
@@ -2865,9 +2791,6 @@ match-124
 match-125
 match-126
 match-129
-match-131
-match-132
-match-133
 match-134
 match-135
 match-136
@@ -2890,7 +2813,6 @@ match-153
 match-155
 match-156
 match-157
-match-158
 match-159
 match-160
 match-161
@@ -2954,9 +2876,7 @@ match-237
 match-238
 match-239
 match-240a
-match-240b
 match-240c
-match-241
 match-243
 match-244
 match-247
@@ -2967,26 +2887,15 @@ match-259
 match-260
 match-262
 match-263
-match-264
-match-265
 match-266
-match-267
 match-268
 match-269
-match-270
-match-271
-match-272
 match-273
 match-274
 match-275
 match-276
-match-277
-match-278
 match-279
-match-280
-match-281
 match-282
-match-283
 match-284
 = math
 math-0103
@@ -3188,7 +3097,6 @@ mode-1430
 mode-1431
 mode-1432
 mode-1435
-mode-1436
 mode-1437
 mode-1437a
 mode-1440
@@ -4329,7 +4237,6 @@ predicate-005
 predicate-052
 predicate-055
 predicate-056
-predicate-057
 = regex
 regex-017
 regex-018
@@ -6438,14 +6345,6 @@ regex-syntax-xslt20-0985
 regex-syntax-xslt20-0986
 regex-syntax-xslt20-0987
 = resolve-uri
-resolve-uri-001
-resolve-uri-002
-resolve-uri-003
-resolve-uri-004
-resolve-uri-005
-resolve-uri-006
-resolve-uri-007
-resolve-uri-008
 resolve-uri-009
 resolve-uri-010
 resolve-uri-011
@@ -6690,42 +6589,11 @@ seqtor-032
 seqtor-033
 seqtor-034
 seqtor-035
-seqtor-036a
-seqtor-036b
-seqtor-036c
-seqtor-036d
-seqtor-036e
-seqtor-037a
-seqtor-037b
-seqtor-037c
-seqtor-037d
-seqtor-037e
-seqtor-038a
-seqtor-038b
-seqtor-038c
-seqtor-038d
-seqtor-038e
 seqtor-039a
-seqtor-039b
-seqtor-039c
 seqtor-039d
-seqtor-039e
 seqtor-040a
-seqtor-040b
-seqtor-040c
 seqtor-040d
-seqtor-040e
-seqtor-041
-seqtor-042
-seqtor-043a
 seqtor-043b
-seqtor-043c
-seqtor-043d
-seqtor-043e
-seqtor-043f
-seqtor-043g
-seqtor-043h
-seqtor-043i
 seqtor-101
 = sequence
 sequence-0111
@@ -8635,10 +8503,8 @@ static-024
 static-025
 static-026
 static-027
-static-028
 static-029
 static-030
-static-031
 = stream-available
 stream-available-001
 stream-available-002
@@ -8796,9 +8662,6 @@ string-121
 string-125
 string-131
 string-133
-string-134
-string-135
-string-136
 = strip-space
 strip-space-002
 strip-space-004
@@ -9858,8 +9721,6 @@ tunnel-0113
 tunnel-0205
 tunnel-0207
 tunnel-0219
-tunnel-0221
-tunnel-0223
 tunnel-0226
 = type
 type-0113
@@ -11872,7 +11733,6 @@ xpath-default-namespace-0503
 xpath-default-namespace-0701
 xpath-default-namespace-0702
 xpath-default-namespace-0703
-xpath-default-namespace-1202
 = xsl-document
 xsl-document-0301
 xsl-document-0402
