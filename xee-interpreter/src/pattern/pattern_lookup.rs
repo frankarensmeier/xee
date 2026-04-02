@@ -194,4 +194,32 @@ impl<V: Clone> PatternLookup<V> {
         }
         None
     }
+
+    pub(crate) fn lookup_after_lower_import_precedence(
+        &self,
+        current: &V,
+        current_import_precedence: i64,
+        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        import_precedence_of: impl Fn(&V) -> i64,
+    ) -> Option<&V>
+    where
+        V: PartialEq,
+    {
+        let mut seen_current = false;
+        for (pattern, value) in &self.patterns {
+            if !matches(pattern) {
+                continue;
+            }
+            if !seen_current {
+                if value == current {
+                    seen_current = true;
+                }
+                continue;
+            }
+            if import_precedence_of(value) < current_import_precedence {
+                return Some(value);
+            }
+        }
+        None
+    }
 }

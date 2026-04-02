@@ -53,6 +53,26 @@ impl<V: Clone> ModeLookup<V> {
         pattern_lookup.lookup_after(current, &mut matches)
     }
 
+    pub(crate) fn lookup_after_lower_import_precedence(
+        &self,
+        mode: ModeId,
+        current: &V,
+        current_import_precedence: i64,
+        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        import_precedence_of: impl Fn(&V) -> i64,
+    ) -> Option<&V>
+    where
+        V: PartialEq,
+    {
+        let pattern_lookup = self.modes.get(&mode)?;
+        pattern_lookup.lookup_after_lower_import_precedence(
+            current,
+            current_import_precedence,
+            &mut matches,
+            import_precedence_of,
+        )
+    }
+
     pub fn add_rules(
         &mut self,
         mode: ModeId,

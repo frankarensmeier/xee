@@ -1246,7 +1246,13 @@ impl<'a> FunctionCompiler<'a> {
             span,
         )?;
 
-        self.builder.emit(Instruction::ContinueTemplate, span);
+        self.builder.emit(
+            Instruction::ContinueTemplate(match continue_template.behavior {
+                ir::ContinueBehavior::NextMatch => 0,
+                ir::ContinueBehavior::ApplyImports => 1,
+            }),
+            span,
+        );
         Ok(())
     }
 

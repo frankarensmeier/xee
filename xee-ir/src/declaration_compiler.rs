@@ -11,6 +11,7 @@ use xee_xpath_ast::pattern::transform_pattern;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RuleBuilder {
+    import_precedence: i64,
     priority: Decimal,
     declaration_order: i64,
     pattern: Pattern<function::InlineFunctionId>,
@@ -421,14 +422,24 @@ impl<'a> DeclarationCompiler<'a> {
                 .declarations
                 .add_template_params(function_id, template_params);
         }
+        self.program
+            .declarations
+            .add_template_import_precedence(function_id, rule.import_precedence);
 
-        self.add_rule(&rule.modes, rule.priority, &pattern, function_id);
+        self.add_rule(
+            &rule.modes,
+            rule.import_precedence,
+            rule.priority,
+            &pattern,
+            function_id,
+        );
         Ok(())
     }
 
     fn add_rule(
         &mut self,
         modes: &[ir::ModeValue],
+        import_precedence: i64,
         priority: Decimal,
         pattern: &Pattern<function::InlineFunctionId>,
         function_id: function::InlineFunctionId,
@@ -447,6 +458,7 @@ impl<'a> DeclarationCompiler<'a> {
                 .entry(mode.clone())
                 .or_default()
                 .push(RuleBuilder {
+                    import_precedence,
                     priority,
                     declaration_order,
                     pattern: pattern.clone(),
@@ -479,9 +491,14 @@ impl<'a> DeclarationCompiler<'a> {
         }
 
         for (mode, mut rule_builders) in self.rule_builders.drain() {
-            // higher priorities first, same priorities last declaration order wins
+            // Higher import precedence wins before priority; within the same
+            // precedence and priority, the last declaration wins.
             rule_builders.sort_by_key(|rule_builder| {
-                (-rule_builder.priority, -rule_builder.declaration_order)
+                (
+                    -rule_builder.import_precedence,
+                    -rule_builder.priority,
+                    -rule_builder.declaration_order,
+                )
             });
             let rules = rule_builders
                 .drain(..)

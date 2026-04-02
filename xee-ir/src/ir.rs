@@ -355,6 +355,13 @@ pub struct ApplyTemplates {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContinueTemplate {
     pub params: Vec<WithParam>,
+    pub behavior: ContinueBehavior,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContinueBehavior {
+    NextMatch,
+    ApplyImports,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -392,6 +399,7 @@ pub struct CopyDeep {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
+    pub import_precedence: i64,
     pub modes: Vec<ModeValue>,
     pub priority: Decimal,
     pub pattern: Pattern<FunctionDefinition>,

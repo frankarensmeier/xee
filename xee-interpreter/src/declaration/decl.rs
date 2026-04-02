@@ -66,6 +66,7 @@ pub struct Declarations {
     pub global_variables: Vec<GlobalVariableDeclaration>,
     pub named_templates: Vec<NamedTemplateDeclaration>,
     template_params: HashMap<function::InlineFunctionId, Vec<TemplateParamDeclaration>>,
+    template_import_precedence: HashMap<function::InlineFunctionId, i64>,
 }
 
 impl Declarations {
@@ -76,6 +77,7 @@ impl Declarations {
             global_variables: Vec::new(),
             named_templates: Vec::new(),
             template_params: HashMap::new(),
+            template_import_precedence: HashMap::new(),
         }
     }
 
@@ -122,5 +124,25 @@ impl Declarations {
         function_id: function::InlineFunctionId,
     ) -> Option<&[TemplateParamDeclaration]> {
         self.template_params.get(&function_id).map(Vec::as_slice)
+    }
+
+    pub fn add_template_import_precedence(
+        &mut self,
+        function_id: function::InlineFunctionId,
+        import_precedence: i64,
+    ) {
+        self.template_import_precedence
+            .insert(function_id, import_precedence);
+    }
+
+    pub fn template_import_precedence(
+        &self,
+        function_id: function::InlineFunctionId,
+    ) -> Option<i64> {
+        self.template_import_precedence.get(&function_id).copied()
+    }
+
+    pub fn template_import_precedences(&self) -> &HashMap<function::InlineFunctionId, i64> {
+        &self.template_import_precedence
     }
 }

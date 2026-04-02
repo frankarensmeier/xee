@@ -28,24 +28,19 @@ struct IrConverter<'a> {
     namespace_aliases: HashMap<String, String>,
 }
 
-pub fn compile(
-    transform: ast::Transform,
-    static_context: StaticContext,
-) -> error::SpannedResult<interpreter::Program> {
-    compile_with_initial_mode(
-        transform,
-        static_context,
-        ast::ApplyTemplatesModeValue::Unnamed,
-    )
+#[derive(Debug, Clone)]
+struct PreprocessedDeclaration {
+    declaration: ast::Declaration,
+    import_precedence: i64,
 }
 
-pub fn compile_with_initial_mode(
-    transform: ast::Transform,
+fn compile_preprocessed_declarations(
+    declarations: Vec<PreprocessedDeclaration>,
     static_context: StaticContext,
     initial_mode: ast::ApplyTemplatesModeValue,
 ) -> error::SpannedResult<interpreter::Program> {
     let mut ir_converter = IrConverter::new(&static_context, initial_mode);
-    let declarations = ir_converter.transform(&transform)?;
+    let declarations = ir_converter.transform(&declarations)?;
     compile_xslt(declarations, static_context)
 }
 
@@ -73,7 +68,7 @@ pub fn parse_with_base_dir_and_initial_mode(
     let static_context = augment_static_context_with_stylesheet_namespaces(static_context, xslt);
     let transform = parse_transform(xslt);
     // TODO: better error handling
-    let mut transform = match transform {
+    let transform = match transform {
         Ok(transform) => transform,
         Err(e) => {
             return Err(map_parse_error(xslt, e));
@@ -82,15 +77,11 @@ pub fn parse_with_base_dir_and_initial_mode(
 
     // Process xsl:import and xsl:include directives
     let mut visited = HashSet::new();
-    transform.declarations =
+    let declarations =
         process_imports_and_includes(transform.declarations, base_dir, &mut visited)?;
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
-    if matches!(initial_mode, ast::ApplyTemplatesModeValue::Unnamed) {
-        compile(transform, static_context)
-    } else {
-        compile_with_initial_mode(transform, static_context, initial_mode)
-    }
+    compile_preprocessed_declarations(declarations, static_context, initial_mode)
 }
 
 fn augment_static_context_with_stylesheet_namespaces(
@@ -197,9 +188,27 @@ fn process_imports_and_includes(
     declarations: ast::Declarations,
     base_dir: Option<std::path::PathBuf>,
     visited: &mut HashSet<PathBuf>,
-) -> error::SpannedResult<ast::Declarations> {
+) -> error::SpannedResult<Vec<PreprocessedDeclaration>> {
+    let modules = process_stylesheet_module(declarations, base_dir, visited)?;
+    let mut result = Vec::new();
+    for (import_precedence, declarations) in modules.into_iter().enumerate() {
+        for declaration in declarations {
+            result.push(PreprocessedDeclaration {
+                declaration,
+                import_precedence: import_precedence as i64,
+            });
+        }
+    }
+    Ok(result)
+}
+
+fn process_stylesheet_module(
+    declarations: ast::Declarations,
+    base_dir: Option<std::path::PathBuf>,
+    visited: &mut HashSet<PathBuf>,
+) -> error::SpannedResult<Vec<ast::Declarations>> {
     let mut local_declarations = Vec::new();
-    let mut imports = Vec::new(); // Collect imports in order
+    let mut imports = Vec::new();
 
     for decl in declarations {
         match &decl {
@@ -215,10 +224,9 @@ fn process_imports_and_includes(
                     .into());
                 }
                 visited.insert(resolved_path);
-                // Recursively process imports in the imported stylesheet
                 let processed =
-                    process_imports_and_includes(imported_decls, base_dir.clone(), visited)?;
-                imports.push(processed);
+                    process_stylesheet_module(imported_decls, base_dir.clone(), visited)?;
+                imports.extend(processed);
             }
             ast::Declaration::Include(include) => {
                 // Load and parse the included stylesheet
@@ -232,10 +240,12 @@ fn process_imports_and_includes(
                     .into());
                 }
                 visited.insert(resolved_path);
-                // Recursively process imports in the included stylesheet
-                let processed =
-                    process_imports_and_includes(included_decls, base_dir.clone(), visited)?;
-                local_declarations.extend(processed);
+                let mut processed =
+                    process_stylesheet_module(included_decls, base_dir.clone(), visited)?;
+                if let Some(included_local_declarations) = processed.pop() {
+                    local_declarations.extend(included_local_declarations);
+                }
+                imports.extend(processed);
             }
             _ => {
                 local_declarations.push(decl);
@@ -243,13 +253,8 @@ fn process_imports_and_includes(
         }
     }
 
-    // Build result: imports first (lower precedence), then local declarations (higher precedence)
-    // This ensures later imports override earlier imports, and local declarations override all imports
-    let mut result = Vec::new();
-    for import_decls in imports {
-        result.extend(import_decls);
-    }
-    result.extend(local_declarations);
+    let mut result = imports;
+    result.push(local_declarations);
     Ok(result)
 }
 
@@ -369,27 +374,30 @@ impl<'a> IrConverter<'a> {
         })
     }
 
-    fn transform(&mut self, transform: &ast::Transform) -> error::SpannedResult<ir::Declarations> {
-        self.register_xslt_function_names(&transform.declarations)?;
-        self.collect_namespace_aliases(&transform.declarations);
+    fn transform(
+        &mut self,
+        declarations: &[PreprocessedDeclaration],
+    ) -> error::SpannedResult<ir::Declarations> {
+        self.register_xslt_function_names(declarations)?;
+        self.collect_namespace_aliases(declarations);
         // Register global variable/param names early so $var references resolve.
-        let global_vars = self.collect_global_variables(&transform.declarations)?;
+        let global_vars = self.collect_global_variables(declarations)?;
 
         let main_sequence_constructor = self.main_sequence_constructor();
         let main = self.sequence_constructor_function(&main_sequence_constructor)?;
-        let mut declarations = ir::Declarations::new(main);
-        declarations.global_variables = global_vars;
+        let mut ir_declarations = ir::Declarations::new(main);
+        ir_declarations.global_variables = global_vars;
 
-        for declaration in &transform.declarations {
-            self.declaration(&mut declarations, declaration)?;
+        for declaration in declarations {
+            self.declaration(&mut ir_declarations, declaration)?;
         }
 
-        Ok(declarations)
+        Ok(ir_declarations)
     }
 
-    fn collect_namespace_aliases(&mut self, declarations: &[ast::Declaration]) {
+    fn collect_namespace_aliases(&mut self, declarations: &[PreprocessedDeclaration]) {
         for declaration in declarations {
-            let ast::Declaration::NamespaceAlias(namespace_alias) = declaration else {
+            let ast::Declaration::NamespaceAlias(namespace_alias) = &declaration.declaration else {
                 continue;
             };
             self.namespace_aliases.insert(
@@ -414,10 +422,10 @@ impl<'a> IrConverter<'a> {
 
     fn register_xslt_function_names(
         &mut self,
-        declarations: &[ast::Declaration],
+        declarations: &[PreprocessedDeclaration],
     ) -> error::SpannedResult<()> {
         for declaration in declarations {
-            let ast::Declaration::Function(function) = declaration else {
+            let ast::Declaration::Function(function) = &declaration.declaration else {
                 continue;
             };
 
@@ -441,11 +449,11 @@ impl<'a> IrConverter<'a> {
     fn declaration(
         &mut self,
         declarations: &mut ir::Declarations,
-        declaration: &ast::Declaration,
+        declaration: &PreprocessedDeclaration,
     ) -> error::SpannedResult<()> {
         use ast::Declaration::*;
-        match declaration {
-            Template(template) => self.template(declarations, template),
+        match &declaration.declaration {
+            Template(template) => self.template(declarations, template, declaration.import_precedence),
             Mode(mode) => self.mode(declarations, mode),
             Output(output) => self.output(declarations, output),
             // Import/Include already handled during pre-processing in parse_with_base_dir
@@ -460,10 +468,10 @@ impl<'a> IrConverter<'a> {
 
     fn collect_global_variables(
         &mut self,
-        declarations: &[ast::Declaration],
+        declarations: &[PreprocessedDeclaration],
     ) -> error::SpannedResult<Vec<ir::GlobalVariable>> {
         for decl in declarations {
-            match decl {
+            match &decl.declaration {
                 ast::Declaration::Variable(var) => {
                     self.variables.new_var_name(&var.name);
                 }
@@ -488,7 +496,7 @@ impl<'a> IrConverter<'a> {
 
         let mut globals = Vec::new();
         for decl in declarations {
-            match decl {
+            match &decl.declaration {
                 ast::Declaration::Variable(var) => {
                     let name = self.variables.lookup_var_name(&var.name).unwrap();
                     let expr = self.with_hidden_global_name(&var.name, |this| {
@@ -725,6 +733,7 @@ impl<'a> IrConverter<'a> {
         &mut self,
         declarations: &mut ir::Declarations,
         template: &ast::Template,
+        import_precedence: i64,
     ) -> error::SpannedResult<()> {
         for param in &template.params {
             self.validate_param(param)?;
@@ -748,6 +757,7 @@ impl<'a> IrConverter<'a> {
 
             if let Some(priority) = &template.priority {
                 declarations.rules.push(ir::Rule {
+                    import_precedence,
                     priority: *priority,
                     modes,
                     pattern: transform_pattern(&pattern.pattern, |expr| {
@@ -764,6 +774,7 @@ impl<'a> IrConverter<'a> {
             let default_priorities = default_priority(&pattern.pattern).collect::<Vec<_>>();
             for (split_pattern, priority) in default_priorities {
                 declarations.rules.push(ir::Rule {
+                    import_precedence,
                     priority,
                     modes: modes.clone(),
                     pattern: transform_pattern(&split_pattern, |expr| {
@@ -1460,7 +1471,7 @@ impl<'a> IrConverter<'a> {
         &mut self,
         apply_imports: &ast::ApplyImports,
     ) -> error::SpannedResult<Bindings> {
-        self.continue_template(apply_imports.with_params.iter())
+        self.continue_template(apply_imports.with_params.iter(), ir::ContinueBehavior::ApplyImports)
     }
 
     fn next_match(&mut self, next_match: &ast::NextMatch) -> error::SpannedResult<Bindings> {
@@ -1472,12 +1483,14 @@ impl<'a> IrConverter<'a> {
                     ast::NextMatchContent::WithParam(with_param) => Some(with_param),
                     ast::NextMatchContent::Fallback(_) => None,
                 }),
+            ir::ContinueBehavior::NextMatch,
         )
     }
 
     fn continue_template<'b>(
         &mut self,
         with_params: impl Iterator<Item = &'b ast::WithParam>,
+        behavior: ir::ContinueBehavior,
     ) -> error::SpannedResult<Bindings> {
         let mut params = Vec::new();
         let mut param_bindings = Bindings::empty();
@@ -1490,7 +1503,7 @@ impl<'a> IrConverter<'a> {
 
         Ok(param_bindings.bind_expr_no_span(
             &mut self.variables,
-            ir::Expr::ContinueTemplate(ir::ContinueTemplate { params }),
+            ir::Expr::ContinueTemplate(ir::ContinueTemplate { params, behavior }),
         ))
     }
 

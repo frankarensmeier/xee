@@ -752,7 +752,12 @@ impl<'a> Interpreter<'a> {
                 EncodedInstruction::ContinueTemplate => {
                     let tunnel_params = self.state.pop()?.one()?.to_map()?;
                     let params = self.state.pop()?.one()?.to_map()?;
-                    let value = self.continue_template_with_params(&params, &tunnel_params)?;
+                    let behavior = self.read_u8();
+                    let value = self.continue_template_with_params(
+                        &params,
+                        &tunnel_params,
+                        behavior,
+                    )?;
                     self.state.push(value);
                 }
                 EncodedInstruction::RaiseError => {
@@ -1828,6 +1833,33 @@ impl<'a> Interpreter<'a> {
             .copied()
     }
 
+    fn lookup_pattern_after_lower_import_precedence(
+        &mut self,
+        mode: pattern::ModeId,
+        current: function::InlineFunctionId,
+        current_import_precedence: i64,
+        item: &sequence::Item,
+    ) -> Option<function::InlineFunctionId> {
+        let import_precedences = self
+            .runnable
+            .program()
+            .declarations
+            .template_import_precedences()
+            .clone();
+        self.runnable
+            .program()
+            .declarations
+            .mode_lookup
+            .lookup_after_lower_import_precedence(
+                mode,
+                &current,
+                current_import_precedence,
+                |pattern| self.matches(pattern, item),
+                |function_id| import_precedences.get(function_id).copied().unwrap_or_default(),
+            )
+            .copied()
+    }
+
     fn current_mode_or_fallback(&self, fallback: pattern::ModeId) -> pattern::ModeId {
         self.mode_stack.last().copied().unwrap_or(fallback)
     }
@@ -1836,6 +1868,7 @@ impl<'a> Interpreter<'a> {
         &mut self,
         params: &function::Map,
         tunnel_params: &function::Map,
+        behavior: u8,
     ) -> error::Result<sequence::Sequence> {
         let mode = *self.mode_stack.last().ok_or_else(|| {
             error::Error::Unsupported(
@@ -1850,8 +1883,30 @@ impl<'a> Interpreter<'a> {
         let size_sequence: sequence::Sequence = (&self.state.stack()[base + 2]).try_into()?;
         let size = size_sequence.one()?.try_into_value::<IBig>()?;
         let current_function = self.state.frame().function();
+        let next_function = match behavior {
+            0 => self.lookup_pattern_after(mode, current_function, &item),
+            1 => {
+                let current_import_precedence = self
+                    .runnable
+                    .program()
+                    .declarations
+                    .template_import_precedence(current_function)
+                    .unwrap_or_default();
+                self.lookup_pattern_after_lower_import_precedence(
+                    mode,
+                    current_function,
+                    current_import_precedence,
+                    &item,
+                )
+            }
+            _ => {
+                return Err(error::Error::Unsupported(format!(
+                    "Unknown continue-template behavior: {behavior}"
+                )))
+            }
+        };
 
-        if let Some(function_id) = self.lookup_pattern_after(mode, current_function, &item) {
+        if let Some(function_id) = next_function {
             let function = function::InlineFunctionData::new(function_id, Vec::new()).into();
             self.mode_stack.push(mode);
             let result = self.call_template_with_params(

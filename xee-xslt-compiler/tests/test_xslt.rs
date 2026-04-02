@@ -414,6 +414,104 @@ fn test_next_match_with_param_falls_back_to_builtin_rule() {
 }
 
 #[test]
+fn test_next_match_import_precedence_beats_priority() {
+    let temp_dir = unique_temp_dir("next-match-006");
+    fs::write(
+        temp_dir.join("next-match-006.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:import href="next-match-006a.xsl" />
+
+  <xsl:template match="node()">
+    <a>
+      <xsl:next-match />
+    </a>
+  </xsl:template>
+
+  <xsl:template match="doc">
+    <b>
+      <xsl:next-match />
+    </b>
+  </xsl:template>
+
+  <xsl:template match="*[foo]">
+    <c>
+      <xsl:next-match />
+    </c>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("next-match-006a.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:import href="next-match-006b.xsl" />
+
+  <xsl:template match="node()">
+    <aa>
+      <xsl:next-match />
+    </aa>
+  </xsl:template>
+
+  <xsl:template match="doc">
+    <ab>
+      <xsl:next-match />
+    </ab>
+  </xsl:template>
+
+  <xsl:template match="*[foo]">
+    <ac>
+      <xsl:next-match />
+    </ac>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("next-match-006b.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="node()">
+    <ba>
+      <xsl:next-match />
+    </ba>
+  </xsl:template>
+
+  <xsl:template match="doc">
+    <bb>
+      <xsl:next-match />
+    </bb>
+  </xsl:template>
+
+  <xsl:template match="*[foo]">
+    <bc>
+      <xsl:next-match />
+    </bc>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let stylesheet_path = temp_dir.join("next-match-006.xsl");
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc><foo/></doc>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<c><b><a><ac><ab><aa><bc><bb><ba><a><aa><ba/></aa></a></ba></bb></bc></aa></ab></ac></a></b></c>"
+    );
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
 fn test_repeated_local_variable_reference_in_union_expression() {
     let mut xot = Xot::new();
     let output = evaluate(

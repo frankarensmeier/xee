@@ -109,7 +109,7 @@ pub enum Instruction {
     CopyShallow,
     CopyDeep,
     CallTemplate,
-    ContinueTemplate,
+    ContinueTemplate(u8),
     ApplyTemplates(u16, bool),
     ApplyTemplatesCurrent(u16, bool),
     RaiseError(RaisedError),
@@ -351,7 +351,7 @@ pub(crate) fn decode_instruction(bytes: &[u8]) -> (Instruction, usize) {
         EncodedInstruction::CopyShallow => (Instruction::CopyShallow, 1),
         EncodedInstruction::CopyDeep => (Instruction::CopyDeep, 1),
         EncodedInstruction::CallTemplate => (Instruction::CallTemplate, 1),
-        EncodedInstruction::ContinueTemplate => (Instruction::ContinueTemplate, 1),
+        EncodedInstruction::ContinueTemplate => (Instruction::ContinueTemplate(bytes[1]), 2),
         EncodedInstruction::ApplyTemplates => {
             let mode_id = u16::from_le_bytes([bytes[1], bytes[2]]);
             let builtin_template_params_passthrough = bytes[3] != 0;
@@ -542,8 +542,9 @@ pub fn encode_instruction(instruction: Instruction, bytes: &mut Vec<u8>) {
         Instruction::CopyShallow => bytes.push(EncodedInstruction::CopyShallow.to_u8().unwrap()),
         Instruction::CopyDeep => bytes.push(EncodedInstruction::CopyDeep.to_u8().unwrap()),
         Instruction::CallTemplate => bytes.push(EncodedInstruction::CallTemplate.to_u8().unwrap()),
-        Instruction::ContinueTemplate => {
-            bytes.push(EncodedInstruction::ContinueTemplate.to_u8().unwrap())
+        Instruction::ContinueTemplate(behavior) => {
+            bytes.push(EncodedInstruction::ContinueTemplate.to_u8().unwrap());
+            bytes.push(behavior);
         }
         Instruction::ApplyTemplates(mode_id, builtin_template_params_passthrough) => {
             bytes.push(EncodedInstruction::ApplyTemplates.to_u8().unwrap());
@@ -634,7 +635,7 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         | Instruction::CopyShallow
         | Instruction::CopyDeep
         | Instruction::CallTemplate
-        | Instruction::ContinueTemplate
+        | Instruction::ContinueTemplate(_)
         | Instruction::PrintTop
         | Instruction::PrintStack => 1,
         Instruction::Call(_) => 2,
