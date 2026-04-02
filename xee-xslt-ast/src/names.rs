@@ -140,6 +140,7 @@ impl DeclarationName {
     pub(crate) fn parse(&self, attributes: &Attributes) -> Result<ast::Declaration, ElementError> {
         match self {
             DeclarationName::Accumulator => ast::Accumulator::parse_declaration(attributes),
+            DeclarationName::AttributeSet => ast::AttributeSet::parse_declaration(attributes),
             DeclarationName::CharacterMap => ast::CharacterMap::parse_declaration(attributes),
             DeclarationName::DecimalFormat => ast::DecimalFormat::parse_declaration(attributes),
             DeclarationName::Function => ast::Function::parse_declaration(attributes),
@@ -228,6 +229,7 @@ pub(crate) struct Names {
     pub(crate) xsl_otherwise: xot::NameId,
     pub(crate) xsl_output_character: xot::NameId,
     pub(crate) xsl_context_item: xot::NameId,
+    pub(crate) xsl_use_attribute_sets: xot::NameId,
     pub(crate) xsl_param: xot::NameId,
     pub(crate) xsl_schema: xot::NameId,
     pub(crate) xsl_sequence: xot::NameId,
@@ -472,6 +474,7 @@ impl Names {
             xsl_otherwise: xot.add_name_ns("otherwise", xsl_ns),
             xsl_output_character: xot.add_name_ns("output-character", xsl_ns),
             xsl_context_item: xot.add_name_ns("context-item", xsl_ns),
+            xsl_use_attribute_sets: xot.add_name_ns("use-attribute-sets", xsl_ns),
             xsl_param: xot.add_name_ns("param", xsl_ns),
             xsl_schema: xot.add_name_ns("schema", xsl_ns),
             xsl_sequence: xot.add_name_ns("sequence", xsl_ns),

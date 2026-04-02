@@ -123,6 +123,10 @@ impl InstructionParser for ast::Declaration {
 
 impl InstructionParser for ast::ElementNode {
     fn parse(content: &Content, attributes: &Attributes) -> Result<ast::ElementNode> {
+        let use_attribute_sets = attributes.optional(
+            content.state.names.xsl_use_attribute_sets,
+            attributes.eqnames(),
+        )?;
         let namespaces = content
             .state
             .xot
@@ -151,6 +155,7 @@ impl InstructionParser for ast::ElementNode {
         Ok(ast::ElementNode {
             name: name.to_owned(),
             namespaces,
+            use_attribute_sets,
             attributes: element_attributes,
             span: content.span()?,
             sequence_constructor: content.sequence_constructor()?,

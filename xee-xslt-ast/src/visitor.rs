@@ -112,6 +112,7 @@ pub(crate) mod visit {
         use ast::Declaration::*;
         match declaration {
             Accumulator(accumulator) => v.visit_accumulator(accumulator),
+            AttributeSet(attribute_set) => v.visit_attribute_set(attribute_set),
             CharacterMap(character_map) => v.visit_character_map(character_map),
             DecimalFormat(decimal_format) => v.visit_decimal_format(decimal_format),
             Function(function) => v.visit_function(function),

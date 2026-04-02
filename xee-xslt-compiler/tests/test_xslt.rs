@@ -634,6 +634,88 @@ fn test_next_match_allows_same_stylesheet_to_be_imported_and_included() {
 }
 
 #[test]
+fn test_next_match_in_attribute_set_on_literal_element_uses_imported_template() {
+    let temp_dir = unique_temp_dir("next-match-012");
+    fs::write(
+        temp_dir.join("next-match-012.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:import href="next-match-012a.xsl"/>
+
+  <xsl:template match="doc">
+    <a xsl:use-attribute-sets="myAttrib">hello</a>
+  </xsl:template>
+
+  <xsl:template match="*">
+    <b>next matched</b>
+  </xsl:template>
+
+  <xsl:attribute-set name="myAttrib">
+    <xsl:attribute name="a1">5</xsl:attribute>
+    <xsl:attribute name="a2">
+      <xsl:next-match/>
+    </xsl:attribute>
+  </xsl:attribute-set>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("next-match-012a.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <b>imported attribute</b>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let stylesheet_path = temp_dir.join("next-match-012.xsl");
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc foo=\"bar\"/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<a a1=\"5\" a2=\"next matched\">hello</a>");
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_recursive_attribute_set_reentry_raises_xtde0640() {
+    let error = parse(
+        StaticContextBuilder::default().build(),
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:attribute-set name="set1">
+    <xsl:attribute name="color">
+      <xsl:for-each select="*">
+        <xsl:variable name="x">
+          <e xsl:use-attribute-sets="set1"/>
+        </xsl:variable>
+        <xsl:value-of select="string-join($x//@*, '|')"/>
+      </xsl:for-each>
+    </xsl:attribute>
+    <xsl:attribute name="texture">matt</xsl:attribute>
+  </xsl:attribute-set>
+
+  <xsl:template match="/">
+    <out>
+      <test1 xsl:use-attribute-sets="set1"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE0640);
+}
+
+#[test]
 fn test_next_match_on_atomic_values_uses_builtin_text_copy_fallback() {
     let mut xot = Xot::new();
     let program = parse(

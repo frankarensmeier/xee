@@ -26,6 +26,8 @@ struct IrConverter<'a> {
     initial_mode: ast::ApplyTemplatesModeValue,
     xslt_functions: HashMap<(OwnedName, u8), OwnedName>,
     namespace_aliases: HashMap<String, String>,
+    attribute_sets: HashMap<(String, String), Vec<ast::AttributeSet>>,
+    active_attribute_sets: Vec<(String, String)>,
     named_templates_with_absent_context: HashSet<String>,
     template_continuation_available: bool,
 }
@@ -305,6 +307,8 @@ impl<'a> IrConverter<'a> {
             initial_mode,
             xslt_functions: HashMap::new(),
             namespace_aliases: HashMap::new(),
+            attribute_sets: HashMap::new(),
+            active_attribute_sets: Vec::new(),
             named_templates_with_absent_context: HashSet::new(),
             template_continuation_available: false,
         }
@@ -405,6 +409,7 @@ impl<'a> IrConverter<'a> {
         declarations: &[PreprocessedDeclaration],
     ) -> error::SpannedResult<ir::Declarations> {
         self.register_xslt_function_names(declarations)?;
+        self.collect_attribute_sets(declarations);
         self.collect_named_templates_with_absent_context(declarations);
         self.collect_namespace_aliases(declarations);
         // Register global variable/param names early so $var references resolve.
@@ -431,6 +436,22 @@ impl<'a> IrConverter<'a> {
                 namespace_alias.stylesheet_namespace.clone(),
                 namespace_alias.result_namespace.clone(),
             );
+        }
+    }
+
+    fn attribute_set_key(name: &ast::EqName) -> (String, String) {
+        (name.namespace().to_string(), name.local_name().to_string())
+    }
+
+    fn collect_attribute_sets(&mut self, declarations: &[PreprocessedDeclaration]) {
+        for declaration in declarations {
+            let ast::Declaration::AttributeSet(attribute_set) = &declaration.declaration else {
+                continue;
+            };
+            self.attribute_sets
+                .entry(Self::attribute_set_key(&attribute_set.name))
+                .or_default()
+                .push((**attribute_set).clone());
         }
     }
 
@@ -502,6 +523,7 @@ impl<'a> IrConverter<'a> {
     ) -> error::SpannedResult<()> {
         use ast::Declaration::*;
         match &declaration.declaration {
+            AttributeSet(_) => Ok(()),
             Template(template) => self.template(declarations, template, declaration.import_precedence),
             Mode(mode) => self.mode(declarations, mode),
             Output(output) => self.output(declarations, output),
@@ -1415,6 +1437,11 @@ impl<'a> IrConverter<'a> {
                 namespace_bindings.bind_expr_no_span(&mut self.variables, append_expr);
             bindings = bindings.concat(append_bindings);
         }
+        let attribute_set_bindings = self.attribute_set_append(
+            element_atom.clone(),
+            element_node.use_attribute_sets.as_deref().unwrap_or(&[]),
+        )?;
+        bindings = bindings.concat(attribute_set_bindings);
         for (name, value) in &aliased_attributes {
             let (value_atom, value_bindings) =
                 self.attribute_value_template(value)?.atom_bindings();
@@ -1441,6 +1468,87 @@ impl<'a> IrConverter<'a> {
         )?;
         let bindings = bindings.concat(sequence_constructor_bindings);
         Ok(bindings)
+    }
+
+    fn attribute_set_append(
+        &mut self,
+        element_atom: ir::AtomS,
+        use_attribute_sets: &[ast::EqName],
+    ) -> error::SpannedResult<Bindings> {
+        if use_attribute_sets.is_empty() {
+            return Ok(Bindings::empty());
+        }
+
+        let (atom, bindings) = self.attribute_set_bindings(use_attribute_sets)?.atom_bindings();
+        let append = ir::Expr::XmlAppend(ir::XmlAppend {
+            parent: element_atom,
+            child: atom,
+        });
+        Ok(bindings.bind_expr_no_span(&mut self.variables, append))
+    }
+
+    fn attribute_set_bindings(
+        &mut self,
+        use_attribute_sets: &[ast::EqName],
+    ) -> error::SpannedResult<Bindings> {
+        self.attribute_set_bindings_with_active(use_attribute_sets)
+    }
+
+    fn attribute_set_bindings_with_active(
+        &mut self,
+        use_attribute_sets: &[ast::EqName],
+    ) -> error::SpannedResult<Bindings> {
+        let mut combined: Option<Bindings> = None;
+
+        for name in use_attribute_sets {
+            let key = Self::attribute_set_key(name);
+            if self.active_attribute_sets.contains(&key) {
+                return Err(error::Error::XTDE0640.into());
+            }
+
+            let attribute_sets = self.attribute_sets.get(&key).cloned().ok_or_else(|| {
+                error::Error::Unsupported(format!(
+                    "Unknown attribute-set: {}",
+                    name.local_name()
+                ))
+            })?;
+
+            self.active_attribute_sets.push(key);
+            for attribute_set in attribute_sets {
+                if let Some(nested) = &attribute_set.use_attribute_sets {
+                    let nested_bindings = self.attribute_set_bindings_with_active(nested)?;
+                    combined = Some(match combined {
+                        Some(existing) => self.comma_bindings(existing, nested_bindings),
+                        None => nested_bindings,
+                    });
+                }
+                for attribute in &attribute_set.attributes {
+                    let attribute_bindings = self.attribute(attribute)?;
+                    combined = Some(match combined {
+                        Some(existing) => self.comma_bindings(existing, attribute_bindings),
+                        None => attribute_bindings,
+                    });
+                }
+            }
+            self.active_attribute_sets.pop();
+        }
+
+        Ok(combined.unwrap_or_else(|| {
+            let empty_sequence = self.empty_sequence();
+            Bindings::empty().bind_expr_no_span(&mut self.variables, empty_sequence.value)
+        }))
+    }
+
+    fn comma_bindings(&mut self, left: Bindings, right: Bindings) -> Bindings {
+        let mut left = left;
+        let mut right = right;
+        let expr = ir::Expr::Binary(ir::Binary {
+            left: left.atom(),
+            op: ir::BinaryOperator::Comma,
+            right: right.atom(),
+        });
+        let binding = self.variables.new_binding_no_span(expr);
+        left.concat(right).bind(binding)
     }
 
     fn ensure_name_namespace(namespaces: &mut Vec<ast::LiteralNamespace>, name: &ast::Name) {

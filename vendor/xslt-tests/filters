@@ -447,25 +447,11 @@ attribute-1505
 attribute-1506
 attribute-1507
 = attribute-set
-attribute-set-0101
-attribute-set-0102
-attribute-set-0104
-attribute-set-0105
-attribute-set-0106
-attribute-set-0106a
 attribute-set-0107
-attribute-set-0108
-attribute-set-0201
 attribute-set-0202
 attribute-set-0203
-attribute-set-0204
-attribute-set-0205
-attribute-set-0206
 attribute-set-0207
 attribute-set-0208
-attribute-set-0209
-attribute-set-0210
-attribute-set-0211
 attribute-set-1001
 attribute-set-1002
 attribute-set-1003
@@ -478,25 +464,12 @@ attribute-set-1506
 attribute-set-1507
 attribute-set-1508
 attribute-set-1509
-attribute-set-1510
 attribute-set-1511
-attribute-set-1512
 attribute-set-1513
-attribute-set-1801
 attribute-set-1802
-attribute-set-1803
-attribute-set-1804
-attribute-set-1805
-attribute-set-1806
-attribute-set-1807
-attribute-set-1808
-attribute-set-1809
-attribute-set-1810
 attribute-set-1811
 attribute-set-1812
-attribute-set-1813
 attribute-set-1814
-attribute-set-1815
 = available-system-properties
 available-system-properties-001
 available-system-properties-002
@@ -719,7 +692,6 @@ bug-4501
 bug-4702
 bug-4703
 bug-5101
-bug-5302
 bug-5501
 bug-5601
 bug-6201
@@ -1243,14 +1215,12 @@ error-0010m
 error-0010n
 error-0010o
 error-0010p
-error-0010q
 error-0010r
 error-0010s
 error-0010t
 error-0010v
 error-0010x
 error-0010z
-error-0020c
 error-0020i
 error-0020j
 error-0030a
@@ -1267,7 +1237,6 @@ error-0045bb
 error-0045bc
 error-0047a
 error-0080a
-error-0090f
 error-0110a
 error-0120a
 error-0120b
@@ -2238,7 +2207,6 @@ import-1201
 import-1301
 import-1601
 import-2103
-import-2201
 import-2402
 import-2404
 = import-schema
@@ -3085,7 +3053,6 @@ mode-1107a
 mode-1107b
 mode-1107c
 mode-1108
-mode-1402
 mode-1403
 mode-1404
 mode-1425
@@ -3285,7 +3252,6 @@ namespace-alias-1905
 namespace-alias-2613
 namespace-alias-3602
 = next-match
-next-match-012
 next-match-036
 next-match-037
 next-match-040
@@ -7487,7 +7453,6 @@ si-lre-902
 si-lre-903
 si-lre-904
 si-lre-905
-si-lre-906
 = si-apply-imports
 si-apply-imports-068
 si-apply-imports-069
@@ -11738,7 +11703,6 @@ xsl-document-0301
 xsl-document-0402
 xsl-document-0404
 xsl-document-0603
-xsl-document-0604
 xsl-document-0606
 xsl-document-0701
 = xslt-compat

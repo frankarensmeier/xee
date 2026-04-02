@@ -399,6 +399,12 @@ impl From<AttributeSet> for OverrideContent {
     }
 }
 
+impl From<AttributeSet> for Declaration {
+    fn from(i: AttributeSet) -> Self {
+        Declaration::AttributeSet(Box::new(i))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Break {
@@ -1932,6 +1938,7 @@ pub struct LiteralNamespace {
 pub struct ElementNode {
     pub name: Name,
     pub namespaces: Vec<LiteralNamespace>,
+    pub use_attribute_sets: Option<Vec<EqName>>,
     pub attributes: Vec<(Name, ValueTemplate<String>)>,
     pub sequence_constructor: SequenceConstructor,
     pub span: Span,
@@ -1957,6 +1964,7 @@ impl From<ElementNode> for SequenceConstructorItem {
 #[strum_discriminants(name(DeclarationName))]
 pub enum Declaration {
     Accumulator(Box<Accumulator>),
+    AttributeSet(Box<AttributeSet>),
     CharacterMap(Box<CharacterMap>),
     DecimalFormat(Box<DecimalFormat>),
     Function(Box<Function>),
