@@ -401,6 +401,7 @@ pub struct CopyDeep {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
     pub import_precedence: i64,
+    pub module_path: Vec<usize>,
     pub modes: Vec<ModeValue>,
     pub priority: Decimal,
     pub pattern: Pattern<FunctionDefinition>,
@@ -417,6 +418,7 @@ pub enum ModeValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mode {
     pub on_no_match: ModeOnNoMatch,
+    pub on_multiple_match: OnMultipleMatch,
     pub warning_on_no_match: bool,
     pub typed: ModeTyped,
 }
@@ -428,6 +430,12 @@ pub enum ModeOnNoMatch {
     DeepSkip,
     ShallowSkip,
     TextOnlyCopy,
+    Fail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnMultipleMatch {
+    UseLast,
     Fail,
 }
 

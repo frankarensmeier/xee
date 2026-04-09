@@ -1,4 +1,5 @@
 use ahash::{HashMap, HashMapExt};
+use rust_decimal::Decimal;
 
 use crate::{function, pattern::ModeId, pattern::ModeLookup};
 use crate::sequence::SerializationParameters;
@@ -28,6 +29,7 @@ pub struct TemplateParamDeclaration {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModeDeclaration {
     pub on_no_match: ModeOnNoMatch,
+    pub on_multiple_match: Option<OnMultipleMatch>,
     pub warning_on_no_match: bool,
     pub typed: ModeTyped,
 }
@@ -36,6 +38,7 @@ impl Default for ModeDeclaration {
     fn default() -> Self {
         Self {
             on_no_match: ModeOnNoMatch::TextOnlyCopy,
+            on_multiple_match: None,
             warning_on_no_match: false,
             typed: ModeTyped::No,
         }
@@ -53,6 +56,12 @@ pub enum ModeOnNoMatch {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnMultipleMatch {
+    UseLast,
+    Fail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModeTyped {
     Yes,
     No,
@@ -60,15 +69,24 @@ pub enum ModeTyped {
     Lax,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateRule {
+    pub function_id: function::InlineFunctionId,
+    pub import_precedence: i64,
+    pub priority: Decimal,
+    pub module_path: Vec<usize>,
+}
+
 #[derive(Debug)]
 pub struct Declarations {
-    pub mode_lookup: ModeLookup<function::InlineFunctionId>,
+    pub mode_lookup: ModeLookup<TemplateRule>,
     modes: HashMap<ModeId, ModeDeclaration>,
     pub global_variables: Vec<GlobalVariableDeclaration>,
     pub named_templates: Vec<NamedTemplateDeclaration>,
     pub serialization_params: SerializationParameters,
     template_params: HashMap<function::InlineFunctionId, Vec<TemplateParamDeclaration>>,
     template_import_precedence: HashMap<function::InlineFunctionId, i64>,
+    template_module_path: HashMap<function::InlineFunctionId, Vec<usize>>,
 }
 
 impl Declarations {
@@ -81,6 +99,7 @@ impl Declarations {
             serialization_params: SerializationParameters::new(),
             template_params: HashMap::new(),
             template_import_precedence: HashMap::new(),
+            template_module_path: HashMap::new(),
         }
     }
 
@@ -147,5 +166,26 @@ impl Declarations {
 
     pub fn template_import_precedences(&self) -> &HashMap<function::InlineFunctionId, i64> {
         &self.template_import_precedence
+    }
+
+    pub fn add_template_module_path(
+        &mut self,
+        function_id: function::InlineFunctionId,
+        module_path: Vec<usize>,
+    ) {
+        self.template_module_path.insert(function_id, module_path);
+    }
+
+    pub fn template_module_path(
+        &self,
+        function_id: function::InlineFunctionId,
+    ) -> Option<&[usize]> {
+        self.template_module_path.get(&function_id).map(Vec::as_slice)
+    }
+
+    pub fn template_module_paths(
+        &self,
+    ) -> &HashMap<function::InlineFunctionId, Vec<usize>> {
+        &self.template_module_path
     }
 }

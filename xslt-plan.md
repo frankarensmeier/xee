@@ -3,6 +3,8 @@
 Here I will sketch out the plan for XSLT: where we are, what next steps
 are, and how people could contribute.
 
+For dated milestones, obstacles, and fixes, see `xslt-progress.md`.
+
 ## Current status
 
 `xee-xslt-ast` parses the XSTL stylesheets into an AST. This AST is

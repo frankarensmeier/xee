@@ -1462,7 +1462,18 @@ impl<'a> Interpreter<'a> {
             return Err(error::Error::XTTE3100);
         }
 
-        let function_id = self.lookup_pattern(mode, &item);
+        let matched_rule = self.lookup_template_rule(mode, &item);
+
+        if let Some((_, true)) = &matched_rule {
+            let on_multiple_match = mode_declaration
+                .on_multiple_match
+                .unwrap_or_else(|| self.runnable.dynamic_context().on_multiple_match());
+            if matches!(on_multiple_match, crate::declaration::OnMultipleMatch::Fail) {
+                return Err(error::Error::XTRE0540);
+            }
+        }
+
+        let function_id = matched_rule.map(|(rule, _)| rule.function_id);
 
         if let Some(function_id) = function_id {
             let position: IBig = (position + 1).into();
@@ -1863,12 +1874,29 @@ impl<'a> Interpreter<'a> {
         mode: pattern::ModeId,
         item: &sequence::Item,
     ) -> Option<function::InlineFunctionId> {
+        self.lookup_template_rule(mode, item)
+            .map(|(rule, _)| rule.function_id)
+    }
+
+    fn lookup_template_rule(
+        &mut self,
+        mode: pattern::ModeId,
+        item: &sequence::Item,
+    ) -> Option<(crate::declaration::TemplateRule, bool)> {
         self.runnable
             .program()
             .declarations
             .mode_lookup
-            .lookup(mode, |pattern| self.matches(pattern, item))
-            .copied()
+            .lookup_with_ambiguity(
+                mode,
+                |pattern| self.matches(pattern, item),
+                |a, b| {
+                    a.function_id != b.function_id
+                        && a.import_precedence == b.import_precedence
+                        && a.priority == b.priority
+                },
+            )
+            .map(|(rule, ambiguous)| (rule.clone(), ambiguous))
     }
 
     fn lookup_pattern_after(
@@ -1881,8 +1909,12 @@ impl<'a> Interpreter<'a> {
             .program()
             .declarations
             .mode_lookup
-            .lookup_after(mode, &current, |pattern| self.matches(pattern, item))
-            .copied()
+            .lookup_after(
+                mode,
+                |pattern| self.matches(pattern, item),
+                |rule| rule.function_id == current,
+            )
+            .map(|rule| rule.function_id)
     }
 
     fn lookup_pattern_after_lower_import_precedence(
@@ -1890,6 +1922,7 @@ impl<'a> Interpreter<'a> {
         mode: pattern::ModeId,
         current: function::InlineFunctionId,
         current_import_precedence: i64,
+        current_module_path: &[usize],
         item: &sequence::Item,
     ) -> Option<function::InlineFunctionId> {
         let import_precedences = self
@@ -1898,18 +1931,30 @@ impl<'a> Interpreter<'a> {
             .declarations
             .template_import_precedences()
             .clone();
+        let module_paths = self
+            .runnable
+            .program()
+            .declarations
+            .template_module_paths()
+            .clone();
         self.runnable
             .program()
             .declarations
             .mode_lookup
             .lookup_after_lower_import_precedence(
                 mode,
-                &current,
                 current_import_precedence,
                 |pattern| self.matches(pattern, item),
-                |function_id| import_precedences.get(function_id).copied().unwrap_or_default(),
+                |rule| rule.function_id == current,
+                |rule| import_precedences.get(&rule.function_id).copied().unwrap_or_default(),
+                |rule| {
+                    module_paths.get(&rule.function_id).is_some_and(|module_path| {
+                        module_path.len() > current_module_path.len()
+                            && module_path.starts_with(current_module_path)
+                    })
+                },
             )
-            .copied()
+            .map(|rule| rule.function_id)
     }
 
     fn current_mode_or_fallback(&self, fallback: pattern::ModeId) -> pattern::ModeId {
@@ -1951,10 +1996,18 @@ impl<'a> Interpreter<'a> {
                     .declarations
                     .template_import_precedence(current_function)
                     .unwrap_or_default();
+                let current_module_path = self
+                    .runnable
+                    .program()
+                    .declarations
+                    .template_module_path(current_function)
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_default();
                 self.lookup_pattern_after_lower_import_precedence(
                     mode,
                     current_function,
                     current_import_precedence,
+                    &current_module_path,
                     &item,
                 )
             }

@@ -3,6 +3,7 @@ use iri_string::types::{IriStr, IriString};
 use std::{cell::RefCell, fmt::Debug};
 
 use crate::function::{self, Function};
+use crate::declaration::OnMultipleMatch;
 use crate::{error::Error, interpreter::Program};
 use crate::{interpreter, sequence};
 
@@ -44,6 +45,7 @@ pub struct DynamicContext<'a> {
     secondary_result_documents: RefCell<HashMap<String, sequence::Sequence>>,
     principal_result_documents: RefCell<Vec<sequence::Sequence>>,
     principal_result_document_parameters: RefCell<Vec<sequence::SerializationParameters>>,
+    on_multiple_match: OnMultipleMatch,
 }
 
 impl<'a> DynamicContext<'a> {
@@ -62,6 +64,7 @@ impl<'a> DynamicContext<'a> {
         secondary_result_documents: HashMap<String, sequence::Sequence>,
         principal_result_documents: Vec<sequence::Sequence>,
         principal_result_document_parameters: Vec<sequence::SerializationParameters>,
+        on_multiple_match: OnMultipleMatch,
     ) -> Self {
         Self {
             program,
@@ -77,6 +80,7 @@ impl<'a> DynamicContext<'a> {
             secondary_result_documents: RefCell::new(secondary_result_documents),
             principal_result_documents: RefCell::new(principal_result_documents),
             principal_result_document_parameters: RefCell::new(principal_result_document_parameters),
+            on_multiple_match,
         }
     }
 
@@ -166,6 +170,10 @@ impl<'a> DynamicContext<'a> {
 
     pub fn serialization_parameters(&self) -> &sequence::SerializationParameters {
         &self.program.declarations.serialization_params
+    }
+
+    pub fn on_multiple_match(&self) -> OnMultipleMatch {
+        self.on_multiple_match
     }
 
     pub(crate) fn arguments(&self) -> Result<Vec<sequence::Sequence>, Error> {

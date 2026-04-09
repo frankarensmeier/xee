@@ -40,36 +40,42 @@ impl<V: Clone> ModeLookup<V> {
         pattern_lookup.lookup(&mut matches)
     }
 
+    pub(crate) fn lookup_with_ambiguity(
+        &self,
+        mode: ModeId,
+        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        same_rank: impl Fn(&V, &V) -> bool,
+    ) -> Option<(&V, bool)> {
+        let pattern_lookup = self.modes.get(&mode)?;
+        pattern_lookup.lookup_with_ambiguity(&mut matches, same_rank)
+    }
+
     pub(crate) fn lookup_after(
         &self,
         mode: ModeId,
-        current: &V,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
-    ) -> Option<&V>
-    where
-        V: PartialEq,
-    {
+        is_current: impl Fn(&V) -> bool,
+    ) -> Option<&V> {
         let pattern_lookup = self.modes.get(&mode)?;
-        pattern_lookup.lookup_after(current, &mut matches)
+        pattern_lookup.lookup_after(&mut matches, is_current)
     }
 
     pub(crate) fn lookup_after_lower_import_precedence(
         &self,
         mode: ModeId,
-        current: &V,
         current_import_precedence: i64,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        is_current: impl Fn(&V) -> bool,
         import_precedence_of: impl Fn(&V) -> i64,
-    ) -> Option<&V>
-    where
-        V: PartialEq,
-    {
+        is_eligible: impl Fn(&V) -> bool,
+    ) -> Option<&V> {
         let pattern_lookup = self.modes.get(&mode)?;
         pattern_lookup.lookup_after_lower_import_precedence(
-            current,
             current_import_precedence,
             &mut matches,
+            is_current,
             import_precedence_of,
+            is_eligible,
         )
     }
 

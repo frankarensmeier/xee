@@ -171,21 +171,36 @@ impl<V: Clone> PatternLookup<V> {
             .map(|(_, value)| value)
     }
 
+    pub(crate) fn lookup_with_ambiguity(
+        &self,
+        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        same_rank: impl Fn(&V, &V) -> bool,
+    ) -> Option<(&V, bool)> {
+        let mut first = None;
+        for (pattern, value) in &self.patterns {
+            if !matches(pattern) {
+                continue;
+            }
+            if let Some(first_value) = first {
+                return Some((first_value, same_rank(first_value, value)));
+            }
+            first = Some(value);
+        }
+        first.map(|value| (value, false))
+    }
+
     pub(crate) fn lookup_after(
         &self,
-        current: &V,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
-    ) -> Option<&V>
-    where
-        V: PartialEq,
-    {
+        is_current: impl Fn(&V) -> bool,
+    ) -> Option<&V> {
         let mut seen_current = false;
         for (pattern, value) in &self.patterns {
             if !matches(pattern) {
                 continue;
             }
             if !seen_current {
-                if value == current {
+                if is_current(value) {
                     seen_current = true;
                 }
                 continue;
@@ -197,26 +212,24 @@ impl<V: Clone> PatternLookup<V> {
 
     pub(crate) fn lookup_after_lower_import_precedence(
         &self,
-        current: &V,
         current_import_precedence: i64,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        is_current: impl Fn(&V) -> bool,
         import_precedence_of: impl Fn(&V) -> i64,
-    ) -> Option<&V>
-    where
-        V: PartialEq,
-    {
+        is_eligible: impl Fn(&V) -> bool,
+    ) -> Option<&V> {
         let mut seen_current = false;
         for (pattern, value) in &self.patterns {
             if !matches(pattern) {
                 continue;
             }
             if !seen_current {
-                if value == current {
+                if is_current(value) {
                     seen_current = true;
                 }
                 continue;
             }
-            if import_precedence_of(value) < current_import_precedence {
+            if import_precedence_of(value) < current_import_precedence && is_eligible(value) {
                 return Some(value);
             }
         }

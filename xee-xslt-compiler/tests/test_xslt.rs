@@ -3,6 +3,7 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use xee_interpreter::{
+  declaration::OnMultipleMatch,
     context::{StaticContext, StaticContextBuilder},
     error,
     sequence::Sequence,
@@ -61,6 +62,37 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     fs::create_dir_all(&temp_dir).unwrap();
     temp_dir
 }
+
+  fn evaluate_with_stylesheet_base_and_on_multiple_match(
+    xot: &mut Xot,
+    xml: &str,
+    xslt: &str,
+    stylesheet_path: &std::path::Path,
+    on_multiple_match: OnMultipleMatch,
+  ) -> error::SpannedResult<Sequence> {
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let static_context = static_context_builder.build();
+    let program = parse_with_base_dir(
+      static_context,
+      xslt,
+      stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+
+    let root = xot.parse(xml).unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    dynamic_context_builder.on_multiple_match(on_multiple_match);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    runnable.many(xot)
+  }
 
 #[test]
 fn test_transform() {
@@ -893,6 +925,236 @@ fn test_next_match_on_atomic_values_uses_builtin_text_copy_fallback() {
     let output = runnable.many(&mut xot).unwrap();
 
     assert_eq!(xml(&xot, output), "<out>A1BA2CBA3DCBA4EDCBA5</out>");
+}
+
+#[test]
+fn test_apply_imports_on_atomic_values_respects_import_chain() {
+    let temp_dir = unique_temp_dir("apply-imports-001");
+    fs::write(
+        temp_dir.join("apply-imports-001.xsl"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates select="1 to 5"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match=".[. ge 5]" priority="5">A<xsl:apply-imports/></xsl:template>
+  <xsl:template match=".[. ge 3]" priority="3">B<xsl:apply-imports/></xsl:template>
+
+  <xsl:import href="apply-imports-001a.xsl"/>
+  <xsl:import href="apply-imports-001b.xsl"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("apply-imports-001a.xsl"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates select="1 to 5"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match=".[. ge 5]" priority="5">X<xsl:apply-imports/></xsl:template>
+  <xsl:template match=".[. ge 3]" priority="3">Y<xsl:apply-imports/></xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("apply-imports-001b.xsl"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:apply-templates select="1 to 5"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template match=".[. ge 5]" priority="5">P<xsl:apply-imports/></xsl:template>
+  <xsl:template match=".[. ge 3]" priority="3">Q<xsl:apply-imports/></xsl:template>
+  <xsl:template match=".[. ge 1]" priority="1">R<xsl:apply-imports/></xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let stylesheet_path = temp_dir.join("apply-imports-001.xsl");
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>R1R2BQ3BQ4AP5</out>");
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_xsl_element_applies_attribute_sets() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:element name="test" use-attribute-sets="set1 set2"/>
+    </out>
+  </xsl:template>
+
+  <xsl:attribute-set name="set2">
+    <xsl:attribute name="text-decoration">underline</xsl:attribute>
+  </xsl:attribute-set>
+
+  <xsl:attribute-set name="set1">
+    <xsl:attribute name="color">black</xsl:attribute>
+  </xsl:attribute-set>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><test color=\"black\" text-decoration=\"underline\"/></out>");
+}
+
+#[test]
+fn test_xsl_copy_applies_attribute_sets() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/doc">
+    <out>
+      <xsl:copy use-attribute-sets="set1 set2"/>
+    </out>
+  </xsl:template>
+
+  <xsl:attribute-set name="set2">
+    <xsl:attribute name="text-decoration">underline</xsl:attribute>
+  </xsl:attribute-set>
+
+  <xsl:attribute-set name="set1">
+    <xsl:attribute name="color">black</xsl:attribute>
+  </xsl:attribute-set>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><doc color=\"black\" text-decoration=\"underline\"/></out>");
+}
+
+#[test]
+fn test_multiple_matching_templates_can_raise_xtre0540() {
+    let temp_dir = unique_temp_dir("multiple-match-error");
+    let stylesheet_path = temp_dir.join("multiple-match-error.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="doc/a"/></out>
+  </xsl:template>
+
+  <xsl:template match="a">first</xsl:template>
+  <xsl:template match="a">second</xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base_and_on_multiple_match(
+        &mut xot,
+        "<doc><a/></doc>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+        OnMultipleMatch::UseLast,
+    )
+    .unwrap();
+    assert_eq!(xml(&xot, output), "<out>second</out>");
+
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_base_and_on_multiple_match(
+        &mut xot,
+        "<doc><a/></doc>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+        OnMultipleMatch::Fail,
+    )
+    .unwrap_err();
+    assert_eq!(error.error, error::Error::XTRE0540);
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_multiple_matching_templates_across_includes_can_raise_xtre0540() {
+    let temp_dir = unique_temp_dir("multiple-match-imports");
+    fs::write(
+        temp_dir.join("main.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="doc/title" /></out>
+  </xsl:template>
+
+  <xsl:include href="c.xsl"/>
+
+  <xsl:template match="title">MAIN</xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("c.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:import href="e.xsl"/>
+  <xsl:template match="title">C</xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("e.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="title">E</xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let stylesheet_path = temp_dir.join("main.xsl");
+    let stylesheet = fs::read_to_string(&stylesheet_path).unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base_and_on_multiple_match(
+        &mut xot,
+        "<doc><title>T</title></doc>",
+        &stylesheet,
+        &stylesheet_path,
+        OnMultipleMatch::UseLast,
+    )
+    .unwrap();
+    assert_eq!(xml(&xot, output), "<out>MAIN</out>");
+
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_base_and_on_multiple_match(
+        &mut xot,
+        "<doc><title>T</title></doc>",
+        &stylesheet,
+        &stylesheet_path,
+        OnMultipleMatch::Fail,
+    )
+    .unwrap_err();
+    assert_eq!(error.error, error::Error::XTRE0540);
+
+    fs::remove_dir_all(&temp_dir).unwrap();
 }
 
 #[test]

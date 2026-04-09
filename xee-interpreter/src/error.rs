@@ -562,6 +562,8 @@ pub enum Error {
     /// It is a static error if an XSLT element has an attribute that is not
     /// permitted for that instruction.
     XTSE0090,
+    /// Imported or included stylesheet module cannot be located or processed.
+    XTSE0165,
     /// Pattern is not allowed in this XSLT version.
     ///
     /// It is a static error if a pattern uses syntax that is only available in
@@ -589,6 +591,8 @@ pub enum Error {
     /// It is a static error if the select attribute of xsl:break or
     /// xsl:on-completion is present and the instruction has children.
     XTSE3125,
+    /// Multiple template rules match the same item and no unique best rule exists.
+    XTRE0540,
     /// xsl:next-match or xsl:apply-imports without a current item.
     ///
     /// It is a dynamic error if xsl:next-match or xsl:apply-imports is evaluated

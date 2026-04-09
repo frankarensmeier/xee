@@ -7,11 +7,13 @@ use crate::function_compiler::Scopes;
 use crate::{ir, FunctionBuilder, FunctionCompiler};
 
 use xee_interpreter::{error, function, interpreter};
+use xee_interpreter::declaration::TemplateRule;
 use xee_xpath_ast::pattern::transform_pattern;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RuleBuilder {
     import_precedence: i64,
+    module_path: Vec<usize>,
     priority: Decimal,
     declaration_order: i64,
     pattern: Pattern<function::InlineFunctionId>,
@@ -23,9 +25,17 @@ impl RuleBuilder {
         self,
     ) -> (
         Pattern<function::InlineFunctionId>,
-        function::InlineFunctionId,
+        TemplateRule,
     ) {
-        (self.pattern, self.function_id)
+        (
+            self.pattern,
+            TemplateRule {
+                function_id: self.function_id,
+                import_precedence: self.import_precedence,
+                priority: self.priority,
+                module_path: self.module_path,
+            },
+        )
     }
 }
 
@@ -275,6 +285,14 @@ impl<'a> DeclarationCompiler<'a> {
                 }
                 ir::ModeOnNoMatch::Fail => xee_interpreter::declaration::ModeOnNoMatch::Fail,
             },
+            on_multiple_match: Some(match mode.on_multiple_match {
+                ir::OnMultipleMatch::UseLast => {
+                    xee_interpreter::declaration::OnMultipleMatch::UseLast
+                }
+                ir::OnMultipleMatch::Fail => {
+                    xee_interpreter::declaration::OnMultipleMatch::Fail
+                }
+            }),
             warning_on_no_match: mode.warning_on_no_match,
             typed: match mode.typed {
                 ir::ModeTyped::Yes => xee_interpreter::declaration::ModeTyped::Yes,
@@ -402,6 +420,12 @@ impl<'a> DeclarationCompiler<'a> {
         let pattern = transform_pattern(&rule.pattern, |function_definition| {
             function_compiler.compile_function_id(function_definition, (0..0).into())
         })?;
+        let template_rule = TemplateRule {
+            function_id,
+            import_precedence: rule.import_precedence,
+            priority: rule.priority,
+            module_path: rule.module_path.clone(),
+        };
 
         drop(function_compiler);
 
@@ -428,13 +452,16 @@ impl<'a> DeclarationCompiler<'a> {
         self.program
             .declarations
             .add_template_import_precedence(function_id, rule.import_precedence);
+        self.program
+            .declarations
+            .add_template_module_path(function_id, rule.module_path.clone());
 
         self.add_rule(
             &rule.modes,
             rule.import_precedence,
             rule.priority,
             &pattern,
-            function_id,
+            template_rule,
         );
         Ok(())
     }
@@ -445,7 +472,7 @@ impl<'a> DeclarationCompiler<'a> {
         import_precedence: i64,
         priority: Decimal,
         pattern: &Pattern<function::InlineFunctionId>,
-        function_id: function::InlineFunctionId,
+        template_rule: TemplateRule,
     ) {
         // ensure there are no duplicate modes
         let mut mode_seen = HashSet::new();
@@ -462,10 +489,11 @@ impl<'a> DeclarationCompiler<'a> {
                 .or_default()
                 .push(RuleBuilder {
                     import_precedence,
+                    module_path: template_rule.module_path.clone(),
                     priority,
                     declaration_order,
                     pattern: pattern.clone(),
-                    function_id,
+                    function_id: template_rule.function_id,
                 });
         }
     }

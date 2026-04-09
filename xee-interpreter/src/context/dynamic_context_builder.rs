@@ -3,6 +3,7 @@ use std::{cell::RefCell, ops::Deref, rc::Rc};
 use ahash::{HashMap, HashMapExt};
 use iri_string::types::{IriStr, IriString};
 
+use crate::declaration::OnMultipleMatch;
 use crate::{interpreter, sequence, xml};
 
 use super::{DynamicContext, Variables};
@@ -29,6 +30,7 @@ pub struct DynamicContextBuilder<'a> {
     secondary_result_documents: HashMap<String, sequence::Sequence>,
     principal_result_documents: Vec<sequence::Sequence>,
     principal_result_document_parameters: Vec<sequence::SerializationParameters>,
+    on_multiple_match: OnMultipleMatch,
 }
 
 /// A shallow wrapper around a collection of XML documents
@@ -79,6 +81,7 @@ impl<'a> DynamicContextBuilder<'a> {
             secondary_result_documents: HashMap::new(),
             principal_result_documents: Vec::new(),
             principal_result_document_parameters: Vec::new(),
+            on_multiple_match: OnMultipleMatch::UseLast,
         }
     }
 
@@ -163,6 +166,11 @@ impl<'a> DynamicContextBuilder<'a> {
         self
     }
 
+    pub fn on_multiple_match(&mut self, on_multiple_match: OnMultipleMatch) -> &mut Self {
+        self.on_multiple_match = on_multiple_match;
+        self
+    }
+
     fn uris_into_sequence(uris: &[&IriStr]) -> sequence::Sequence {
         // turn the URIs into a sequence
         let items: Vec<sequence::Item> = uris
@@ -191,6 +199,7 @@ impl<'a> DynamicContextBuilder<'a> {
             self.secondary_result_documents.clone(),
             self.principal_result_documents.clone(),
             self.principal_result_document_parameters.clone(),
+            self.on_multiple_match,
         )
     }
 }

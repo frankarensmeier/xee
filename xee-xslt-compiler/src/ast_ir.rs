@@ -40,6 +40,13 @@ struct IrConverter<'a> {
 struct PreprocessedDeclaration {
     declaration: ast::Declaration,
     import_precedence: i64,
+    module_path: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+struct PreprocessedModule {
+    declarations: ast::Declarations,
+    module_path: Vec<usize>,
 }
 
 fn compile_preprocessed_declarations(
@@ -194,13 +201,14 @@ fn process_imports_and_includes(
     declarations: ast::Declarations,
     base_dir: Option<std::path::PathBuf>,
 ) -> error::SpannedResult<Vec<PreprocessedDeclaration>> {
-    let modules = process_stylesheet_module(declarations, base_dir, &mut Vec::new())?;
+    let modules = process_stylesheet_module(declarations, base_dir, &mut Vec::new(), Vec::new())?;
     let mut result = Vec::new();
-    for (import_precedence, declarations) in modules.into_iter().enumerate() {
-        for declaration in declarations {
+    for (import_precedence, module) in modules.into_iter().enumerate() {
+        for declaration in module.declarations {
             result.push(PreprocessedDeclaration {
                 declaration,
                 import_precedence: import_precedence as i64,
+                module_path: module.module_path.clone(),
             });
         }
     }
@@ -211,9 +219,11 @@ fn process_stylesheet_module(
     declarations: ast::Declarations,
     base_dir: Option<std::path::PathBuf>,
     active_paths: &mut Vec<PathBuf>,
-) -> error::SpannedResult<Vec<ast::Declarations>> {
+    module_path: Vec<usize>,
+) -> error::SpannedResult<Vec<PreprocessedModule>> {
     let mut local_declarations = Vec::new();
     let mut imports = Vec::new();
+    let mut import_index = 0usize;
 
     for decl in declarations {
         match &decl {
@@ -229,8 +239,15 @@ fn process_stylesheet_module(
                     .into());
                 }
                 active_paths.push(resolved_path);
-                let processed =
-                    process_stylesheet_module(imported_decls, imported_base_dir, active_paths)?;
+                let mut imported_module_path = module_path.clone();
+                imported_module_path.push(import_index);
+                import_index += 1;
+                let processed = process_stylesheet_module(
+                    imported_decls,
+                    imported_base_dir,
+                    active_paths,
+                    imported_module_path,
+                )?;
                 active_paths.pop();
                 imports.extend(processed);
             }
@@ -246,11 +263,15 @@ fn process_stylesheet_module(
                     .into());
                 }
                 active_paths.push(resolved_path);
-                let mut processed =
-                    process_stylesheet_module(included_decls, included_base_dir, active_paths)?;
+                let mut processed = process_stylesheet_module(
+                    included_decls,
+                    included_base_dir,
+                    active_paths,
+                    module_path.clone(),
+                )?;
                 active_paths.pop();
-                if let Some(included_local_declarations) = processed.pop() {
-                    local_declarations.extend(included_local_declarations);
+                if let Some(included_local_module) = processed.pop() {
+                    local_declarations.extend(included_local_module.declarations);
                 }
                 imports.extend(processed);
             }
@@ -261,7 +282,10 @@ fn process_stylesheet_module(
     }
 
     let mut result = imports;
-    result.push(local_declarations);
+    result.push(PreprocessedModule {
+        declarations: local_declarations,
+        module_path,
+    });
     Ok(result)
 }
 
@@ -283,21 +307,15 @@ fn load_stylesheet(
         .map(std::path::Path::to_path_buf);
 
     // Try to read the file
-    let content = std::fs::read_to_string(&path).map_err(|e| {
-        error::Error::Unsupported(format!(
-            "Failed to load stylesheet '{}': {}",
-            path.display(),
-            e
-        ))
-    })?;
+    let content = std::fs::read_to_string(&path).map_err(|_| error::Error::XTSE0165)?;
 
     // Parse the stylesheet
     let transform = parse_transform(&content).map_err(|e| {
-        error::Error::Unsupported(format!(
-            "Failed to parse imported stylesheet '{}': {:?}",
-            path.display(),
-            e
-        ))
+        let mapped = map_parse_error(&content, e);
+        match mapped.error {
+            error::Error::Unsupported(_) => error::Error::XTSE0165.into(),
+            _ => mapped,
+        }
     })?;
 
     Ok((transform.declarations, canonical, next_base_dir))
@@ -761,7 +779,12 @@ impl<'a> IrConverter<'a> {
         use ast::Declaration::*;
         match &declaration.declaration {
             AttributeSet(_) => Ok(()),
-            Template(template) => self.template(declarations, template, declaration.import_precedence),
+            Template(template) => self.template(
+                declarations,
+                template,
+                declaration.import_precedence,
+                &declaration.module_path,
+            ),
             Mode(mode) => self.mode(declarations, mode),
             Output(output) => self.output(declarations, output),
             // Import/Include already handled during pre-processing in parse_with_base_dir
@@ -1042,6 +1065,7 @@ impl<'a> IrConverter<'a> {
         declarations: &mut ir::Declarations,
         template: &ast::Template,
         import_precedence: i64,
+        module_path: &[usize],
     ) -> error::SpannedResult<()> {
         for param in &template.params {
             self.validate_param(param)?;
@@ -1066,6 +1090,7 @@ impl<'a> IrConverter<'a> {
             if let Some(priority) = &template.priority {
                 declarations.rules.push(ir::Rule {
                     import_precedence,
+                    module_path: module_path.to_vec(),
                     priority: *priority,
                     modes,
                     pattern: transform_pattern(&pattern.pattern, |expr| {
@@ -1083,6 +1108,7 @@ impl<'a> IrConverter<'a> {
             for (split_pattern, priority) in default_priorities {
                 declarations.rules.push(ir::Rule {
                     import_precedence,
+                    module_path: module_path.to_vec(),
                     priority,
                     modes: modes.clone(),
                     pattern: transform_pattern(&split_pattern, |expr| {
@@ -1295,6 +1321,10 @@ impl<'a> IrConverter<'a> {
                     Some(ast::OnNoMatch::ShallowSkip) => ir::ModeOnNoMatch::ShallowSkip,
                     Some(ast::OnNoMatch::Fail) => ir::ModeOnNoMatch::Fail,
                     Some(ast::OnNoMatch::TextOnlyCopy) | None => ir::ModeOnNoMatch::TextOnlyCopy,
+                },
+                on_multiple_match: match mode.on_multiple_match.as_ref() {
+                    Some(ast::OnMultipleMatch::Fail) => ir::OnMultipleMatch::Fail,
+                    Some(ast::OnMultipleMatch::UseLast) | None => ir::OnMultipleMatch::UseLast,
                 },
                 warning_on_no_match: mode.warning_on_no_match,
                 typed: match mode.typed.as_ref() {
@@ -2944,6 +2974,10 @@ impl<'a> IrConverter<'a> {
 
         let copy_expr = ir::Expr::Atom(copy_atom.clone());
 
+        let attribute_set_bindings = self.attribute_set_bindings(
+            copy.use_attribute_sets.as_deref().unwrap_or(&[]),
+        )?;
+
         let sequence_constructor_bindings = if copy.select.is_some() {
             self.with_template_continuation_availability(false, |this| {
                 this.sequence_constructor(&copy.sequence_constructor)
@@ -2951,14 +2985,18 @@ impl<'a> IrConverter<'a> {
         } else {
             self.sequence_constructor(&copy.sequence_constructor)?
         };
-        let (sequence_constructor_atom, sequence_constructor_bindings) =
-            sequence_constructor_bindings.atom_bindings();
+        let append_content_bindings = if copy.use_attribute_sets.is_some() {
+            self.comma_bindings(attribute_set_bindings, sequence_constructor_bindings)
+        } else {
+            sequence_constructor_bindings
+        };
+        let (append_content_atom, append_content_bindings) = append_content_bindings.atom_bindings();
 
-        let bindings = bindings.concat(sequence_constructor_bindings);
+        let bindings = bindings.concat(append_content_bindings);
 
         let append = ir::Expr::XmlAppend(ir::XmlAppend {
             parent: copy_atom,
-            child: sequence_constructor_atom,
+            child: append_content_atom,
         });
 
         let if_expr = ir::Expr::If(ir::If {
@@ -3262,9 +3300,15 @@ impl<'a> IrConverter<'a> {
         } else {
             (element_atom, bindings)
         };
+        let attribute_set_bindings = self.attribute_set_append(
+            element_atom.clone(),
+            element.use_attribute_sets.as_deref().unwrap_or(&[]),
+        )?;
         let sequence_constructor_bindings =
             self.sequence_constructor_append(element_atom, &element.sequence_constructor)?;
-        Ok(bindings.concat(sequence_constructor_bindings))
+        Ok(bindings
+            .concat(attribute_set_bindings)
+            .concat(sequence_constructor_bindings))
     }
 
     fn document(&mut self, document: &ast::Document) -> error::SpannedResult<Bindings> {

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use iri_string::types::IriAbsoluteString;
+use xee_interpreter::declaration::OnMultipleMatch;
 
 use xee_xpath::{
     context::{self, StaticContextBuilder},
@@ -37,6 +38,7 @@ pub(crate) struct XsltTest {
     pub(crate) stylesheets: Vec<Stylesheet>,
     pub(crate) initial_mode: Option<String>,
     pub(crate) initial_template: Option<String>,
+    pub(crate) on_multiple_match: Option<String>,
 }
 
 impl Runnable<XsltLanguage> for XsltTestCase {
@@ -203,6 +205,12 @@ impl Runnable<XsltLanguage> for XsltTestCase {
         builder.documents(run_context.documents.documents().clone());
         builder.variables(variables);
         builder.current_datetime(chrono::offset::Utc::now().into());
+        if let Some(on_multiple_match) = &self.test.on_multiple_match {
+            builder.on_multiple_match(match on_multiple_match {
+                value if value == "error" => OnMultipleMatch::Fail,
+                _ => OnMultipleMatch::UseLast,
+            });
+        }
         let context = builder.build();
         let runnable = program.runnable(&context);
         let result = if let Some(initial_template) = &self.test.initial_template {
@@ -235,6 +243,8 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
         let initial_mode_query = queries.option("initial-mode/@name/string()", convert_string)?;
         let initial_template_query =
             queries.option("initial-template/@name/string()", convert_string)?;
+        let on_multiple_match_query =
+            queries.option("../dependencies/on-multiple-match/@value/string()", convert_string)?;
         let stylesheets_query = queries.many("stylesheet", move |documents, item| {
             let file = file_query.execute(documents, item)?;
             Ok(Stylesheet { path: file })
@@ -248,11 +258,13 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
             let stylesheets = stylesheets_query.execute(documents, item)?;
             let initial_mode = initial_mode_query.execute(documents, item)?;
             let initial_template = initial_template_query.execute(documents, item)?;
+            let on_multiple_match = on_multiple_match_query.execute(documents, item)?;
             Ok(XsltTest {
                 stylesheets,
                 base_dir: base_dir.to_path_buf(),
                 initial_mode,
                 initial_template,
+                on_multiple_match,
             })
         })?;
         let test_case_query = TestCase::load_with_context(queries, context)?;
