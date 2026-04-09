@@ -43,14 +43,12 @@ struct PreprocessedDeclaration {
     declaration: ast::Declaration,
     import_precedence: i64,
     module_path: Vec<usize>,
-    stylesheet_version: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
 struct PreprocessedModule {
     declarations: ast::Declarations,
     module_path: Vec<usize>,
-    stylesheet_version: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -73,9 +71,13 @@ impl DecimalFormatAccumulator {
         &mut self,
         declaration: &ast::DecimalFormat,
         import_precedence: i64,
-        stylesheet_version: Option<u8>,
+        processor_xslt_version: Option<u8>,
+        processor_xpath_version: Option<u8>,
     ) -> error::Result<()> {
-        if stylesheet_version.unwrap_or(3) < 3 && declaration.exponent_separator.is_some() {
+        if declaration.exponent_separator.is_some()
+            && (processor_xslt_version.unwrap_or(3) < 3
+                || processor_xpath_version.unwrap_or(31) < 31)
+        {
             return Err(error::Error::XTSE0090);
         }
 
@@ -226,6 +228,8 @@ fn augment_static_context_with_decimal_formats(
 ) -> error::SpannedResult<()> {
     let mut default_decimal_format = DecimalFormatAccumulator::default();
     let mut named_decimal_formats = HashMap::new();
+    let processor_xslt_version = static_context.processor_xslt_version();
+    let processor_xpath_version = static_context.processor_xpath_version();
 
     for declaration in declarations {
         let ast::Declaration::DecimalFormat(decimal_format) = &declaration.declaration else {
@@ -239,13 +243,15 @@ fn augment_static_context_with_decimal_formats(
                 .merge(
                     decimal_format,
                     declaration.import_precedence,
-                    declaration.stylesheet_version,
+                    processor_xslt_version,
+                    processor_xpath_version,
                 )
         } else {
             default_decimal_format.merge(
                 decimal_format,
                 declaration.import_precedence,
-                declaration.stylesheet_version,
+                processor_xslt_version,
+                processor_xpath_version,
             )
         };
 
@@ -302,6 +308,9 @@ pub fn parse_with_base_dir_and_initial_mode(
     static_context.set_stylesheet_xslt_version(stylesheet_version);
     if static_context.processor_xslt_version().is_none() {
         static_context.set_processor_xslt_version(Some(3));
+    }
+    if static_context.processor_xpath_version().is_none() {
+        static_context.set_processor_xpath_version(Some(31));
     }
     let transform = parse_transform(xslt);
     // TODO: better error handling
@@ -447,7 +456,6 @@ fn process_imports_and_includes(
                 declaration,
                 import_precedence: import_precedence as i64,
                 module_path: module.module_path.clone(),
-                stylesheet_version: module.stylesheet_version,
             });
         }
     }
@@ -459,7 +467,7 @@ fn process_stylesheet_module(
     base_dir: Option<std::path::PathBuf>,
     active_paths: &mut Vec<PathBuf>,
     module_path: Vec<usize>,
-    stylesheet_version: Option<u8>,
+    _stylesheet_version: Option<u8>,
 ) -> error::SpannedResult<Vec<PreprocessedModule>> {
     let mut local_declarations = Vec::new();
     let mut imports = Vec::new();
@@ -527,7 +535,6 @@ fn process_stylesheet_module(
     result.push(PreprocessedModule {
         declarations: local_declarations,
         module_path,
-        stylesheet_version,
     });
     Ok(result)
 }

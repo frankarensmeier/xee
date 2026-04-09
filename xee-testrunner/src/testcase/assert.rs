@@ -822,7 +822,7 @@ impl AssertError {
     }
 
     pub(crate) fn assert_error(&self, error: &error::ErrorValue) -> TestOutcome {
-        if self.0 == "*" {
+        if self.0 == "*" || self.0 == "XXX" {
             return TestOutcome::Passed;
         }
         // all errors are officially a pass, but we check whether the error

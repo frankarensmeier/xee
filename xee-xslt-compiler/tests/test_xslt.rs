@@ -75,6 +75,31 @@ fn evaluate_with_stylesheet_base(
     runnable.many(xot)
   }
 
+  fn evaluate_with_processor_versions(
+    xot: &mut Xot,
+    xml: &str,
+    xslt: &str,
+    processor_xslt_version: u8,
+    processor_xpath_version: u8,
+  ) -> error::SpannedResult<Sequence> {
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.processor_xslt_version(Some(processor_xslt_version));
+    static_context_builder.processor_xpath_version(Some(processor_xpath_version));
+    let static_context = static_context_builder.build();
+    let program = parse(static_context, xslt).unwrap();
+
+    let root = xot.parse(xml).unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    runnable.many(xot)
+  }
+
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2515,6 +2540,47 @@ fn test_format_number_accepts_high_precision_decimal_literal() {
         xml(&xot, output),
         "<out>123456789012345678901234567890.1234567890123456789</out>"
     );
+}
+
+#[test]
+fn test_format_number_accepts_exponent_separator_in_xpath31_xslt30_processor_mode() {
+    let mut xot = Xot::new();
+    let output = evaluate_with_processor_versions(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:decimal-format exponent-separator="E" />
+  <xsl:template match="doc">
+    <out><xsl:value-of select="format-number(123.456, '0.0000E0')"/></out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        3,
+        31,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>1.2346E2</out>");
+}
+
+#[test]
+fn test_format_number_rejects_exponent_separator_without_xpath31_processor_mode() {
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.processor_xslt_version(Some(3));
+    static_context_builder.processor_xpath_version(Some(30));
+    let error = parse(
+        static_context_builder.build(),
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:decimal-format exponent-separator="E" />
+  <xsl:template match="doc">
+    <out><xsl:value-of select="format-number(123.456, '0.0000E0')"/></out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE0090);
 }
 
 #[test]

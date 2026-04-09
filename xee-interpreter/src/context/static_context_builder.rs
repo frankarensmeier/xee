@@ -14,6 +14,7 @@ pub struct StaticContextBuilder<'a> {
     default_function_namespace: &'a str,
     static_base_uri: Option<IriAbsoluteString>,
     processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
 }
 
 impl<'a> StaticContextBuilder<'a> {
@@ -83,6 +84,12 @@ impl<'a> StaticContextBuilder<'a> {
         self
     }
 
+    /// Set the XPath processor version used for version-dependent behavior.
+    pub fn processor_xpath_version(&mut self, processor_xpath_version: Option<u8>) -> &mut Self {
+        self.processor_xpath_version = processor_xpath_version;
+        self
+    }
+
     /// Disable a function name in this static context.
     pub fn disable_function(&mut self, name: OwnedName) -> &mut Self {
         self.disabled_functions.insert(name);
@@ -117,6 +124,7 @@ impl<'a> StaticContextBuilder<'a> {
             self.static_base_uri.clone(),
         );
         static_context.set_processor_xslt_version(self.processor_xslt_version);
+        static_context.set_processor_xpath_version(self.processor_xpath_version);
         static_context
     }
 }

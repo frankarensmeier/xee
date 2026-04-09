@@ -71,6 +71,7 @@ pub struct StaticContext {
     decimal_formats: HashMap<OwnedName, DecimalFormatSymbols>,
     stylesheet_xslt_version: Option<u8>,
     processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
 }
 
 impl Default for StaticContext {
@@ -96,6 +97,7 @@ impl From<XPathParserContext> for StaticContext {
             decimal_formats: HashMap::default(),
             stylesheet_xslt_version: None,
             processor_xslt_version: None,
+            processor_xpath_version: None,
         }
     }
 }
@@ -117,6 +119,7 @@ impl StaticContext {
             decimal_formats: HashMap::default(),
             stylesheet_xslt_version: None,
             processor_xslt_version: None,
+            processor_xpath_version: None,
         }
     }
 
@@ -143,6 +146,7 @@ impl StaticContext {
             decimal_formats: self.decimal_formats.clone(),
             stylesheet_xslt_version: self.stylesheet_xslt_version,
             processor_xslt_version: self.processor_xslt_version,
+            processor_xpath_version: self.processor_xpath_version,
         }
     }
 
@@ -160,6 +164,7 @@ impl StaticContext {
             decimal_formats: self.decimal_formats.clone(),
             stylesheet_xslt_version: self.stylesheet_xslt_version,
             processor_xslt_version: self.processor_xslt_version,
+            processor_xpath_version: self.processor_xpath_version,
         }
     }
 
@@ -205,6 +210,14 @@ impl StaticContext {
 
     pub fn set_processor_xslt_version(&mut self, xslt_version: Option<u8>) {
         self.processor_xslt_version = xslt_version;
+    }
+
+    pub fn processor_xpath_version(&self) -> Option<u8> {
+        self.processor_xpath_version
+    }
+
+    pub fn set_processor_xpath_version(&mut self, xpath_version: Option<u8>) {
+        self.processor_xpath_version = xpath_version;
     }
 
     pub fn default_collation(&self) -> error::Result<Rc<Collation>> {

@@ -39,6 +39,8 @@ pub(crate) struct XsltTest {
     pub(crate) initial_mode: Option<String>,
     pub(crate) initial_template: Option<String>,
     pub(crate) on_multiple_match: Option<String>,
+    pub(crate) processor_xslt_version: Option<u8>,
+    pub(crate) processor_xpath_version: Option<u8>,
 }
 
 impl Runnable<XsltLanguage> for XsltTestCase {
@@ -103,6 +105,12 @@ impl Runnable<XsltLanguage> for XsltTestCase {
         };
         let mut static_context_builder = StaticContextBuilder::default();
         static_context_builder.static_base_uri(Some(stylesheet_uri.clone()));
+        if let Some(processor_xslt_version) = self.test.processor_xslt_version {
+            static_context_builder.processor_xslt_version(Some(processor_xslt_version));
+        }
+        if let Some(processor_xpath_version) = self.test.processor_xpath_version {
+            static_context_builder.processor_xpath_version(Some(processor_xpath_version));
+        }
         let static_context = static_context_builder.build();
 
         // Get the directory of the stylesheet for resolving imports/includes
@@ -245,6 +253,16 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
             queries.option("initial-template/@name/string()", convert_string)?;
         let on_multiple_match_query =
             queries.option("../dependencies/on-multiple-match/@value/string()", convert_string)?;
+        let spec_values_query =
+            queries.many("dependencies/spec/@value/string()", convert_string)?;
+        let feature_value_query = queries.one("@value/string()", convert_string)?;
+        let feature_satisfied_query = queries.option("@satisfied/string()", convert_string)?;
+        let feature_values_query = queries.many("dependencies/feature", move |documents, item| {
+            Ok((
+                feature_value_query.execute(documents, item)?,
+                feature_satisfied_query.execute(documents, item)?,
+            ))
+        })?;
         let stylesheets_query = queries.many("stylesheet", move |documents, item| {
             let file = file_query.execute(documents, item)?;
             Ok(Stylesheet { path: file })
@@ -265,12 +283,37 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
                 initial_mode,
                 initial_template,
                 on_multiple_match,
+                processor_xslt_version: None,
+                processor_xpath_version: None,
             })
         })?;
         let test_case_query = TestCase::load_with_context(queries, context)?;
         let xslt_test_case_query = queries.one(".", move |documents, item| {
             let test_case = test_case_query.execute(documents, item)?;
-            let xslt_test = xslt_test_query.execute(documents, item)?;
+            let mut xslt_test = xslt_test_query.execute(documents, item)?;
+            let spec_values = spec_values_query.execute(documents, item)?;
+            xslt_test.processor_xslt_version = spec_values
+                .iter()
+                .flat_map(|value| value.split_whitespace())
+                .filter_map(|value| match value {
+                    value if value.starts_with("XSLT10") => Some(1),
+                    value if value.starts_with("XSLT20") => Some(2),
+                    value if value.starts_with("XSLT30") => Some(3),
+                    _ => None,
+                })
+                .min();
+            let feature_values = feature_values_query.execute(documents, item)?;
+            xslt_test.processor_xpath_version = feature_values
+                .iter()
+                .filter(|(value, _)| value == "XPath_3.1")
+                .map(|(_, satisfied)| {
+                    if satisfied.as_deref() == Some("false") {
+                        30
+                    } else {
+                        31
+                    }
+                })
+                .min();
             Ok(XsltTestCase {
                 test_case,
                 test: xslt_test,
@@ -279,4 +322,66 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
 
         Ok(xslt_test_case_query)
     }
+}
+
+#[cfg(test)]
+mod tests {
+        use super::*;
+
+        use crate::ns::XSLT_TEST_NS;
+
+        #[test]
+        fn test_load_xslt_test_case_processor_versions_from_dependencies() {
+                let xml = format!(
+                        r#"
+<test-case xmlns="{}" name="format-number-069b">
+    <dependencies>
+        <spec value="XSLT20"/>
+        <feature value="XPath_3.1" satisfied="false"/>
+    </dependencies>
+    <test>
+        <stylesheet file="format-number-069.xsl"/>
+        <initial-template name="main"/>
+    </test>
+    <result>
+        <error code="XXX"/>
+    </result>
+</test-case>"#,
+                        XSLT_TEST_NS,
+                );
+                let context = LoadContext::new::<XsltLanguage>(PathBuf::from("/tmp/test-set.xml"));
+                let test_case = XsltTestCase::load_from_xml_with_context(&xml, &context).unwrap();
+
+                assert_eq!(test_case.test.processor_xslt_version, Some(2));
+                assert_eq!(test_case.test.processor_xpath_version, Some(30));
+        }
+
+        #[test]
+        fn test_load_nested_xslt_test_case_processor_versions_from_dependencies() {
+                let xml = format!(
+                        r#"
+<test-set xmlns="{}" name="format-number">
+    <test-case name="format-number-069b">
+        <dependencies>
+            <spec value="XSLT20"/>
+            <feature value="XPath_3.1" satisfied="false"/>
+        </dependencies>
+        <test>
+            <stylesheet file="format-number-069.xsl"/>
+            <initial-template name="main"/>
+        </test>
+        <result>
+            <error code="XXX"/>
+        </result>
+    </test-case>
+</test-set>"#,
+                        XSLT_TEST_NS,
+                );
+                let context = LoadContext::new::<XsltLanguage>(PathBuf::from("/tmp/test-set.xml"));
+                let test_set = TestSet::<XsltLanguage>::load_from_xml_with_context(&xml, &context).unwrap();
+
+                let test_case = &test_set.test_cases[0];
+                assert_eq!(test_case.test.processor_xslt_version, Some(2));
+                assert_eq!(test_case.test.processor_xpath_version, Some(30));
+        }
 }

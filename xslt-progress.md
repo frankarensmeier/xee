@@ -4,6 +4,57 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 00:49 CEST
+
+### Status snapshot
+
+- Checkpoint focus: finish the `format-number` exponent-separator tranche and close the vendor-side `069b` placeholder mismatch.
+- Newly unfiltered and passing vendor cases: `format-number-069a`, `format-number-069b`.
+- Checked suite after validation: `3378 passed / 0 failed / 0 error / 0 wrongE / 11217 filtered`.
+- Remaining filtered `format-number` cases after this checkpoint:
+  - `format-number-031`
+  - `format-number-040`
+  - `format-number-041`
+  - `format-number-050`
+  - `format-number-051`
+  - `format-number-070`
+
+### Progress made
+
+- Added processor XPath version to the shared static context and static-context builder so XSLT compilation can gate version-sensitive behavior on processor capabilities instead of stylesheet `@version` alone.
+- Changed decimal-format validation so `exponent-separator` is accepted only in XSLT 3.0 processor mode with XPath 3.1 enabled, while the existing XSLT 2.0 rejection path still yields `XTSE0090`.
+- Implemented exponent-picture parsing and formatting in `fn:format-number`, including exponent digit padding and post-rounding exponent carry handling for patterns such as `0.0000E0`.
+- Taught the XSLT test runner to read XSLT vendor dependency metadata from `<spec>` and `<feature>` elements and use it to override per-test processor XSLT/XPath versions.
+- Treated vendor `<error code="XXX"/>` expectations as an any-error placeholder in the XSLT assertion path, which resolves the `format-number-069b` suite convention cleanly.
+- Added focused regressions for exponent-separator acceptance/rejection and for XSLT testcase loader extraction of processor versions from vendor dependency metadata.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler format_number -- --nocapture`
+- `cargo test -p xee-testrunner processor_versions_from_dependencies -- --nocapture`
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/fn/format-number/_format-number-test-set.xml format-number-069`
+- `cargo run -p xee-testrunner -- check vendor/xslt-tests`
+
+### Obstacles seen
+
+#### Exponent-separator support needed both gating and runtime formatting
+
+- Symptoms:
+  - `format-number-069a` initially failed with `XTSE0090`, then later compiled but raised `FODF1310` because the formatter still rejected exponent pictures.
+- Root cause:
+  - acceptance was tied to stylesheet version instead of processor capability, and the runtime picture parser/formatter had no scientific-notation branch.
+- Resolution:
+  - add explicit processor XPath version state, gate decimal-format exponent support on processor XSLT plus XPath versions, and implement exponent-picture parsing/formatting in the numeric library.
+
+#### XSLT vendor dependency metadata uses a different shape than the generic dependency loader
+
+- Symptoms:
+  - live testrunner runs ignored the intended processor-version overrides even after focused loader experiments worked on synthetic XML.
+- Root cause:
+  - the XSLT vendor catalog encodes dependencies as `<spec>` and `<feature>` children under `<dependencies>`, not as generic `<dependency type=...>` elements.
+- Resolution:
+  - parse the XSLT-specific `<spec>` and `<feature>` elements directly in the XSLT testcase loader instead of reusing the generic dependency element shape.
+
 ## 2026-04-10 00:26 CEST
 
 ### Status snapshot

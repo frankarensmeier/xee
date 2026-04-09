@@ -152,6 +152,7 @@ struct SubPicture {
     min_integer: usize,
     min_fraction: usize,
     max_fraction: usize,
+    min_exponent: usize,
     grouping_positions: Vec<usize>,
     repeat_grouping: Option<usize>,
     multiplier: i32,
@@ -353,16 +354,26 @@ fn format_parsed_number(
     } else {
         &picture.positive
     };
-    number.multiply_by_power_of_ten(subpicture.multiplier);
+    let mut exponent = 0i32;
+    if subpicture.min_exponent > 0 && !number.is_zero() {
+        exponent = number.integer_digit_count() - subpicture.min_integer as i32;
+    }
+    number.multiply_by_power_of_ten(subpicture.multiplier - exponent);
 
-    let (integer_digits, _, mut fraction_digits) = number.rounded_parts(subpicture.max_fraction);
+    let min_integer = subpicture.min_integer.max(1);
+    let (mut integer_digits, _, mut fraction_digits) = number.rounded_parts(subpicture.max_fraction);
+    if subpicture.min_exponent > 0 && integer_digits.len() > min_integer {
+        let extra_exponent = (integer_digits.len() - min_integer) as i32;
+        exponent += extra_exponent;
+        number.multiply_by_power_of_ten(-extra_exponent);
+        (integer_digits, _, fraction_digits) = number.rounded_parts(subpicture.max_fraction);
+    }
     while fraction_digits.len() > subpicture.min_fraction && fraction_digits.last() == Some(&0) {
         fraction_digits.pop();
     }
 
     let mut integer = digits_to_ascii_string(&integer_digits);
     integer = integer.trim_start_matches('0').to_string();
-    let min_integer = subpicture.min_integer.max(1);
     if integer.is_empty() {
         integer = "0".repeat(min_integer);
     } else if integer.len() < min_integer {
@@ -393,6 +404,17 @@ fn format_parsed_number(
             &digits_to_ascii_string(&fraction_digits),
             decimal_format.zero_digit,
         ));
+    }
+    if subpicture.min_exponent > 0 {
+        result.push(decimal_format.exponent_separator);
+        if exponent < 0 {
+            result.push(decimal_format.minus_sign);
+        }
+        let exponent_digits = exponent.abs().to_string();
+        if exponent_digits.len() < subpicture.min_exponent {
+            result.push_str(&"0".repeat(subpicture.min_exponent - exponent_digits.len()));
+        }
+        result.push_str(&substitute_digits(&exponent_digits, decimal_format.zero_digit));
     }
     if negative {
         if let Some(negative_subpicture) = &picture.negative {
@@ -516,6 +538,34 @@ fn parse_subpicture(
         return Err(error::Error::FODF1310);
     }
 
+    let exponent_count = active
+        .iter()
+        .filter(|c| **c == decimal_format.exponent_separator)
+        .count();
+    if exponent_count > 1 {
+        return Err(error::Error::FODF1310);
+    }
+    let exponent_index = active
+        .iter()
+        .position(|c| *c == decimal_format.exponent_separator);
+    let (active, exponent_part) = if let Some(exponent_index) = exponent_index {
+        (&active[..exponent_index], Some(&active[exponent_index + 1..]))
+    } else {
+        (active, None)
+    };
+    let min_exponent = if let Some(exponent_part) = exponent_part {
+        if exponent_part.is_empty()
+            || exponent_part
+                .iter()
+                .any(|c| mandatory_digit_value(*c, decimal_format).is_none())
+        {
+            return Err(error::Error::FODF1310);
+        }
+        exponent_part.len()
+    } else {
+        0
+    };
+
     let decimal_count = active
         .iter()
         .filter(|c| **c == decimal_format.decimal_separator)
@@ -573,6 +623,7 @@ fn parse_subpicture(
         min_integer,
         min_fraction,
         max_fraction,
+        min_exponent,
         grouping_positions,
         repeat_grouping,
         multiplier,
@@ -699,6 +750,7 @@ fn is_active_picture_char(c: char, decimal_format: &context::DecimalFormatSymbol
     is_digit_placeholder(c, decimal_format)
         || c == decimal_format.decimal_separator
         || c == decimal_format.grouping_separator
+    || c == decimal_format.exponent_separator
 }
 
 fn is_digit_placeholder(c: char, decimal_format: &context::DecimalFormatSymbols) -> bool {
@@ -789,6 +841,16 @@ fn substitute_digits(digits: &str, zero_digit: char) -> String {
             None => c,
         })
         .collect()
+}
+
+impl ParsedNumber {
+    fn integer_digit_count(&self) -> i32 {
+        self.digits.len() as i32 - self.scale
+    }
+
+    fn is_zero(&self) -> bool {
+        self.digits.len() == 1 && self.digits[0] == 0
+    }
 }
 
 #[xpath_fn("fn:random-number-generator() as map(xs:string, item())")]
