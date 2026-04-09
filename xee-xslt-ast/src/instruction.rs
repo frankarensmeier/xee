@@ -447,6 +447,7 @@ impl InstructionParser for ast::AttributeSet {
             ATTRIBUTE_SET_CONTENT.get_or_init(|| children(instruction(names.xsl_attribute).many()));
         Ok(ast::AttributeSet {
             name: attributes.required(names.name, attributes.eqname())?,
+            xml_base: attributes.optional(content.state.names.xml_base, attributes.uri())?,
             use_attribute_sets: attributes
                 .optional(names.use_attribute_sets, attributes.eqnames())?,
             visibility: attributes

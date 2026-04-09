@@ -547,6 +547,8 @@ pub enum Error {
     /// precedence, unless it also contains another binding with the same name
     /// and higher import precedence.
     XTSE0010,
+    /// Missing XTSE0710 XSLT static error code needed by attribute-set validation.
+    XTSE0710,
     /// Invalid value for an XSLT-defined attribute.
     ///
     /// It is a static error if an attribute defined for an XSLT instruction

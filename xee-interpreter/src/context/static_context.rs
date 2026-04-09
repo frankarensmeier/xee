@@ -92,6 +92,15 @@ impl StaticContext {
         )
     }
 
+    pub fn clone_with_static_base_uri(&self, static_base_uri: Option<IriAbsoluteString>) -> Self {
+        Self::new(
+            self.parser_context.namespaces.clone(),
+            self.parser_context.variable_names.clone(),
+            self.disabled_functions.clone(),
+            static_base_uri,
+        )
+    }
+
     pub fn namespaces(&self) -> &Namespaces {
         &self.parser_context.namespaces
     }

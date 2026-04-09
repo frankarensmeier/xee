@@ -367,6 +367,7 @@ pub(crate) struct Names {
     pub(crate) standard: StandardNames,
     // standard attributes on literal result elements
     pub(crate) xsl_standard: StandardNames,
+    pub(crate) xml_base: xot::NameId,
 }
 
 pub(crate) struct StandardNames {
@@ -414,6 +415,7 @@ impl StandardNames {
 impl Names {
     pub(crate) fn new(xot: &mut Xot) -> Self {
         let xsl_ns = xot.add_namespace("http://www.w3.org/1999/XSL/Transform");
+        let xml_ns = xot.add_namespace("http://www.w3.org/XML/1998/namespace");
 
         let ignore_xml_space_parents = [
             xot.add_name_ns("accumulator", xsl_ns),
@@ -612,6 +614,7 @@ impl Names {
             standard: StandardNames::no_ns(xot),
             // standard attributes on literal result elements
             xsl_standard: StandardNames::xsl(xot, xsl_ns),
+            xml_base: xot.add_name_ns("base", xml_ns),
         }
     }
 

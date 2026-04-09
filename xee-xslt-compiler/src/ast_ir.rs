@@ -1,4 +1,5 @@
 use ahash::{HashMap, HashMapExt, HashSetExt};
+use iri_string::types::{IriAbsoluteString, IriReferenceStr};
 use xee_name::{Name, Namespaces, FN_NAMESPACE};
 
 use std::collections::HashSet;
@@ -23,6 +24,7 @@ use crate::priority::default_priority;
 struct IrConverter<'a> {
     variables: Variables,
     static_context: &'a StaticContext,
+    overridden_static_context: Option<StaticContext>,
     initial_mode: ast::ApplyTemplatesModeValue,
     xslt_functions: HashMap<(OwnedName, u8), OwnedName>,
     namespace_aliases: HashMap<String, String>,
@@ -326,6 +328,7 @@ impl<'a> IrConverter<'a> {
         IrConverter {
             variables: Variables::new(),
             static_context,
+            overridden_static_context: None,
             initial_mode,
             xslt_functions: HashMap::new(),
             namespace_aliases: HashMap::new(),
@@ -353,6 +356,48 @@ impl<'a> IrConverter<'a> {
         let result = f(self);
         self.template_continuation_available = previous;
         result
+    }
+
+    fn with_attribute_set_variable_scope<T, F>(&mut self, f: F) -> error::SpannedResult<T>
+    where
+        F: FnOnce(&mut Self) -> error::SpannedResult<T>,
+    {
+        let local_scopes = self.variables.split_local_scopes();
+        let result = f(self);
+        self.variables.restore_local_scopes(local_scopes);
+        result
+    }
+
+    fn current_static_context(&self) -> &StaticContext {
+        self.overridden_static_context
+            .as_ref()
+            .unwrap_or(self.static_context)
+    }
+
+    fn with_static_base_uri<T, F>(
+        &mut self,
+        static_base_uri: Option<IriAbsoluteString>,
+        f: F,
+    ) -> error::SpannedResult<T>
+    where
+        F: FnOnce(&mut Self) -> error::SpannedResult<T>,
+    {
+        let previous = self.overridden_static_context.take();
+        let base_context = previous.as_ref().unwrap_or(self.static_context);
+        self.overridden_static_context = Some(base_context.clone_with_static_base_uri(static_base_uri));
+        let result = f(self);
+        self.overridden_static_context = previous;
+        result
+    }
+
+    fn resolve_static_base_uri(&self, uri: &str) -> Option<IriAbsoluteString> {
+        let reference: &IriReferenceStr = uri.try_into().ok()?;
+        if let Some(base) = self.current_static_context().static_base_uri() {
+            let resolved = reference.resolve_against(base);
+            IriAbsoluteString::try_from(resolved.to_string()).ok()
+        } else {
+            IriAbsoluteString::try_from(uri.to_string()).ok()
+        }
     }
 
     fn raise_error(&mut self, error: RaisedError) -> Bindings {
@@ -393,7 +438,7 @@ impl<'a> IrConverter<'a> {
 
     fn static_function_atom(&mut self, name: &str, namespace: &str, arity: u8) -> ir::Atom {
         ir::Atom::Const(ir::Const::StaticFunctionReference(
-            self.static_context
+            self.current_static_context()
                 .function_id_by_name(
                     &Name::new(name.to_string(), namespace.to_string(), String::new()),
                     arity,
@@ -436,6 +481,7 @@ impl<'a> IrConverter<'a> {
     ) -> error::SpannedResult<ir::Declarations> {
         self.register_xslt_function_names(declarations)?;
         self.collect_attribute_sets(declarations);
+        self.validate_attribute_set_references()?;
         self.collect_named_outputs(declarations);
         self.collect_character_maps(declarations);
         self.collect_named_templates_with_absent_context(declarations);
@@ -489,6 +535,42 @@ impl<'a> IrConverter<'a> {
                 .or_default()
                 .push((**attribute_set).clone());
         }
+    }
+
+    fn validate_attribute_set_references(&self) -> error::SpannedResult<()> {
+        for key in self.attribute_sets.keys() {
+            self.validate_attribute_set_references_for(key, &mut HashSet::new())?;
+        }
+        Ok(())
+    }
+
+    fn validate_attribute_set_references_for(
+        &self,
+        key: &(String, String),
+        visiting: &mut HashSet<(String, String)>,
+    ) -> error::SpannedResult<()> {
+        if !visiting.insert(key.clone()) {
+            return Ok(());
+        }
+
+        let Some(attribute_sets) = self.attribute_sets.get(key) else {
+            return Err(error::Error::XTSE0710.into());
+        };
+
+        for attribute_set in attribute_sets {
+            if let Some(use_attribute_sets) = &attribute_set.use_attribute_sets {
+                for name in use_attribute_sets {
+                    let nested_key = Self::attribute_set_key(name);
+                    if !self.attribute_sets.contains_key(&nested_key) {
+                        return Err(error::Error::XTSE0710.into());
+                    }
+                    self.validate_attribute_set_references_for(&nested_key, visiting)?;
+                }
+            }
+        }
+
+        visiting.remove(key);
+        Ok(())
     }
 
     fn collect_character_maps(&mut self, declarations: &[PreprocessedDeclaration]) {
@@ -2094,45 +2176,49 @@ impl<'a> IrConverter<'a> {
         &mut self,
         use_attribute_sets: &[ast::EqName],
     ) -> error::SpannedResult<Bindings> {
-        let mut combined: Option<Bindings> = None;
+        self.with_attribute_set_variable_scope(|this| {
+            let mut combined: Option<Bindings> = None;
 
-        for name in use_attribute_sets {
-            let key = Self::attribute_set_key(name);
-            if self.active_attribute_sets.contains(&key) {
-                return Err(error::Error::XTDE0640.into());
+            for name in use_attribute_sets {
+                let key = Self::attribute_set_key(name);
+                if this.active_attribute_sets.contains(&key) {
+                    return Err(error::Error::XTDE0640.into());
+                }
+
+                let attribute_sets = this.attribute_sets.get(&key).cloned().ok_or(error::Error::XTSE0710)?;
+
+                this.active_attribute_sets.push(key);
+                for attribute_set in attribute_sets {
+                    let attribute_set_base_uri = attribute_set
+                        .xml_base
+                        .as_deref()
+                        .and_then(|uri| this.resolve_static_base_uri(uri));
+                    this.with_static_base_uri(attribute_set_base_uri, |this| {
+                        if let Some(nested) = &attribute_set.use_attribute_sets {
+                            let nested_bindings = this.attribute_set_bindings_with_active(nested)?;
+                            combined = Some(match combined.take() {
+                                Some(existing) => this.comma_bindings(existing, nested_bindings),
+                                None => nested_bindings,
+                            });
+                        }
+                        for attribute in &attribute_set.attributes {
+                            let attribute_bindings = this.attribute(attribute)?;
+                            combined = Some(match combined.take() {
+                                Some(existing) => this.comma_bindings(existing, attribute_bindings),
+                                None => attribute_bindings,
+                            });
+                        }
+                        Ok(())
+                    })?;
+                }
+                this.active_attribute_sets.pop();
             }
 
-            let attribute_sets = self.attribute_sets.get(&key).cloned().ok_or_else(|| {
-                error::Error::Unsupported(format!(
-                    "Unknown attribute-set: {}",
-                    name.local_name()
-                ))
-            })?;
-
-            self.active_attribute_sets.push(key);
-            for attribute_set in attribute_sets {
-                if let Some(nested) = &attribute_set.use_attribute_sets {
-                    let nested_bindings = self.attribute_set_bindings_with_active(nested)?;
-                    combined = Some(match combined {
-                        Some(existing) => self.comma_bindings(existing, nested_bindings),
-                        None => nested_bindings,
-                    });
-                }
-                for attribute in &attribute_set.attributes {
-                    let attribute_bindings = self.attribute(attribute)?;
-                    combined = Some(match combined {
-                        Some(existing) => self.comma_bindings(existing, attribute_bindings),
-                        None => attribute_bindings,
-                    });
-                }
-            }
-            self.active_attribute_sets.pop();
-        }
-
-        Ok(combined.unwrap_or_else(|| {
-            let empty_sequence = self.empty_sequence();
-            Bindings::empty().bind_expr_no_span(&mut self.variables, empty_sequence.value)
-        }))
+            Ok(combined.unwrap_or_else(|| {
+                let empty_sequence = this.empty_sequence();
+                Bindings::empty().bind_expr_no_span(&mut this.variables, empty_sequence.value)
+            }))
+        })
     }
 
     fn comma_bindings(&mut self, left: Bindings, right: Bindings) -> Bindings {
@@ -3179,7 +3265,7 @@ impl<'a> IrConverter<'a> {
             .iter()
             .find(|namespace| namespace.prefix == prefix)
             .map(|namespace| namespace.uri.as_str())
-            .or_else(|| self.static_context.namespaces().by_prefix(prefix))?;
+            .or_else(|| self.current_static_context().namespaces().by_prefix(prefix))?;
         Some((local_name.to_string(), namespace.to_string()))
     }
 
@@ -3188,7 +3274,7 @@ impl<'a> IrConverter<'a> {
             .iter()
             .find(|namespace| namespace.prefix.is_empty())
             .map(|namespace| namespace.uri.clone())
-            .unwrap_or_else(|| self.static_context.namespaces().default_element_namespace().to_string())
+            .unwrap_or_else(|| self.current_static_context().namespaces().default_element_namespace().to_string())
     }
 
     fn encode_literal_namespaces(&self, namespaces: &[ast::LiteralNamespace]) -> String {
@@ -3235,7 +3321,7 @@ impl<'a> IrConverter<'a> {
                 .find(|namespace| namespace.prefix == prefix)
                 .map(|namespace| namespace.uri.clone())
                 .or_else(|| {
-                    self.static_context
+                    self.current_static_context()
                         .namespaces()
                         .by_prefix(prefix)
                         .map(str::to_string)
@@ -3343,12 +3429,21 @@ impl<'a> IrConverter<'a> {
         let (name_atom, name_bindings) = self
             .xml_name_dynamic(&attribute.name, &attribute.namespace, &attribute.namespaces, "")?
             .atom_bindings();
-        let (text_atom, text_bindings) = self
-            .select_or_sequence_constructor_simple_content_with_separator(
-                attribute,
-                &attribute.separator,
-            )?
+        let (value_atom, value_bindings) = self
+            .select_or_sequence_constructor(attribute)?
             .atom_bindings();
+        let (separator_atom, separator_bindings) = if let Some(separator) = &attribute.separator {
+            self.attribute_value_template(separator)?.atom_bindings()
+        } else if attribute.select.is_some() {
+            (self.space_separator_atom(), Bindings::empty())
+        } else {
+            (self.empty_string(), Bindings::empty())
+        };
+        let simple_content_expr = self.simple_content_expr(value_atom, separator_atom);
+        let text_bindings = value_bindings
+            .concat(separator_bindings)
+            .bind_expr_no_span(&mut self.variables, simple_content_expr);
+        let (text_atom, text_bindings) = text_bindings.atom_bindings();
         let bindings = name_bindings.concat(text_bindings);
         Ok(bindings.bind_expr_no_span(
             &mut self.variables,
@@ -3411,15 +3506,57 @@ impl<'a> IrConverter<'a> {
     //     Ok(Bindings::new(self.variables.new_binding_no_span(expr)))
     // }
 
+    fn static_base_uri_literal(&self, expression: &ast::Expression) -> Option<String> {
+        let base_uri = self.current_static_context().static_base_uri()?.to_string();
+        let exprsingles = &expression.xpath.0.value.0;
+        let [exprsingle] = exprsingles.as_slice() else {
+            return None;
+        };
+        let xpath_ast::ExprSingle::Path(path) = &exprsingle.value else {
+            return None;
+        };
+        let [step] = path.steps.as_slice() else {
+            return None;
+        };
+        let xpath_ast::StepExpr::PrimaryExpr(primary) = &step.value else {
+            return None;
+        };
+        let xpath_ast::PrimaryExpr::FunctionCall(function_call) = &primary.value else {
+            return None;
+        };
+        if !function_call.arguments.is_empty() {
+            return None;
+        }
+        if function_call.name.value.local_name() != "static-base-uri" {
+            return None;
+        }
+        let namespace = function_call.name.value.namespace();
+        if !namespace.is_empty() && namespace != FN_NAMESPACE {
+            return None;
+        }
+        Some(base_uri)
+    }
+
     fn expression(&mut self, expression: &ast::Expression) -> error::SpannedResult<Bindings> {
+        if let Some(base_uri) = self.static_base_uri_literal(expression) {
+            let atom = Spanned::new(ir::Atom::Const(ir::Const::String(base_uri)), (0..0).into());
+            return Ok(Bindings::empty().bind_expr_no_span(&mut self.variables, ir::Expr::Atom(atom)));
+        }
         self.xpath(&expression.xpath.0)
     }
 
     fn xpath(&mut self, xpath: &xee_xpath_ast::ast::ExprS) -> error::SpannedResult<Bindings> {
         let mut rewritten_xpath = xpath.clone();
         self.rewrite_user_function_references_expr(&mut rewritten_xpath);
+        let static_context = self
+            .current_static_context()
+            .clone_with_static_base_uri(
+                self.current_static_context()
+                    .static_base_uri()
+                    .map(ToOwned::to_owned),
+            );
         let mut ir_converter =
-            xee_xpath_compiler::IrConverter::new(&mut self.variables, self.static_context);
+            xee_xpath_compiler::IrConverter::new(&mut self.variables, &static_context);
         ir_converter.expr(&rewritten_xpath)
     }
 

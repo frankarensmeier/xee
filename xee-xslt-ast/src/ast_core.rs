@@ -384,6 +384,7 @@ impl SelectOrSequenceConstructor for Attribute {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AttributeSet {
     pub name: EqName,
+    pub xml_base: Option<Uri>,
     pub use_attribute_sets: Option<Vec<EqName>>,
     pub visibility: Option<VisibilityWithAbstract>,
     pub streamable: bool,

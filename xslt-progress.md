@@ -8,6 +8,70 @@ instead of replacing it.
 
 ### Status snapshot
 
+- Checkpoint focus: finish `decl/attribute-set` after the earlier import and instruction-path work.
+- Attribute-set bucket after fixes: `50 passed / 0 failed / 0 error / 0 wrongE`.
+- Filtered suite after validation: `3311 passed / 0 failed / 0 error / 0 wrongE / 11284 filtered`.
+
+### Progress made
+
+- Fixed instruction-level `use-attribute-sets` for `xsl:element` and `xsl:copy`, which removed the broad execution-path regressions in the attribute-set bucket.
+- Isolated attribute-set compilation from local variable scopes so attribute-set declarations now see top-level variables without leaking template-local bindings.
+- Added static validation for referenced attribute sets, which correctly raises `XTSE0710` for missing nested sets.
+- Corrected `xsl:attribute` default separator behavior so sequence-constructor content defaults to the empty string while `select` still defaults to a space separator.
+- Added `xml:base` support on `xsl:attribute-set` declarations and folded exact `static-base-uri()` calls under that overridden base URI so declaration-local base URIs are preserved.
+
+### Obstacles seen
+
+#### Attribute-set declarations saw the wrong variable scope
+
+- Symptoms:
+  - `attribute-set-1802` used a template-local variable where the spec requires only top-level variables and params to be visible.
+- Root cause:
+  - attribute-set bodies were compiled in the caller's live variable scope.
+- Resolution:
+  - compile attribute-set bodies with only the global variable scope retained, while preserving the current focus.
+
+#### Missing referenced attribute sets were not rejected statically
+
+- Symptoms:
+  - `attribute-set-1003` reached an unrelated runtime error instead of failing with `XTSE0710`.
+- Root cause:
+  - nested `use-attribute-sets` references were only resolved lazily when an attribute set happened to be executed.
+- Resolution:
+  - validate all collected attribute-set references during compilation.
+
+#### `xsl:attribute` used the wrong default separator for content
+
+- Symptoms:
+  - `attribute-set-1811` produced `"1 2 3"` where the expected default was `"123"`.
+- Root cause:
+  - attribute construction reused the same default separator path for both `select` and sequence-constructor content.
+- Resolution:
+  - use the empty-string default for content and keep the space default for `select`.
+
+#### Declaration-local `xml:base` was parsed but not honored semantically
+
+- Symptoms:
+  - `attribute-set-1814` initially failed with `XTSE0090`, and after parser acceptance still returned the stylesheet file URI instead of the declaration-local base URIs.
+- Root cause:
+  - `xml:base` was not accepted on `xsl:attribute-set`, and `static-base-uri()` continued to observe only the program-wide static context.
+- Resolution:
+  - add AST/parser support for `xml:base` on attribute sets, temporarily override static base URI while compiling those declarations, and fold exact `static-base-uri()` calls under the override.
+
+### Working practices that helped
+
+- Finish the shared mechanism once the bucket shows the same failure shape across many tests; the instruction-path fix cleared most of the bucket at once.
+- Re-run the filtered `xee-testrunner -- check vendor/xslt-tests/` sweep before checkpointing bucket-level work.
+
+### Current open edges
+
+- `decl/import` still has four error cases: `import-0001`, `import-0002`, `import-1201`, and `import-1301`.
+- The standalone prefixed `xsl:element` namespace unit expectation still disagrees with current serialization behavior and predates these checkpoints.
+
+## 2026-04-09
+
+### Status snapshot
+
 - Checkpoint focus: `xsl:apply-imports`, import precedence/import ancestry, import ambiguity handling, and instruction-level `use-attribute-sets`.
 - Filtered suite before checkpoint: `3311 passed / 0 failed / 0 error / 0 wrongE / 11284 filtered`.
 - Import bucket after fixes: `38 passed / 0 failed / 4 error / 0 wrongE`.

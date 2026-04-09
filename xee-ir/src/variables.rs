@@ -83,6 +83,18 @@ impl Variables {
         self.variables.pop();
     }
 
+    pub fn split_local_scopes(&mut self) -> Vec<HashMap<ast::Name, ir::Name>> {
+        if self.variables.len() <= 1 {
+            Vec::new()
+        } else {
+            self.variables.split_off(1)
+        }
+    }
+
+    pub fn restore_local_scopes(&mut self, mut scopes: Vec<HashMap<ast::Name, ir::Name>>) {
+        self.variables.append(&mut scopes);
+    }
+
     pub fn push_context(&mut self) -> ir::ContextNames {
         let names = ir::ContextNames {
             item: self.new_name(),

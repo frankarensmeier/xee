@@ -1052,6 +1052,53 @@ fn test_xsl_copy_applies_attribute_sets() {
 }
 
 #[test]
+fn test_attribute_set_only_sees_global_variables() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:variable name="foo" select="'correct'"/>
+
+  <xsl:template match="/">
+    <xsl:variable name="foo" select="'incorrect'"/>
+    <out xsl:use-attribute-sets="attrs"/>
+  </xsl:template>
+
+  <xsl:attribute-set name="attrs">
+    <xsl:attribute name="test">
+      <xsl:value-of select="$foo"/>
+    </xsl:attribute>
+  </xsl:attribute-set>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out test=\"correct\"/>");
+}
+
+#[test]
+fn test_missing_attribute_set_reference_is_xtse0710() {
+    let static_context = StaticContextBuilder::default().build();
+    let error = parse(
+        static_context,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:attribute-set name="attributeSet1">
+    <xsl:attribute name="attr1"/>
+  </xsl:attribute-set>
+  <xsl:attribute-set name="attributeSet2" use-attribute-sets="attributeSet">
+    <xsl:attribute name="attr1"/>
+  </xsl:attribute-set>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTSE0710);
+}
+
+#[test]
 fn test_multiple_matching_templates_can_raise_xtre0540() {
     let temp_dir = unique_temp_dir("multiple-match-error");
     let stylesheet_path = temp_dir.join("multiple-match-error.xsl");
@@ -3227,6 +3274,28 @@ fn test_xsl_attribute_with_content() {
     .unwrap();
 
     assert_eq!(xml(&xot, output), r#"<o foo="FOO"/>"#);
+}
+
+#[test]
+fn test_xsl_attribute_content_defaults_to_empty_separator() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<doc/>"#,
+        r#"
+<xsl:transform expand-text="true" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3">
+  <xsl:template match="/">
+    <o>
+      <xsl:attribute name="foo">
+        <xsl:sequence select="1, 2, 3"/>
+      </xsl:attribute>
+    </o>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), r#"<o foo="123"/>"#);
 }
 
 #[test]
