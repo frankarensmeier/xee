@@ -250,15 +250,9 @@ analyze-string-098
 analyze-string-099
 analyze-string-100
 = apply-imports
-apply-imports-001
 = apply-templates
 apply-templates-001
 apply-templates-002
-conflict-resolution-0102b
-conflict-resolution-0104b
-conflict-resolution-0108b
-conflict-resolution-0110b
-conflict-resolution-0401b
 conflict-resolution-0501
 conflict-resolution-0503
 conflict-resolution-1202b
@@ -444,29 +438,6 @@ attribute-1505
 attribute-1506
 attribute-1507
 = attribute-set
-attribute-set-0107
-attribute-set-0202
-attribute-set-0203
-attribute-set-0207
-attribute-set-0208
-attribute-set-1001
-attribute-set-1002
-attribute-set-1003
-attribute-set-1501
-attribute-set-1502
-attribute-set-1503
-attribute-set-1504
-attribute-set-1505
-attribute-set-1506
-attribute-set-1507
-attribute-set-1508
-attribute-set-1509
-attribute-set-1511
-attribute-set-1513
-attribute-set-1802
-attribute-set-1811
-attribute-set-1812
-attribute-set-1814
 = available-system-properties
 available-system-properties-001
 available-system-properties-002
@@ -648,7 +619,6 @@ boolean-095
 boolean-096
 = bug
 bug-0304
-bug-0305
 bug-0501
 bug-0502
 bug-0701
@@ -657,7 +627,6 @@ bug-1201
 bug-1202
 bug-1203
 bug-1402
-bug-1403
 bug-1405
 bug-1501
 bug-1601
@@ -680,8 +649,6 @@ bug-3801
 bug-4301
 bug-4401
 bug-4501
-bug-4702
-bug-4703
 bug-5101
 bug-5501
 bug-5601
@@ -896,7 +863,6 @@ copy-3501
 copy-3702
 copy-3801
 copy-3803
-copy-4001
 copy-4302
 copy-4307
 copy-4308
@@ -962,17 +928,6 @@ current-output-uri-017
 current-output-uri-901
 current-output-uri-902
 = data-manipulation
-data-manipulation-009
-data-manipulation-010
-data-manipulation-011
-data-manipulation-012
-data-manipulation-013
-data-manipulation-014
-data-manipulation-015
-data-manipulation-016
-data-manipulation-017
-data-manipulation-018
-data-manipulation-019
 = date
 date-019
 date-053
@@ -1222,20 +1177,8 @@ error-0120b
 error-0125a
 error-0130a
 error-0150a
-error-0150b
-error-0150c
 error-0150d
-error-0150e
 error-0160a
-error-0165a
-error-0165b
-error-0165c
-error-0165d
-error-0165e
-error-0165f
-error-0165g
-error-0165h
-error-0165i
 error-0170a
 error-0170b
 error-0180a
@@ -1345,9 +1288,6 @@ error-0670b
 error-0670c
 error-0670d
 error-0690a
-error-0710a
-error-0710b
-error-0710c
 error-0710d
 error-0720a
 error-0720b
@@ -1445,36 +1385,8 @@ error-1270a
 error-1270b
 error-1270c
 error-1280a-20
-error-1280a-30
 error-1280b-20
-error-1280b-30
 error-1280c-20
-error-1280c-30
-error-1290a
-error-1290b
-error-1295a
-error-1295b
-error-1300a
-error-1300b
-error-1300c
-error-1310a-20
-error-1310a-30
-error-1310b-20
-error-1310b-30
-error-1310c-20
-error-1310c-30
-error-1310d-20
-error-1310d-30
-error-1310e-20
-error-1310e-30
-error-1310f-20
-error-1310f-30
-error-1310g-20
-error-1310g-30
-error-1310h-20
-error-1310h-30
-error-1310i-20
-error-1310i-30
 error-1360a
 error-1360b
 error-1370a
@@ -1781,7 +1693,6 @@ extension-functions-0105
 extension-functions-0106
 extension-functions-0201
 = for
-for-004
 = for-each-group
 for-each-group-001
 for-each-group-002
@@ -1985,7 +1896,6 @@ function-0303
 function-0501
 function-0701
 function-1003
-function-1005
 function-1013
 function-1016
 function-1017
@@ -2109,17 +2019,7 @@ id-041
 id-042
 id-043
 = import
-import-0001
-import-0002
-import-0502b
-import-0701
-import-0902b
-import-1201
 import-1301
-import-1601
-import-2103
-import-2402
-import-2404
 = import-schema
 import-schema-001
 import-schema-002
@@ -2312,7 +2212,6 @@ include-0102
 include-0103
 include-0401
 include-0601
-include-0702b
 = initial-function
 initial-function-001
 initial-function-002
@@ -2793,7 +2692,6 @@ math-3310a
 math-3311
 math-3313
 math-3315
-math-3317
 math-3318
 math-3319
 math-3320
@@ -2941,7 +2839,6 @@ message-0410
 message-0501
 = mode
 mode-0801a
-mode-0801b
 mode-0801c
 mode-0802
 mode-0803
@@ -6321,14 +6218,11 @@ seqtor-032
 seqtor-033
 seqtor-034
 seqtor-035
-seqtor-039a
-seqtor-039d
 seqtor-040a
 seqtor-040d
 seqtor-043b
 seqtor-101
 = sequence
-sequence-0111
 sequence-0112
 sequence-0113
 sequence-0119
@@ -6345,7 +6239,6 @@ sequence-0139
 sequence-0306
 sequence-0307
 sequence-0901
-sequence-1101
 sequence-1204
 sequence-2101
 sequence-2401a
@@ -8380,14 +8273,8 @@ streaming-fallback-005
 streaming-fallback-006
 = string
 string-003
-string-014
 string-031
 string-097
-string-117
-string-118
-string-119
-string-120
-string-121
 string-125
 string-131
 string-133
@@ -11070,7 +10957,6 @@ use-when-0214
 use-when-0222
 use-when-0226
 use-when-0227
-use-when-0301
 use-when-0407
 use-when-0407a
 use-when-0411
@@ -11460,7 +11346,6 @@ xpath-default-namespace-0701
 xpath-default-namespace-0702
 xpath-default-namespace-0703
 = xsl-document
-xsl-document-0301
 xsl-document-0402
 xsl-document-0404
 xsl-document-0603
