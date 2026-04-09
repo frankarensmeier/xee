@@ -101,6 +101,9 @@ impl SequenceConstructorName {
             SequenceConstructorName::ProcessingInstruction => {
                 ast::ProcessingInstruction::parse_sequence_constructor_item(attributes)
             }
+            SequenceConstructorName::ResultDocument => {
+                ast::ResultDocument::parse_sequence_constructor_item(attributes)
+            }
             SequenceConstructorName::Sequence => {
                 ast::Sequence::parse_sequence_constructor_item(attributes)
             }

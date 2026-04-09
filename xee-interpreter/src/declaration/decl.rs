@@ -1,6 +1,7 @@
 use ahash::{HashMap, HashMapExt};
 
 use crate::{function, pattern::ModeId, pattern::ModeLookup};
+use crate::sequence::SerializationParameters;
 use xot::xmlname::OwnedName;
 
 #[derive(Debug, Clone)]
@@ -65,6 +66,7 @@ pub struct Declarations {
     modes: HashMap<ModeId, ModeDeclaration>,
     pub global_variables: Vec<GlobalVariableDeclaration>,
     pub named_templates: Vec<NamedTemplateDeclaration>,
+    pub serialization_params: SerializationParameters,
     template_params: HashMap<function::InlineFunctionId, Vec<TemplateParamDeclaration>>,
     template_import_precedence: HashMap<function::InlineFunctionId, i64>,
 }
@@ -76,6 +78,7 @@ impl Declarations {
             modes: HashMap::new(),
             global_variables: Vec::new(),
             named_templates: Vec::new(),
+            serialization_params: SerializationParameters::new(),
             template_params: HashMap::new(),
             template_import_precedence: HashMap::new(),
         }

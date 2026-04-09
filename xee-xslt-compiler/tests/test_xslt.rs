@@ -686,6 +686,157 @@ fn test_next_match_in_attribute_set_on_literal_element_uses_imported_template() 
 }
 
 #[test]
+fn test_result_document_collects_secondary_output() {
+    let mut xot = Xot::new();
+  let stylesheet_path = std::env::temp_dir().join("xee-result-document-collects-secondary-output.xsl");
+  let static_context = StaticContextBuilder::default()
+    .static_base_uri(Some(
+      format!("file://{}", stylesheet_path.display())
+        .replace(' ', "%20")
+        .try_into()
+        .unwrap(),
+    ))
+    .build();
+    let program = parse(
+        static_context,
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <log>Before redirect</log>
+      <xsl:result-document href="multresult1.out">
+        <xsl:copy-of select="foo"/>
+      </xsl:result-document>
+      <log>After redirect</log>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    let root = xot.parse("<doc><foo place=\"secondary\">Hello</foo></doc>").unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><log>Before redirect</log><log>After redirect</log></out>");
+
+    let secondary = context.secondary_result_document("multresult1.out").unwrap();
+    assert_eq!(xml(&xot, secondary), "<foo place=\"secondary\">Hello</foo>");
+}
+
+#[test]
+fn test_result_document_registers_secondary_document_uri() {
+    let mut xot = Xot::new();
+    let stylesheet_path = std::env::temp_dir().join(format!(
+        "xee-result-document-base-uri-{}.xsl",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    let program = parse_with_base_dir(
+        StaticContextBuilder::default()
+            .static_base_uri(Some(
+                format!("file://{}", stylesheet_path.display())
+                    .replace(' ', "%20")
+                    .try_into()
+                    .unwrap(),
+            ))
+            .build(),
+        r#"
+<xsl:transform version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:template match="/">
+    <xsl:result-document href="out/second.xml">
+      <two>
+        <k>Kilo</k>
+        <l xml:base="in/third.xml">Lima</l>
+      </two>
+    </xsl:result-document>
+  </xsl:template>
+</xsl:transform>"#,
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+
+    let root = xot.parse("<doc/>").unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    runnable.many(&mut xot).unwrap();
+
+    let secondary = context.secondary_result_document("out/second.xml").unwrap();
+    let secondary_document = secondary.iter().next().unwrap().to_node().unwrap();
+
+    let documents = context.documents();
+    let documents = documents.borrow();
+    let uri = documents
+        .get_uri_by_document_node(secondary_document)
+        .unwrap()
+        .to_string();
+
+    assert!(uri.ends_with("/out/second.xml"), "unexpected URI: {uri}");
+}
+
+#[test]
+fn test_nested_result_document_without_href_writes_to_principal_output() {
+    let mut xot = Xot::new();
+    let stylesheet_path = std::env::temp_dir().join("xee-result-document-nested-principal.xsl");
+    let program = parse_with_base_dir(
+        StaticContextBuilder::default()
+            .static_base_uri(Some(
+                format!("file://{}", stylesheet_path.display())
+                    .replace(' ', "%20")
+                    .try_into()
+                    .unwrap(),
+            ))
+            .build(),
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <xsl:result-document href="secondary.xml">
+      <secondary>
+        <xsl:result-document>
+          <primary>principal</primary>
+        </xsl:result-document>
+      </secondary>
+    </xsl:result-document>
+  </xsl:template>
+</xsl:transform>"#,
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+
+    let root = xot.parse("<doc/>").unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    assert_eq!(xml(&xot, output), "<primary>principal</primary>");
+
+    let secondary = context.secondary_result_document("secondary.xml").unwrap();
+    assert_eq!(xml(&xot, secondary), "<secondary/>");
+}
+
+#[test]
 fn test_recursive_attribute_set_reentry_raises_xtde0640() {
     let error = parse(
         StaticContextBuilder::default().build(),

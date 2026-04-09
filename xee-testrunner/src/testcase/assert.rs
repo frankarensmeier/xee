@@ -2,6 +2,7 @@ use ahash::AHashMap;
 use chrono::Offset;
 use std::fmt;
 use std::path::PathBuf;
+use xee_interpreter::sequence::QNameOrString;
 use xee_xpath::context::{Collation, DynamicContext};
 use xee_xpath::SerializationParameters;
 use xot::xmlname::{NameStrInfo, OwnedName as Name};
@@ -36,6 +37,45 @@ pub(crate) trait Assertable {
         documents: &mut Documents,
         sequence: &Sequence,
     ) -> TestOutcome;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssertResultDocument {
+    uri: String,
+    result: Box<TestCaseResult>,
+}
+
+impl AssertResultDocument {
+    pub(crate) fn new(uri: String, result: TestCaseResult) -> Self {
+        Self {
+            uri,
+            result: Box::new(result),
+        }
+    }
+}
+
+impl Assertable for AssertResultDocument {
+    fn assert_result(
+        &self,
+        context: &DynamicContext<'_>,
+        documents: &mut Documents,
+        _result: &error::ValueResult<Sequence>,
+    ) -> TestOutcome {
+        let Some(sequence) = context.secondary_result_document(&self.uri) else {
+            return TestOutcome::Failed(Failure::ResultDocumentMissing(self.uri.clone()));
+        };
+        let result: error::ValueResult<Sequence> = Ok(sequence);
+        self.result.assert_result(context, documents, &result)
+    }
+
+    fn assert_value(
+        &self,
+        _context: &DynamicContext<'_>,
+        _documents: &mut Documents,
+        _sequence: &Sequence,
+    ) -> TestOutcome {
+        unreachable!();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -535,7 +575,91 @@ impl Assertable for AssertEmpty {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AssertSerializationMatches;
+pub(crate) struct AssertSerializationMatches {
+    pattern: String,
+    method: Option<String>,
+    flags: Option<String>,
+}
+
+impl AssertSerializationMatches {
+    pub(crate) fn new(pattern: String, method: Option<String>, flags: Option<String>) -> Self {
+        Self {
+            pattern,
+            method,
+            flags,
+        }
+    }
+}
+
+impl Assertable for AssertSerializationMatches {
+    fn assert_value(
+        &self,
+        context: &DynamicContext<'_>,
+        documents: &mut Documents,
+        sequence: &Sequence,
+    ) -> TestOutcome {
+        let serialized = match serialize_for_assertion(context, documents, sequence, self.method.as_deref()) {
+            Ok(serialized) => serialized,
+            Err(error) => return TestOutcome::RuntimeError(error.value()),
+        };
+
+        let mut builder = regex::RegexBuilder::new(&self.pattern);
+        if let Some(flags) = &self.flags {
+            builder.case_insensitive(flags.contains('i'));
+            builder.ignore_whitespace(flags.contains('x'));
+            builder.dot_matches_new_line(flags.contains('s'));
+        }
+
+        match builder.build() {
+            Ok(regex) => {
+                if regex.is_match(&serialized) {
+                    TestOutcome::Passed
+                } else {
+                    TestOutcome::Failed(Failure::SerializationMatches(
+                        self.clone(),
+                        serialized,
+                    ))
+                }
+            }
+            Err(error) => TestOutcome::EnvironmentError(format!("Invalid regex: {error}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AssertSerialization {
+    expected: String,
+    method: Option<String>,
+}
+
+impl AssertSerialization {
+    pub(crate) fn new(expected: String, method: Option<String>) -> Self {
+        Self { expected, method }
+    }
+}
+
+impl Assertable for AssertSerialization {
+    fn assert_value(
+        &self,
+        context: &DynamicContext<'_>,
+        documents: &mut Documents,
+        sequence: &Sequence,
+    ) -> TestOutcome {
+        let serialized = match serialize_for_assertion(context, documents, sequence, self.method.as_deref()) {
+            Ok(serialized) => serialized,
+            Err(error) => return TestOutcome::RuntimeError(error.value()),
+        };
+
+        if serialized == self.expected {
+            TestOutcome::Passed
+        } else {
+            TestOutcome::Failed(Failure::Serialization(
+                self.clone(),
+                serialized,
+            ))
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AssertSerializationError(String);
@@ -741,6 +865,7 @@ pub(crate) enum TestCaseResult {
     AnyOf(AssertAnyOf),
     AllOf(AssertAllOf),
     Not(AssertNot),
+    AssertResultDocument(AssertResultDocument),
     // The assert element contains an XPath expression whose effective boolean
     // value must be true; usually the expression will use the variable $result
     // which references the result of the expression.
@@ -773,6 +898,7 @@ pub(crate) enum TestCaseResult {
     // XXX values not right
     #[allow(dead_code)]
     SerializationMatches(AssertSerializationMatches),
+    AssertSerialization(AssertSerialization),
     // Asserts that the query can be executed without error, but serializing
     // the result produces a serialization error. The result of the query must
     // be serialized using the serialization options specified within the query
@@ -823,6 +949,7 @@ impl TestCaseResult {
             TestCaseResult::AnyOf(a) => a.assert_result(context, documents, result),
             TestCaseResult::AllOf(a) => a.assert_result(context, documents, result),
             TestCaseResult::Not(a) => a.assert_result(context, documents, result),
+            TestCaseResult::AssertResultDocument(a) => a.assert_result(context, documents, result),
             TestCaseResult::AssertEq(a) => a.assert_result(context, documents, result),
             TestCaseResult::AssertDeepEq(a) => a.assert_result(context, documents, result),
             TestCaseResult::AssertTrue(a) => a.assert_result(context, documents, result),
@@ -835,6 +962,8 @@ impl TestCaseResult {
             TestCaseResult::AssertError(a) => a.assert_result(context, documents, result),
             TestCaseResult::AssertEmpty(a) => a.assert_result(context, documents, result),
             TestCaseResult::AssertType(a) => a.assert_result(context, documents, result),
+            TestCaseResult::SerializationMatches(a) => a.assert_result(context, documents, result),
+            TestCaseResult::AssertSerialization(a) => a.assert_result(context, documents, result),
             TestCaseResult::Unsupported => TestOutcome::Unsupported,
             _ => {
                 panic!("unimplemented test case result {:?}", self);
@@ -918,12 +1047,37 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
             Ok(TestCaseResult::Assert(Assert::new(xpath)))
         })?;
 
+        let serialization_contents_query = queries.one("string()", convert_string)?;
+        let serialization_method_query = queries.option("@method/string()", convert_string)?;
+        let serialization_flags_query = queries.option("@flags/string()", convert_string)?;
+        let assert_serialization_method_query = serialization_method_query.clone();
+        let assert_serialization_contents_query = serialization_contents_query.clone();
+        let assert_serialization_query = queries.one(".", move |documents, item| {
+            let expected = assert_serialization_contents_query.execute(documents, item)?;
+            let method = assert_serialization_method_query.execute(documents, item)?;
+            Ok(TestCaseResult::AssertSerialization(AssertSerialization::new(
+                expected, method,
+            )))
+        })?;
+
+        let serialization_matches_contents_query = serialization_contents_query.clone();
+        let serialization_matches_flags_query = serialization_flags_query.clone();
+        let serialization_matches_query = queries.one(".", move |documents, item| {
+            let pattern = serialization_matches_contents_query.execute(documents, item)?;
+            let method = serialization_method_query.execute(documents, item)?;
+            let flags = serialization_matches_flags_query.execute(documents, item)?;
+            Ok(TestCaseResult::SerializationMatches(
+                AssertSerializationMatches::new(pattern, method, flags),
+            ))
+        })?;
+
         let assert_permutation_query = queries.one("string()", |_, item| {
             let xpath: String = item.to_atomic()?.try_into()?;
             Ok(TestCaseResult::AssertPermutation(AssertPermutation::new(
                 xpath,
             )))
         })?;
+        let assert_result_document_uri_query = queries.one("@uri/string()", convert_string)?;
 
         let any_all_recurse = queries.many_recurse("*")?;
         let not_recurse = queries.one_recurse("*")?;
@@ -963,8 +1117,22 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
                                 assert_string_value_query.execute(documents, item)?
                             }
                             "assert" => assert_query.execute(documents, item)?,
+                            "assert-serialization" => {
+                                assert_serialization_query.execute(documents, item)?
+                            }
+                            "serialization-matches" => {
+                                serialization_matches_query.execute(documents, item)?
+                            }
                             "assert-permutation" => {
                                 assert_permutation_query.execute(documents, item)?
+                            }
+                            "assert-result-document" => {
+                                let uri =
+                                    assert_result_document_uri_query.execute(documents, item)?;
+                                let contents = not_recurse.execute(documents, item, recurse)?;
+                                TestCaseResult::AssertResultDocument(
+                                    AssertResultDocument::new(uri, contents),
+                                )
                             }
                             "assert-empty" => TestCaseResult::AssertEmpty(AssertEmpty::new()),
                             "assert-type" => assert_type_query.execute(documents, item)?,
@@ -997,6 +1165,7 @@ pub enum AssertXmlFailure {
 pub enum Failure {
     AnyOf(AssertAnyOf, Vec<TestOutcome>),
     Not(AssertNot, Box<TestOutcome>),
+    ResultDocumentMissing(String),
     Eq(AssertEq, Sequence),
     DeepEq(AssertDeepEq, Sequence),
     True(AssertTrue, Sequence),
@@ -1004,6 +1173,8 @@ pub enum Failure {
     Count(AssertCount, AssertCountFailure),
     StringValue(AssertStringValue, AssertStringValueFailure),
     Xml(AssertXml, AssertXmlFailure),
+    SerializationMatches(AssertSerializationMatches, String),
+    Serialization(AssertSerialization, String),
     Assert(Assert, Sequence),
     Permutation(AssertPermutation, Sequence),
     Empty(AssertEmpty, Sequence),
@@ -1032,6 +1203,10 @@ impl fmt::Display for Failure {
                 writeln!(f, "not:")?;
                 // writeln!(f, "  {}", outcome)?;
                 Ok(())
+            }
+            Failure::ResultDocumentMissing(uri) => {
+                writeln!(f, "result-document missing:")?;
+                writeln!(f, "  expected secondary result for uri: {:?}", uri)
             }
             Failure::Eq(a, value) => {
                 writeln!(f, "eq:")?;
@@ -1073,6 +1248,18 @@ impl fmt::Display for Failure {
                 writeln!(f, "xml:")?;
                 writeln!(f, "  expected: {:?}", a)?;
                 writeln!(f, "  actual: {:?}", failure)?;
+                Ok(())
+            }
+            Failure::SerializationMatches(a, actual) => {
+                writeln!(f, "serialization-matches:")?;
+                writeln!(f, "  expected pattern: {:?}", a.pattern)?;
+                writeln!(f, "  actual: {:?}", actual)?;
+                Ok(())
+            }
+            Failure::Serialization(a, actual) => {
+                writeln!(f, "serialization:")?;
+                writeln!(f, "  expected: {:?}", a.expected)?;
+                writeln!(f, "  actual: {:?}", actual)?;
                 Ok(())
             }
             Failure::Assert(_a, failure) => {
@@ -1131,12 +1318,20 @@ fn run_xpath_with_result(
     let q = queries.sequence_with_context(expr, static_context)?;
 
     let variables = AHashMap::from([(name, sequence.clone())]);
-    let context_item = match sequence.normalize(" ", documents.xot_mut()) {
-        Ok(context_item) => Some(context_item.into()),
-        // Function items cannot become the implicit context item for the
-        // assertion query, but $result should still be available.
-        Err(error::ErrorValue::SENR0001) => None,
-        Err(error) => return Err(error.into()),
+    let context_item = if sequence.len() == 1 {
+        match sequence.iter().next() {
+            Some(Item::Function(_)) => None,
+            Some(item) => Some(item.clone()),
+            None => None,
+        }
+    } else {
+        match sequence.normalize(" ", documents.xot_mut()) {
+            Ok(context_item) => Some(context_item.into()),
+            // Function items cannot become the implicit context item for the
+            // assertion query, but $result should still be available.
+            Err(error::ErrorValue::SENR0001) => None,
+            Err(error) => return Err(error.into()),
+        }
     };
 
     q.execute_build_context(documents, |build| {
@@ -1145,6 +1340,61 @@ fn run_xpath_with_result(
         }
         build.variables(variables);
     })
+}
+
+fn serialize_for_assertion(
+    context: &DynamicContext<'_>,
+    documents: &mut Documents,
+    sequence: &Sequence,
+    method: Option<&str>,
+) -> error::Result<String> {
+    if matches!(method, Some("text")) {
+        let node = sequence.normalize(&context.serialization_parameters().item_separator, documents.xot_mut())?;
+        return Ok(documents.xot().string_value(node));
+    }
+
+    let mut params = if context.principal_result_documents().is_empty() {
+        SerializationParameters {
+            omit_xml_declaration: true,
+            ..Default::default()
+        }
+    } else {
+        context
+            .principal_result_document_parameters()
+            .unwrap_or_else(|| context.serialization_parameters().clone())
+    };
+
+    if let Some(method) = method {
+        params.method = QNameOrString::String(method.to_string());
+        if (method == "html" || method == "xhtml") && params.media_type.is_none() {
+            params.media_type = Some("text/html".to_string());
+        }
+    } else if !context.principal_result_documents().is_empty() {
+        let normalized = sequence.normalize(&params.item_separator, documents.xot_mut())?;
+        if let Ok(document_element) = documents.xot().document_element(normalized) {
+            if let Some(name) = documents.xot().node_name(document_element) {
+                let (local_name, namespace) = documents.xot().name_ns_str(name);
+                if local_name.eq_ignore_ascii_case("html") && namespace.is_empty() {
+                    params.method = QNameOrString::String("html".to_string());
+                    if params.media_type.is_none() {
+                        params.media_type = Some("text/html".to_string());
+                    }
+                } else if local_name.eq_ignore_ascii_case("html")
+                    && namespace == "http://www.w3.org/1999/xhtml"
+                {
+                    params.method = QNameOrString::String("xhtml".to_string());
+                    if params.media_type.is_none() {
+                        params.media_type = Some("text/html".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(sequence
+        .serialize(params, documents.xot_mut())?
+        .trim_end_matches('\n')
+        .to_string())
 }
 
 #[cfg(test)]

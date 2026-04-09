@@ -127,11 +127,31 @@ impl InstructionParser for ast::ElementNode {
             content.state.names.xsl_use_attribute_sets,
             attributes.eqnames(),
         )?;
+        let mut parent_namespaces = Vec::new();
+        let mut parent = content.state.xot.parent(content.node);
+        while let Some(node) = parent {
+            if content.state.xot.is_element(node)
+                && content
+                    .state
+                    .xot
+                    .namespace_for_name(content.state.xot.node_name(node).unwrap())
+                    != content.state.names.xsl_ns
+            {
+                parent_namespaces = content.state.xot.namespaces_in_scope(node).collect::<Vec<_>>();
+                break;
+            }
+            parent = content.state.xot.parent(node);
+        }
         let namespaces = content
             .state
             .xot
-            .namespace_declarations(content.node)
+            .namespaces_in_scope(content.node)
             .into_iter()
+            .filter(|(prefix, namespace)| {
+                *namespace != content.state.names.xsl_ns
+                    && *prefix != content.state.xot.xml_prefix()
+                    && !parent_namespaces.contains(&(*prefix, *namespace))
+            })
             .map(|(prefix, namespace)| ast::LiteralNamespace {
                 prefix: content.state.xot.prefix_str(prefix).to_string(),
                 uri: content.state.xot.namespace_str(namespace).to_string(),
@@ -1491,7 +1511,117 @@ impl InstructionParser for ast::ProcessingInstruction {
     }
 }
 
-// TODO: xsl:result-document
+impl InstructionParser for ast::ResultDocument {
+    fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
+        let names = &content.state.names;
+
+        Ok(ast::ResultDocument {
+            format: attributes.optional(
+                names.format,
+                attributes.value_template(attributes.eqname()),
+            )?,
+            href: attributes.optional(
+                names.href,
+                attributes.value_template(attributes.uri()),
+            )?,
+            validation: attributes.optional(names.validation, attributes.validation())?,
+            type_: attributes.optional(names.type_, attributes.eqname())?,
+            method: attributes.optional(
+                names.method,
+                attributes.value_template(attributes.method()),
+            )?,
+            allow_duplicate_names: attributes.optional(
+                names.allow_duplicate_names,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            build_tree: attributes.optional(
+                names.build_tree,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            bye_order_mark: attributes.optional(
+                names.byte_order_mark,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            cdata_section_elements: attributes.optional(
+                names.cdata_section_elements,
+                attributes.value_template(attributes.eqnames()),
+            )?,
+            doctype_public: attributes.optional(
+                names.doctype_public,
+                attributes.value_template(attributes.string()),
+            )?,
+            doctype_system: attributes.optional(
+                names.doctype_system,
+                attributes.value_template(attributes.string()),
+            )?,
+            encoding: attributes.optional(
+                names.encoding,
+                attributes.value_template(attributes.string()),
+            )?,
+            escape_uri_attributes: attributes.optional(
+                names.escape_uri_attributes,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            html_version: attributes.optional(
+                names.html_version,
+                attributes.value_template(attributes.decimal()),
+            )?,
+            include_content_type: attributes.optional(
+                names.include_content_type,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            indent: attributes.optional(
+                names.indent,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            item_separator: attributes.optional(
+                names.item_separator,
+                attributes.value_template(attributes.string()),
+            )?,
+            json_node_output_method: attributes.optional(
+                names.json_node_output_method,
+                attributes.value_template(attributes.json_node_output_method()),
+            )?,
+            media_type: attributes.optional(
+                names.media_type,
+                attributes.value_template(attributes.string()),
+            )?,
+            normalization_form: attributes.optional(
+                names.normalization_form,
+                attributes.value_template(attributes.normalization_form()),
+            )?,
+            omit_xml_declaration: attributes.optional(
+                names.omit_xml_declaration,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            parameter_document: attributes.optional(
+                names.parameter_document,
+                attributes.value_template(attributes.uri()),
+            )?,
+            standalone: attributes.optional(
+                names.standalone,
+                attributes.value_template(attributes.standalone()),
+            )?,
+            suppress_indentation: attributes.optional(
+                names.suppress_indentation,
+                attributes.value_template(attributes.eqnames()),
+            )?,
+            undeclare_prefixes: attributes.optional(
+                names.undeclare_prefixes,
+                attributes.value_template(attributes.boolean()),
+            )?,
+            use_character_maps: attributes.optional(names.use_character_maps, attributes.eqnames())?,
+            version: attributes.optional(
+                names.version,
+                attributes.value_template(attributes.nmtoken()),
+            )?,
+
+            span: content.span()?,
+
+            sequence_constructor: content.sequence_constructor()?,
+        })
+    }
+}
 
 impl InstructionParser for ast::Sequence {
     fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {

@@ -2,7 +2,9 @@
 // exposed to XPath
 use std::collections::HashSet;
 
+use iri_string::types::{IriReferenceStr, IriString};
 use xee_xpath_macros::xpath_fn;
+use xot::xmlname::OwnedName;
 use xot::Xot;
 
 use crate::atomic;
@@ -62,6 +64,128 @@ fn group_by_first(
     Ok(result.into())
 }
 
+#[xpath_fn(
+    "fn:store-result-document($href as xs:string, $content as item()*) as item()*",
+    context_first
+)]
+fn store_result_document(
+    context: &crate::context::DynamicContext,
+    interpreter: &mut Interpreter,
+    href: &str,
+    content: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    if href.is_empty() {
+        context.store_principal_result_document(content.clone(), context.serialization_parameters().clone());
+        return Ok(sequence::Sequence::default());
+    }
+
+    let document = content.normalize(" ", interpreter.xot_mut())?;
+    let uri = absolute_result_document_uri(context, href)?;
+
+    {
+        let documents = context.documents();
+        let mut documents = documents.borrow_mut();
+        documents
+            .add_root(Some(uri.as_ref()), document)
+            .map_err(|_| error::Error::FOXT0002)?;
+    }
+
+    context.store_secondary_result_document(
+        href.to_string(),
+        sequence::Sequence::from(vec![sequence::Item::Node(document)]),
+    );
+    Ok(sequence::Sequence::default())
+}
+
+#[xpath_fn(
+    "fn:store-principal-result-document($content as item()*, $method as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string) as item()*",
+    context_first
+)]
+fn store_principal_result_document(
+    context: &crate::context::DynamicContext,
+    content: &sequence::Sequence,
+    method: &str,
+    cdata: &str,
+    doctype_public: &str,
+    doctype_system: &str,
+    include_content_type: &str,
+    media_type: &str,
+    omit_xml_declaration: &str,
+    standalone: &str,
+) -> error::Result<sequence::Sequence> {
+    let mut parameters = context.serialization_parameters().clone();
+    if !method.is_empty() {
+        parameters.method = sequence::QNameOrString::String(method.to_string());
+    }
+    if !cdata.is_empty() {
+        parameters.cdata_section_elements = parse_cdata_section_elements(context, cdata)?;
+    }
+    if !doctype_system.is_empty() {
+        parameters.doctype_system = Some(doctype_system.to_string());
+        if !doctype_public.is_empty() {
+            parameters.doctype_public = Some(doctype_public.to_string());
+        }
+    }
+    if !include_content_type.is_empty() {
+        parameters.include_content_type = matches!(include_content_type, "yes" | "true" | "1");
+    }
+    if !media_type.is_empty() {
+        parameters.media_type = Some(media_type.to_string());
+    }
+    if !omit_xml_declaration.is_empty() {
+        parameters.omit_xml_declaration = matches!(omit_xml_declaration, "yes" | "true" | "1");
+    }
+    if !standalone.is_empty() {
+        parameters.standalone = match standalone {
+            "yes" => Some(true),
+            "no" => Some(false),
+            _ => None,
+        };
+    }
+    context.store_principal_result_document(content.clone(), parameters);
+    Ok(sequence::Sequence::default())
+}
+
+fn absolute_result_document_uri(
+    context: &crate::context::DynamicContext,
+    href: &str,
+) -> error::Result<IriString> {
+    let href: &IriReferenceStr = href.try_into().map_err(|_| error::Error::FOXT0002)?;
+    Ok(match href.to_iri() {
+        Ok(uri) => uri.into(),
+        Err(relative_uri) => {
+            let base = context
+                .static_context()
+                .static_base_uri()
+                .ok_or(error::Error::FOXT0002)?;
+            relative_uri.resolve_against(base).into()
+        }
+    })
+}
+
+fn parse_cdata_section_elements(
+    context: &crate::context::DynamicContext,
+    cdata: &str,
+) -> error::Result<Vec<OwnedName>> {
+    cdata
+        .split_ascii_whitespace()
+        .map(|name| {
+            if let Some((prefix, local_name)) = name.split_once(':') {
+                OwnedName::prefixed(prefix, local_name, |lookup_prefix| {
+                    context
+                        .static_context()
+                        .namespaces()
+                        .by_prefix(lookup_prefix)
+                        .map(str::to_string)
+                })
+                .map_err(|_| error::Error::XTSE0020)
+            } else {
+                Ok(OwnedName::name(name))
+            }
+        })
+        .collect()
+}
+
 fn simple_content_text_nodes(
     arg: &sequence::Sequence,
     xot: &Xot,
@@ -108,6 +232,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
         wrap_xpath_fn!(group_by_first),
+        wrap_xpath_fn!(store_result_document),
+        wrap_xpath_fn!(store_principal_result_document),
     ]
 }
 

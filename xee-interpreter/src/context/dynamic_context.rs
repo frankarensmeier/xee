@@ -1,6 +1,6 @@
 use ahash::{AHashMap, HashMap};
 use iri_string::types::{IriStr, IriString};
-use std::fmt::Debug;
+use std::{cell::RefCell, fmt::Debug};
 
 use crate::function::{self, Function};
 use crate::{error::Error, interpreter::Program};
@@ -41,6 +41,9 @@ pub struct DynamicContext<'a> {
     uri_collections: HashMap<IriString, sequence::Sequence>,
     // environment variables
     environment_variables: HashMap<String, String>,
+    secondary_result_documents: RefCell<HashMap<String, sequence::Sequence>>,
+    principal_result_documents: RefCell<Vec<sequence::Sequence>>,
+    principal_result_document_parameters: RefCell<Vec<sequence::SerializationParameters>>,
 }
 
 impl<'a> DynamicContext<'a> {
@@ -56,6 +59,9 @@ impl<'a> DynamicContext<'a> {
         default_uri_collection: Option<sequence::Sequence>,
         uri_collections: HashMap<IriString, sequence::Sequence>,
         environment_variables: HashMap<String, String>,
+        secondary_result_documents: HashMap<String, sequence::Sequence>,
+        principal_result_documents: Vec<sequence::Sequence>,
+        principal_result_document_parameters: Vec<sequence::SerializationParameters>,
     ) -> Self {
         Self {
             program,
@@ -68,6 +74,9 @@ impl<'a> DynamicContext<'a> {
             default_uri_collection,
             uri_collections,
             environment_variables,
+            secondary_result_documents: RefCell::new(secondary_result_documents),
+            principal_result_documents: RefCell::new(principal_result_documents),
+            principal_result_document_parameters: RefCell::new(principal_result_document_parameters),
         }
     }
 
@@ -122,6 +131,41 @@ impl<'a> DynamicContext<'a> {
     /// Access all environment variable names
     pub fn environment_variable_names(&self) -> impl Iterator<Item = &str> {
         self.environment_variables.keys().map(String::as_str)
+    }
+
+    pub fn store_secondary_result_document(&self, href: String, sequence: sequence::Sequence) {
+        self.secondary_result_documents
+            .borrow_mut()
+            .insert(href, sequence);
+    }
+
+    pub fn secondary_result_document(&self, href: &str) -> Option<sequence::Sequence> {
+        self.secondary_result_documents.borrow().get(href).cloned()
+    }
+
+    pub fn store_principal_result_document(
+        &self,
+        sequence: sequence::Sequence,
+        parameters: sequence::SerializationParameters,
+    ) {
+        self.principal_result_documents.borrow_mut().push(sequence);
+        self.principal_result_document_parameters
+            .borrow_mut()
+            .push(parameters);
+    }
+
+    pub fn principal_result_documents(&self) -> Vec<sequence::Sequence> {
+        self.principal_result_documents.borrow().clone()
+    }
+
+    pub fn principal_result_document_parameters(
+        &self,
+    ) -> Option<sequence::SerializationParameters> {
+        self.principal_result_document_parameters.borrow().last().cloned()
+    }
+
+    pub fn serialization_parameters(&self) -> &sequence::SerializationParameters {
+        &self.program.declarations.serialization_params
     }
 
     pub(crate) fn arguments(&self) -> Result<Vec<sequence::Sequence>, Error> {

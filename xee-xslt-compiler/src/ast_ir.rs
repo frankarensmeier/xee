@@ -28,6 +28,7 @@ struct IrConverter<'a> {
     namespace_aliases: HashMap<String, String>,
     attribute_sets: HashMap<(String, String), Vec<ast::AttributeSet>>,
     active_attribute_sets: Vec<(String, String)>,
+    secondary_result_document_depth: usize,
     named_templates_with_absent_context: HashSet<String>,
     template_continuation_available: bool,
 }
@@ -309,6 +310,7 @@ impl<'a> IrConverter<'a> {
             namespace_aliases: HashMap::new(),
             attribute_sets: HashMap::new(),
             active_attribute_sets: Vec::new(),
+            secondary_result_document_depth: 0,
             named_templates_with_absent_context: HashSet::new(),
             template_continuation_available: false,
         }
@@ -1078,13 +1080,10 @@ impl<'a> IrConverter<'a> {
         declarations: &mut ir::Declarations,
         output: &ast::Output,
     ) -> error::SpannedResult<()> {
-        let serialization = &mut declarations.serialization_params;
         if output.name.is_some() {
-            return Err(error::Error::Unsupported(String::from(
-                "Output: Named outputs are not supported yet",
-            ))
-            .into());
+            return Ok(());
         }
+        let serialization = &mut declarations.serialization_params;
         if output.parameter_document.is_some() {
             return Err(error::Error::Unsupported(String::from(
                 "Output: Parameter documents are not supported yet",
@@ -1121,6 +1120,9 @@ impl<'a> IrConverter<'a> {
             }
             Some(ast::OutputMethod::Html) => {
                 serialization.method = QNameOrString::String("html".to_string())
+            }
+            Some(ast::OutputMethod::Text) => {
+                serialization.method = QNameOrString::String("text".to_string())
             }
             Some(ast::OutputMethod::Json) => {
                 serialization.method = QNameOrString::String("json".to_string())
@@ -1320,6 +1322,7 @@ impl<'a> IrConverter<'a> {
             Copy(copy) => self.copy(copy),
             CopyOf(copy_of) => self.copy_of(copy_of),
             Message(message) => self.message(message),
+            ResultDocument(result_document) => self.result_document(result_document),
             Sequence(sequence) => self.sequence(sequence),
             Document(document) => self.document(document),
             Element(element) => self.element(element),
@@ -1357,6 +1360,208 @@ impl<'a> IrConverter<'a> {
         };
 
         Ok(message_bindings.bind_expr(&mut self.variables, empty_sequence))
+    }
+
+    fn result_document(
+        &mut self,
+        result_document: &ast::ResultDocument,
+    ) -> error::SpannedResult<Bindings> {
+        if result_document.validation.is_some()
+            || result_document.type_.is_some()
+            || result_document.allow_duplicate_names.is_some()
+            || result_document.build_tree.is_some()
+            || result_document.bye_order_mark.is_some()
+            || result_document.encoding.is_some()
+            || result_document.escape_uri_attributes.is_some()
+            || result_document.html_version.is_some()
+            || result_document.indent.is_some()
+            || result_document.item_separator.is_some()
+            || result_document.json_node_output_method.is_some()
+            || result_document.normalization_form.is_some()
+            || result_document.parameter_document.is_some()
+            || result_document.suppress_indentation.is_some()
+            || result_document.use_character_maps.is_some()
+            || result_document.version.is_some()
+        {
+            return Err(error::Error::Unsupported(String::from(
+                "xsl:result-document serialization attributes are not supported yet",
+            ))
+            .into());
+        }
+
+        let (content_atom, content_bindings) = if result_document.sequence_constructor.is_empty() {
+            (
+                Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (0..0).into()),
+                Bindings::empty(),
+            )
+        } else {
+            if result_document.href.is_some() {
+                self.secondary_result_document_depth += 1;
+                let result = self
+                    .sequence_constructor(&result_document.sequence_constructor)?
+                    .atom_bindings();
+                self.secondary_result_document_depth -= 1;
+                result
+            } else {
+                self.sequence_constructor(&result_document.sequence_constructor)?
+                    .atom_bindings()
+            }
+        };
+
+        let method_literal = if let Some(method) = &result_document.method {
+            self.static_value_template(method).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @method is not supported yet".to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else {
+            String::new()
+        };
+        let method_atom = Spanned::new(ir::Atom::Const(ir::Const::String(method_literal)), (0..0).into());
+
+        let cdata_literal = if let Some(cdata_section_elements) = &result_document.cdata_section_elements {
+            self.static_value_template(cdata_section_elements).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @cdata-section-elements is not supported yet".to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else {
+            String::new()
+        };
+        let cdata_atom = Spanned::new(ir::Atom::Const(ir::Const::String(cdata_literal)), (0..0).into());
+
+        let doctype_public_literal = if let Some(doctype_public) = &result_document.doctype_public {
+            self.static_value_template(doctype_public).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @doctype-public is not supported yet".to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else {
+            String::new()
+        };
+        let doctype_public_atom =
+            Spanned::new(ir::Atom::Const(ir::Const::String(doctype_public_literal)), (0..0).into());
+
+        let doctype_system_literal = if let Some(doctype_system) = &result_document.doctype_system {
+            self.static_value_template(doctype_system).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @doctype-system is not supported yet".to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else {
+            String::new()
+        };
+        let doctype_system_atom =
+            Spanned::new(ir::Atom::Const(ir::Const::String(doctype_system_literal)), (0..0).into());
+
+        let include_content_type_literal = if let Some(include_content_type) = &result_document.include_content_type {
+            self.static_value_template(include_content_type).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @include-content-type is not supported yet"
+                            .to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else {
+            String::new()
+        };
+        let include_content_type_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(include_content_type_literal)),
+            (0..0).into(),
+        );
+
+        let media_type_literal = if let Some(media_type) = &result_document.media_type {
+            self.static_value_template(media_type).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @media-type is not supported yet".to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else {
+            String::new()
+        };
+        let media_type_atom =
+            Spanned::new(ir::Atom::Const(ir::Const::String(media_type_literal)), (0..0).into());
+
+        let omit_xml_declaration_literal =
+            if let Some(omit_xml_declaration) = &result_document.omit_xml_declaration {
+                self.static_value_template(omit_xml_declaration).ok_or_else(|| {
+                    error::SpannedError {
+                        error: error::Error::Unsupported(
+                            "Dynamic xsl:result-document @omit-xml-declaration is not supported yet"
+                                .to_string(),
+                        ),
+                        span: Some((result_document.span.start..result_document.span.end).into()),
+                    }
+                })?
+            } else {
+                String::new()
+            };
+        let omit_xml_declaration_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(omit_xml_declaration_literal)),
+            (0..0).into(),
+        );
+
+        let standalone_literal = if let Some(standalone) = &result_document.standalone {
+            self.static_value_template(standalone).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @standalone is not supported yet".to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else {
+            String::new()
+        };
+        let standalone_atom =
+            Spanned::new(ir::Atom::Const(ir::Const::String(standalone_literal)), (0..0).into());
+
+        if let Some(href) = &result_document.href {
+            let (href_atom, href_bindings) = self.attribute_value_template(href)?.atom_bindings();
+            let bindings = href_bindings.concat(content_bindings);
+            let expr = self.static_function_call_expr(
+                "store-result-document",
+                FN_NAMESPACE,
+                2,
+                vec![href_atom, content_atom],
+            );
+            return Ok(bindings.bind_expr_no_span(&mut self.variables, expr));
+        }
+
+        let expr = self.static_function_call_expr(
+            "store-principal-result-document",
+            FN_NAMESPACE,
+            9,
+            vec![
+                content_atom,
+                method_atom,
+                cdata_atom,
+                doctype_public_atom,
+                doctype_system_atom,
+                include_content_type_atom,
+                media_type_atom,
+                omit_xml_declaration_atom,
+                standalone_atom,
+            ],
+        );
+        Ok(content_bindings.bind_expr_no_span(&mut self.variables, expr))
     }
 
     fn sequence_constructor_content(

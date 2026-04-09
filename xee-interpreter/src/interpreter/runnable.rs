@@ -113,11 +113,27 @@ impl<'a> Runnable<'a> {
                 error,
                 span: Some(self.program.span().into()),
             })
+            .and_then(|sequence| self.merge_principal_result_documents(sequence))
+    }
+
+    fn merge_principal_result_documents(
+        &self,
+        result: sequence::Sequence,
+    ) -> error::SpannedResult<sequence::Sequence> {
+        self.dynamic_context
+            .principal_result_documents()
+            .into_iter()
+            .try_fold(result, |acc, sequence| acc.concat(sequence))
+            .map_err(|error| SpannedError {
+                error,
+                span: Some(self.program.span().into()),
+            })
     }
 
     /// Run the program against a sequence item.
     pub fn many(&self, xot: &'a mut Xot) -> error::SpannedResult<sequence::Sequence> {
-        Ok(self.run_value(xot)?.try_into()?)
+        let result = self.run_value(xot)?.try_into()?;
+        self.merge_principal_result_documents(result)
     }
 
     pub fn named_template(

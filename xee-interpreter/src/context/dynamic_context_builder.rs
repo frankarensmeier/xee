@@ -26,6 +26,9 @@ pub struct DynamicContextBuilder<'a> {
     default_uri_collection: Option<sequence::Sequence>,
     uri_collections: HashMap<IriString, sequence::Sequence>,
     environment_variables: HashMap<String, String>,
+    secondary_result_documents: HashMap<String, sequence::Sequence>,
+    principal_result_documents: Vec<sequence::Sequence>,
+    principal_result_document_parameters: Vec<sequence::SerializationParameters>,
 }
 
 /// A shallow wrapper around a collection of XML documents
@@ -73,6 +76,9 @@ impl<'a> DynamicContextBuilder<'a> {
             default_uri_collection: None,
             uri_collections: HashMap::new(),
             environment_variables: HashMap::new(),
+            secondary_result_documents: HashMap::new(),
+            principal_result_documents: Vec::new(),
+            principal_result_document_parameters: Vec::new(),
         }
     }
 
@@ -182,6 +188,9 @@ impl<'a> DynamicContextBuilder<'a> {
             self.default_uri_collection.clone(),
             self.uri_collections.clone(),
             self.environment_variables.clone(),
+            self.secondary_result_documents.clone(),
+            self.principal_result_documents.clone(),
+            self.principal_result_document_parameters.clone(),
         )
     }
 }

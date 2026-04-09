@@ -74,6 +74,8 @@ impl<'a> DeclarationCompiler<'a> {
         &mut self,
         declarations: &ir::Declarations,
     ) -> error::SpannedResult<()> {
+        self.program.declarations.serialization_params = declarations.serialization_params.clone();
+
         // first keep track of what modes exist, to create a ModeId for them. We do
         // this early so any mode reference within apply-templates will resolve.
         self.compile_modes(declarations);

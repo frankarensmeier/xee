@@ -1525,7 +1525,7 @@ pub struct ResultDocument {
     pub format: Option<ValueTemplate<EqName>>,
     pub href: Option<ValueTemplate<Uri>>,
     pub validation: Option<Validation>,
-    pub type_: EqName,
+    pub type_: Option<EqName>,
     pub method: Option<ValueTemplate<OutputMethod>>,
     pub allow_duplicate_names: Option<ValueTemplate<bool>>,
     pub build_tree: Option<ValueTemplate<bool>>,
@@ -1553,6 +1553,12 @@ pub struct ResultDocument {
     pub sequence_constructor: SequenceConstructor,
 
     pub span: Span,
+}
+
+impl From<ResultDocument> for SequenceConstructorItem {
+    fn from(i: ResultDocument) -> Self {
+        SequenceConstructorInstruction::ResultDocument(Box::new(i)).into()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

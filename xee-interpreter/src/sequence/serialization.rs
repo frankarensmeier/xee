@@ -49,7 +49,7 @@ impl SerializationParameters {
             cdata_section_elements: Vec::new(),
             doctype_public: None,
             doctype_system: None,
-            encoding: "utf-8".to_string(),
+            encoding: "UTF-8".to_string(),
             escape_uri_attributes: true,
             html_version: Decimal::from_str_exact("5.0").unwrap(),
             include_content_type: true,
@@ -167,7 +167,7 @@ impl SerializationParameters {
             cdata_section_elements: Vec::new(),
             doctype_public: None,
             doctype_system: None,
-            encoding: "utf-8".to_string(),
+            encoding: "UTF-8".to_string(),
             escape_uri_attributes: false,
             html_version: Decimal::from_str_exact("5.0").unwrap(),
             include_content_type: false,
@@ -199,12 +199,23 @@ pub(crate) fn serialize_sequence(
         match local_name {
             "xml" => serialize_xml(arg, parameters, xot),
             "html" => serialize_html(arg, parameters, xot),
+            "xhtml" => serialize_xhtml(arg, parameters, xot),
             "json" => serialize_json(arg, parameters, xot),
+            "text" => serialize_text(arg, parameters, xot),
             _ => Err(error::Error::SEPM0016),
         }
     } else {
         Err(error::Error::SEPM0016)
     }
+}
+
+fn serialize_text(
+    arg: &Sequence,
+    parameters: SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    let node = arg.normalize(&parameters.item_separator, xot)?;
+    Ok(xot.string_value(node))
 }
 
 fn serialize_xml(
@@ -250,6 +261,9 @@ fn serialize_html(
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
     let node = arg.normalize(&parameters.item_separator, xot)?;
+    if xot.document_element(node).is_err() {
+        return Ok(xot.string_value(node));
+    }
     // TODO: no check yet for html version rejecting versions that aren't 5
     let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
     let indentation = xot_indentation(&parameters, xot);
@@ -258,7 +272,82 @@ fn serialize_html(
         indentation,
         cdata_section_elements,
     };
-    Ok(html5.serialize_string(output_parameters, node)?)
+    let mut serialized = html5.serialize_string(output_parameters, node)?;
+
+    if parameters.include_content_type {
+        inject_content_type_meta(&mut serialized, &parameters, false);
+    }
+
+    Ok(serialized)
+}
+
+fn serialize_xhtml(
+    arg: &Sequence,
+    parameters: SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    let node = arg.normalize(&parameters.item_separator, xot)?;
+    if xot.document_element(node).is_err() {
+        return Ok(xot.string_value(node));
+    }
+
+    let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
+    let indentation = xot_indentation(&parameters, xot);
+    let html5 = xot.html5();
+    let output_parameters = xot::output::html5::Parameters {
+        indentation,
+        cdata_section_elements,
+    };
+    let mut serialized = html5.serialize_string(output_parameters, node)?;
+
+    if parameters.include_content_type {
+        inject_content_type_meta(&mut serialized, &parameters, true);
+    }
+
+    remove_redundant_default_namespace(
+        &mut serialized,
+        " xmlns=\"http://www.w3.org/1999/xhtml\"",
+    );
+
+    if !parameters.omit_xml_declaration {
+        serialized = format!(
+            "<?xml version=\"1.0\" encoding=\"{}\"?>\n{}",
+            parameters.encoding, serialized
+        );
+    }
+
+    Ok(serialized)
+}
+
+fn inject_content_type_meta(
+    serialized: &mut String,
+    parameters: &SerializationParameters,
+    self_closing: bool,
+) {
+    let media_type = parameters
+        .media_type
+        .clone()
+        .unwrap_or_else(|| "text/html".to_string());
+    let closing = if self_closing { " />" } else { ">" };
+    let meta = format!(
+        "<meta http-equiv=\"Content-Type\" content=\"{}; charset={}\"{}",
+        media_type, parameters.encoding, closing
+    );
+    if let Some(position) = serialized.find("</head>") {
+        serialized.insert_str(position, &meta);
+    }
+}
+
+fn remove_redundant_default_namespace(serialized: &mut String, namespace_attr: &str) {
+    let Some(first_position) = serialized.find(namespace_attr) else {
+        return;
+    };
+    let mut search_start = first_position + namespace_attr.len();
+    while let Some(relative_position) = serialized[search_start..].find(namespace_attr) {
+        let position = search_start + relative_position;
+        serialized.replace_range(position..position + namespace_attr.len(), "");
+        search_start = position;
+    }
 }
 
 fn serialize_json(
