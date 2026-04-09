@@ -38,6 +38,7 @@ impl PredicateMatcher for Interpreter<'_> {
             (position as u64).into(),
             (size as u64).into(),
         ];
+        let checkpoint = self.state.checkpoint();
 
         // the specification says to swallow any errors
         // TODO: log errors somehow here?
@@ -45,6 +46,7 @@ impl PredicateMatcher for Interpreter<'_> {
         if let Ok(value) = value {
             value.effective_boolean_value().unwrap_or(false)
         } else {
+            self.state.restore(checkpoint);
             false
         }
     }

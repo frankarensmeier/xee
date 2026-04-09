@@ -4,6 +4,49 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-09 22:32:18 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the last import-local runtime failure in `decl/import`.
+- Import bucket after fix: `31 passed / 0 failed / 0 error / 0 wrongE / 11 filtered`.
+- Validation used for the checkpoint:
+  - `cargo test -p xee-xslt-compiler test_imported_predicate_match_patterns_restore_state_after_swallowed_error -- --nocapture`
+  - `cargo run --release --bin xee-testrunner -- check vendor/xslt-tests/tests/decl/import/_import-test-set.xml`
+
+### Progress made
+
+- Fixed the remaining import-local runtime failure behind `import-1201`.
+- Added interpreter state checkpoints so swallowed pattern-predicate errors no longer leak stack, frame, or build-stack mutations into later predicate or template evaluation.
+- Added a focused regression that reproduces the imported predicate interaction and proves later matching still succeeds after an earlier swallowed predicate failure.
+- Confirmed the remaining non-pass import cases are no longer import-mechanics work: `import-0001` and `import-0002` still point at missing `format-number`, while `import-1301` still points at incomplete `key()` support.
+
+### Obstacles seen
+
+#### Swallowed pattern-predicate errors corrupted later evaluation state
+
+- Symptoms:
+  - `import-1201` raised `FORG0001` only when multiple predicate-based template rules were present together.
+  - Each predicate rule could pass in isolation, but the combined imported rule set failed at runtime.
+- Root cause:
+  - pattern predicate evaluation intentionally swallowed dynamic errors, but the inline function call path left behind mutated interpreter state after the failed predicate call.
+  - later predicate or template evaluation then ran against a corrupted stack/frame state.
+- Resolution:
+  - add explicit interpreter state checkpoints and restore them whenever a swallowed predicate evaluation fails.
+
+### Working practices that helped
+
+- Reduce a failing conformance case to minimal imported rule subsets until the failure changes shape.
+- Keep one focused regression that isolates the runtime invariant, then re-check the real bucket command before checkpointing.
+
+### Current open edges
+
+- The remaining import non-pass cases are broader feature gaps, not import-specific behavior:
+  - `import-0001`
+  - `import-0002`
+  - `import-1301`
+- The next highest-yield follow-up is `format-number`, because it blocks two of the three remaining import cases.
+
 ## 2026-04-09
 
 ### Status snapshot

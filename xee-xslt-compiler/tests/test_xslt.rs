@@ -2308,6 +2308,51 @@ fn test_pattern_predicate_position_ignores_whitespace_text_nodes() {
 }
 
 #[test]
+fn test_imported_predicate_match_patterns_restore_state_after_swallowed_error() {
+    let temp_dir = unique_temp_dir("import-1201-predicate-patterns");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:import href="imp.xsl"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("imp.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:apply-templates/>
+    </out>
+  </xsl:template>
+  <xsl:template match="*[.=117]">
+    <g/>
+  </xsl:template>
+  <xsl:template
+    match="*[(not(.=117) and ((position() &gt; 2) and (position() &lt; 6))) and ((@century='yes') or (@foo='nope'))]">
+    <c/>
+  </xsl:template>
+  <xsl:template match="text()"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc>\n<aaa foo=\"nope\">1</aaa>\n<bbb>2</bbb>\n<qqe>117</qqe>\n<ddd century=\"yes\">4</ddd>\n<eee>5</eee>\n</doc>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><g/><c/></out>");
+}
+
+#[test]
 fn test_message_is_ignored_in_result_sequence() {
     let mut xot = Xot::new();
     let output = evaluate(

@@ -13,6 +13,13 @@ use crate::stack;
 
 const FRAMES_MAX: usize = 64;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StateCheckpoint {
+    stack_len: usize,
+    build_stack_len: usize,
+    frames_len: usize,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Frame {
     function: function::InlineFunctionId,
@@ -174,6 +181,22 @@ impl<'a> State<'a> {
             ip: 0,
             base: 0,
         });
+    }
+
+    pub(crate) fn checkpoint(&self) -> StateCheckpoint {
+        StateCheckpoint {
+            stack_len: self.stack.len(),
+            build_stack_len: self.build_stack.len(),
+            frames_len: self.frames.len(),
+        }
+    }
+
+    pub(crate) fn restore(&mut self, checkpoint: StateCheckpoint) {
+        self.stack.truncate(checkpoint.stack_len);
+        self.build_stack.truncate(checkpoint.build_stack_len);
+        while self.frames.len() > checkpoint.frames_len {
+            self.frames.pop();
+        }
     }
 
     pub(crate) fn push_frame(
