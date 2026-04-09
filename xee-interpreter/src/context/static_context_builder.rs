@@ -13,6 +13,7 @@ pub struct StaticContextBuilder<'a> {
     default_element_namespace: &'a str,
     default_function_namespace: &'a str,
     static_base_uri: Option<IriAbsoluteString>,
+    processor_xslt_version: Option<u8>,
 }
 
 impl<'a> StaticContextBuilder<'a> {
@@ -76,6 +77,12 @@ impl<'a> StaticContextBuilder<'a> {
         self
     }
 
+    /// Set the XSLT processor version used for version-dependent behavior.
+    pub fn processor_xslt_version(&mut self, processor_xslt_version: Option<u8>) -> &mut Self {
+        self.processor_xslt_version = processor_xslt_version;
+        self
+    }
+
     /// Disable a function name in this static context.
     pub fn disable_function(&mut self, name: OwnedName) -> &mut Self {
         self.disabled_functions.insert(name);
@@ -103,12 +110,14 @@ impl<'a> StaticContextBuilder<'a> {
             default_function_namespace.to_string(),
         );
         let variable_names = self.variable_names.clone().into_iter().collect();
-        context::StaticContext::new(
+        let mut static_context = context::StaticContext::new(
             namespaces,
             variable_names,
             self.disabled_functions.clone(),
             self.static_base_uri.clone(),
-        )
+        );
+        static_context.set_processor_xslt_version(self.processor_xslt_version);
+        static_context
     }
 }
 

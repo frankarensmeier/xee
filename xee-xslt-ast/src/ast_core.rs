@@ -55,6 +55,7 @@ pub type PcData = String;
 pub struct Expression {
     pub xpath: xpath_ast::XPath,
     pub span: Span,
+    pub namespaces: Vec<LiteralNamespace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

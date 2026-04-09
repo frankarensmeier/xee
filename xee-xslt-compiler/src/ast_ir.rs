@@ -5,7 +5,7 @@ use xee_name::{Name, Namespaces, FN_NAMESPACE};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use xee_interpreter::{
-    context::StaticContext,
+    context::{DecimalFormatSymbols, StaticContext},
     error,
     interpreter::{self, instruction::RaisedError},
     sequence::QNameOrString,
@@ -43,19 +43,234 @@ struct PreprocessedDeclaration {
     declaration: ast::Declaration,
     import_precedence: i64,
     module_path: Vec<usize>,
+    stylesheet_version: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
 struct PreprocessedModule {
     declarations: ast::Declarations,
     module_path: Vec<usize>,
+    stylesheet_version: Option<u8>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DecimalFormatAccumulator {
+    decimal_separator: Vec<(char, i64)>,
+    grouping_separator: Vec<(char, i64)>,
+    infinity: Vec<(String, i64)>,
+    minus_sign: Vec<(char, i64)>,
+    exponent_separator: Vec<(char, i64)>,
+    nan: Vec<(String, i64)>,
+    percent: Vec<(char, i64)>,
+    per_mille: Vec<(char, i64)>,
+    zero_digit: Vec<(char, i64)>,
+    digit: Vec<(char, i64)>,
+    pattern_separator: Vec<(char, i64)>,
+}
+
+impl DecimalFormatAccumulator {
+    fn merge(
+        &mut self,
+        declaration: &ast::DecimalFormat,
+        import_precedence: i64,
+        stylesheet_version: Option<u8>,
+    ) -> error::Result<()> {
+        if stylesheet_version.unwrap_or(3) < 3 && declaration.exponent_separator.is_some() {
+            return Err(error::Error::XTSE0090);
+        }
+
+        push_decimal_format_field(
+            &mut self.decimal_separator,
+            declaration.decimal_separator,
+            import_precedence,
+        );
+        push_decimal_format_field(
+            &mut self.grouping_separator,
+            declaration.grouping_separator,
+            import_precedence,
+        );
+        push_decimal_format_field(
+            &mut self.infinity,
+            declaration.infinity.clone(),
+            import_precedence,
+        );
+        push_decimal_format_field(
+            &mut self.minus_sign,
+            declaration.minus_sign,
+            import_precedence,
+        );
+        push_decimal_format_field(
+            &mut self.exponent_separator,
+            declaration.exponent_separator,
+            import_precedence,
+        );
+        push_decimal_format_field(&mut self.nan, declaration.nan.clone(), import_precedence);
+        push_decimal_format_field(
+            &mut self.percent,
+            declaration.percent,
+            import_precedence,
+        );
+        push_decimal_format_field(
+            &mut self.per_mille,
+            declaration.per_mille,
+            import_precedence,
+        );
+        push_decimal_format_field(
+            &mut self.zero_digit,
+            declaration.zero_digit,
+            import_precedence,
+        );
+        push_decimal_format_field(&mut self.digit, declaration.digit, import_precedence);
+        push_decimal_format_field(
+            &mut self.pattern_separator,
+            declaration.pattern_separator,
+            import_precedence,
+        );
+        Ok(())
+    }
+
+    fn build(&self) -> error::Result<DecimalFormatSymbols> {
+        let defaults = DecimalFormatSymbols::default();
+        let symbols = DecimalFormatSymbols {
+            decimal_separator: resolve_decimal_format_field(
+                &self.decimal_separator,
+                defaults.decimal_separator,
+            )?,
+            grouping_separator: resolve_decimal_format_field(
+                &self.grouping_separator,
+                defaults.grouping_separator,
+            )?,
+            infinity: resolve_decimal_format_field(&self.infinity, defaults.infinity)?,
+            minus_sign: resolve_decimal_format_field(&self.minus_sign, defaults.minus_sign)?,
+            exponent_separator: resolve_decimal_format_field(
+                &self.exponent_separator,
+                defaults.exponent_separator,
+            )?,
+            nan: resolve_decimal_format_field(&self.nan, defaults.nan)?,
+            percent: resolve_decimal_format_field(&self.percent, defaults.percent)?,
+            per_mille: resolve_decimal_format_field(&self.per_mille, defaults.per_mille)?,
+            zero_digit: resolve_decimal_format_field(&self.zero_digit, defaults.zero_digit)?,
+            digit: resolve_decimal_format_field(&self.digit, defaults.digit)?,
+            pattern_separator: resolve_decimal_format_field(
+                &self.pattern_separator,
+                defaults.pattern_separator,
+            )?,
+        };
+        validate_decimal_format_symbols(&symbols)?;
+        Ok(symbols)
+    }
+}
+
+fn push_decimal_format_field<T: Clone>(
+    slot: &mut Vec<(T, i64)>,
+    value: Option<T>,
+    import_precedence: i64,
+) {
+    let Some(value) = value else {
+        return;
+    };
+
+    slot.push((value, import_precedence));
+}
+
+fn resolve_decimal_format_field<T: Clone + Eq>(
+    values: &[(T, i64)],
+    default: T,
+) -> error::Result<T> {
+    let Some(highest_precedence) = values.iter().map(|(_, precedence)| *precedence).max() else {
+        return Ok(default);
+    };
+
+    let mut candidates = values
+        .iter()
+        .filter(|(_, precedence)| *precedence == highest_precedence)
+        .map(|(value, _)| value);
+    let Some(first) = candidates.next() else {
+        return Ok(default);
+    };
+    if candidates.any(|candidate| candidate != first) {
+        return Err(error::Error::XTSE1290);
+    }
+
+    Ok(first.clone())
+}
+
+fn validate_decimal_format_symbols(symbols: &DecimalFormatSymbols) -> error::Result<()> {
+    let mut seen = HashSet::new();
+    for c in [
+        symbols.decimal_separator,
+        symbols.grouping_separator,
+        symbols.minus_sign,
+        symbols.exponent_separator,
+        symbols.percent,
+        symbols.per_mille,
+        symbols.zero_digit,
+        symbols.digit,
+        symbols.pattern_separator,
+    ] {
+        if !seen.insert(c) {
+            return Err(error::Error::XTSE1300);
+        }
+    }
+
+    if symbols.zero_digit.to_digit(10) != Some(0) {
+        return Err(error::Error::XTSE1295);
+    }
+
+    Ok(())
+}
+
+fn augment_static_context_with_decimal_formats(
+    declarations: &[PreprocessedDeclaration],
+    static_context: &mut StaticContext,
+) -> error::SpannedResult<()> {
+    let mut default_decimal_format = DecimalFormatAccumulator::default();
+    let mut named_decimal_formats = HashMap::new();
+
+    for declaration in declarations {
+        let ast::Declaration::DecimalFormat(decimal_format) = &declaration.declaration else {
+            continue;
+        };
+
+        let result = if let Some(name) = &decimal_format.name {
+            named_decimal_formats
+                .entry(name.clone())
+                .or_insert_with(DecimalFormatAccumulator::default)
+                .merge(
+                    decimal_format,
+                    declaration.import_precedence,
+                    declaration.stylesheet_version,
+                )
+        } else {
+            default_decimal_format.merge(
+                decimal_format,
+                declaration.import_precedence,
+                declaration.stylesheet_version,
+            )
+        };
+
+        if let Err(error) = result {
+            return Err(error::SpannedError {
+                error,
+                span: Some((decimal_format.span.start..decimal_format.span.end).into()),
+            });
+        }
+    }
+
+    let named_decimal_formats = named_decimal_formats
+        .into_iter()
+        .map(|(name, format)| format.build().map(|format| (name, format)))
+        .collect::<error::Result<HashMap<_, _>>>()?;
+    static_context.set_decimal_formats(default_decimal_format.build()?, named_decimal_formats);
+    Ok(())
 }
 
 fn compile_preprocessed_declarations(
     declarations: Vec<PreprocessedDeclaration>,
-    static_context: StaticContext,
+    mut static_context: StaticContext,
     initial_mode: ast::ApplyTemplatesModeValue,
 ) -> error::SpannedResult<interpreter::Program> {
+    augment_static_context_with_decimal_formats(&declarations, &mut static_context)?;
     let mut ir_converter = IrConverter::new(&static_context, initial_mode);
     let declarations = ir_converter.transform(&declarations)?;
     compile_xslt(declarations, static_context)
@@ -82,7 +297,12 @@ pub fn parse_with_base_dir_and_initial_mode(
     base_dir: Option<std::path::PathBuf>,
     initial_mode: Option<String>,
 ) -> error::SpannedResult<interpreter::Program> {
-    let static_context = augment_static_context_with_stylesheet_namespaces(static_context, xslt);
+    let mut static_context = augment_static_context_with_stylesheet_namespaces(static_context, xslt);
+    let stylesheet_version = detect_stylesheet_version(xslt);
+    static_context.set_stylesheet_xslt_version(stylesheet_version);
+    if static_context.processor_xslt_version().is_none() {
+        static_context.set_processor_xslt_version(Some(3));
+    }
     let transform = parse_transform(xslt);
     // TODO: better error handling
     let transform = match transform {
@@ -93,7 +313,7 @@ pub fn parse_with_base_dir_and_initial_mode(
     };
 
     // Process xsl:import and xsl:include directives
-    let declarations = process_imports_and_includes(transform.declarations, base_dir)?;
+    let declarations = process_imports_and_includes(transform.declarations, base_dir, stylesheet_version)?;
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
     compile_preprocessed_declarations(declarations, static_context, initial_mode)
@@ -119,6 +339,15 @@ fn augment_static_context_with_stylesheet_namespaces(
     }
 
     static_context.clone_with_namespaces(namespaces)
+}
+
+fn detect_stylesheet_version(xslt: &str) -> Option<u8> {
+    let mut xot = Xot::new();
+    let root = xot.parse(xslt).ok()?;
+    let document_element = xot.document_element(root).ok()?;
+    let version_name = xot.add_name("version");
+    let version = xot.attributes(document_element).get(version_name)?;
+    version.split('.').next()?.parse::<u8>().ok()
 }
 
 fn parse_initial_mode_value(
@@ -202,8 +431,15 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
 fn process_imports_and_includes(
     declarations: ast::Declarations,
     base_dir: Option<std::path::PathBuf>,
+    stylesheet_version: Option<u8>,
 ) -> error::SpannedResult<Vec<PreprocessedDeclaration>> {
-    let modules = process_stylesheet_module(declarations, base_dir, &mut Vec::new(), Vec::new())?;
+    let modules = process_stylesheet_module(
+        declarations,
+        base_dir,
+        &mut Vec::new(),
+        Vec::new(),
+        stylesheet_version,
+    )?;
     let mut result = Vec::new();
     for (import_precedence, module) in modules.into_iter().enumerate() {
         for declaration in module.declarations {
@@ -211,6 +447,7 @@ fn process_imports_and_includes(
                 declaration,
                 import_precedence: import_precedence as i64,
                 module_path: module.module_path.clone(),
+                stylesheet_version: module.stylesheet_version,
             });
         }
     }
@@ -222,6 +459,7 @@ fn process_stylesheet_module(
     base_dir: Option<std::path::PathBuf>,
     active_paths: &mut Vec<PathBuf>,
     module_path: Vec<usize>,
+    stylesheet_version: Option<u8>,
 ) -> error::SpannedResult<Vec<PreprocessedModule>> {
     let mut local_declarations = Vec::new();
     let mut imports = Vec::new();
@@ -231,7 +469,7 @@ fn process_stylesheet_module(
         match &decl {
             ast::Declaration::Import(import) => {
                 // Load and parse the imported stylesheet
-                let (imported_decls, resolved_path, imported_base_dir) =
+                let (imported_decls, resolved_path, imported_base_dir, imported_version) =
                     load_stylesheet(&import.href.to_string(), base_dir.as_ref())?;
                 if active_paths.contains(&resolved_path) {
                     return Err(error::Error::Unsupported(format!(
@@ -249,13 +487,14 @@ fn process_stylesheet_module(
                     imported_base_dir,
                     active_paths,
                     imported_module_path,
+                    imported_version,
                 )?;
                 active_paths.pop();
                 imports.extend(processed);
             }
             ast::Declaration::Include(include) => {
                 // Load and parse the included stylesheet
-                let (included_decls, resolved_path, included_base_dir) =
+                let (included_decls, resolved_path, included_base_dir, included_version) =
                     load_stylesheet(&include.href.to_string(), base_dir.as_ref())?;
                 if active_paths.contains(&resolved_path) {
                     return Err(error::Error::Unsupported(format!(
@@ -270,6 +509,7 @@ fn process_stylesheet_module(
                     included_base_dir,
                     active_paths,
                     module_path.clone(),
+                    included_version,
                 )?;
                 active_paths.pop();
                 if let Some(included_local_module) = processed.pop() {
@@ -287,6 +527,7 @@ fn process_stylesheet_module(
     result.push(PreprocessedModule {
         declarations: local_declarations,
         module_path,
+        stylesheet_version,
     });
     Ok(result)
 }
@@ -294,7 +535,7 @@ fn process_stylesheet_module(
 fn load_stylesheet(
     href: &str,
     base_dir: Option<&std::path::PathBuf>,
-) -> error::SpannedResult<(ast::Declarations, PathBuf, Option<PathBuf>)> {
+) -> error::SpannedResult<(ast::Declarations, PathBuf, Option<PathBuf>, Option<u8>)> {
     // Resolve the file path
     let path = if let Some(base_dir) = base_dir {
         base_dir.join(href)
@@ -310,6 +551,7 @@ fn load_stylesheet(
 
     // Try to read the file
     let content = std::fs::read_to_string(&path).map_err(|_| error::Error::XTSE0165)?;
+    let stylesheet_version = detect_stylesheet_version(&content);
 
     // Parse the stylesheet
     let transform = parse_transform(&content).map_err(|e| {
@@ -320,7 +562,7 @@ fn load_stylesheet(
         }
     })?;
 
-    Ok((transform.declarations, canonical, next_base_dir))
+    Ok((transform.declarations, canonical, next_base_dir, stylesheet_version))
 }
 
 impl<'a> IrConverter<'a> {
@@ -417,6 +659,7 @@ impl<'a> IrConverter<'a> {
                     )
                     .unwrap(),
                     span: xee_xslt_ast::ast::Span::new(0, 0),
+                    namespaces: Vec::new(),
                 },
                 content: vec![],
                 span: xee_xslt_ast::ast::Span::new(0, 0),
@@ -2688,7 +2931,7 @@ impl<'a> IrConverter<'a> {
                     bindings.bind_expr_no_span(&mut self.variables, ir::Expr::Atom(text_atom))
                 }
                 ast::ValueTemplateItem::Value { xpath, span: _ } => {
-                    let (atom, bindings) = self.xpath(&xpath.0)?.atom_bindings();
+                    let (atom, bindings) = self.xpath(&xpath.0, &[])?.atom_bindings();
                     let expr = self.simple_content_expr(atom, self.space_separator_atom());
                     bindings.bind_expr_no_span(&mut self.variables, expr)
                 }
@@ -3542,12 +3785,16 @@ impl<'a> IrConverter<'a> {
             let atom = Spanned::new(ir::Atom::Const(ir::Const::String(base_uri)), (0..0).into());
             return Ok(Bindings::empty().bind_expr_no_span(&mut self.variables, ir::Expr::Atom(atom)));
         }
-        self.xpath(&expression.xpath.0)
+        self.xpath(&expression.xpath.0, &expression.namespaces)
     }
 
-    fn xpath(&mut self, xpath: &xee_xpath_ast::ast::ExprS) -> error::SpannedResult<Bindings> {
+    fn xpath(
+        &mut self,
+        xpath: &xee_xpath_ast::ast::ExprS,
+        namespaces: &[ast::LiteralNamespace],
+    ) -> error::SpannedResult<Bindings> {
         let mut rewritten_xpath = xpath.clone();
-        self.rewrite_user_function_references_expr(&mut rewritten_xpath);
+        self.rewrite_user_function_references_expr(&mut rewritten_xpath, namespaces);
         let static_context = self
             .current_static_context()
             .clone_with_static_base_uri(
@@ -3564,69 +3811,91 @@ impl<'a> IrConverter<'a> {
         self.xslt_functions.get(&(name.clone(), arity)).cloned()
     }
 
-    fn rewrite_user_function_references_expr(&self, expr: &mut xpath_ast::ExprS) {
+    fn rewrite_user_function_references_expr(
+        &self,
+        expr: &mut xpath_ast::ExprS,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
         for expr_single in &mut expr.value.0 {
-            self.rewrite_user_function_references_expr_single(expr_single);
+            self.rewrite_user_function_references_expr_single(expr_single, namespaces);
         }
     }
 
-    fn rewrite_user_function_references_expr_or_empty(&self, expr: &mut xpath_ast::ExprOrEmptyS) {
+    fn rewrite_user_function_references_expr_or_empty(
+        &self,
+        expr: &mut xpath_ast::ExprOrEmptyS,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
         if let Some(expr) = &mut expr.value {
             for expr_single in &mut expr.0 {
-                self.rewrite_user_function_references_expr_single(expr_single);
+                self.rewrite_user_function_references_expr_single(expr_single, namespaces);
             }
         }
     }
 
-    fn rewrite_user_function_references_expr_single(&self, expr: &mut xpath_ast::ExprSingleS) {
+    fn rewrite_user_function_references_expr_single(
+        &self,
+        expr: &mut xpath_ast::ExprSingleS,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
         match &mut expr.value {
             xpath_ast::ExprSingle::Path(path_expr) => {
-                self.rewrite_user_function_references_path_expr(path_expr);
+                self.rewrite_user_function_references_path_expr(path_expr, namespaces);
             }
             xpath_ast::ExprSingle::Apply(apply_expr) => {
-                self.rewrite_user_function_references_path_expr(&mut apply_expr.path_expr);
+                self.rewrite_user_function_references_path_expr(&mut apply_expr.path_expr, namespaces);
                 if let xpath_ast::ApplyOperator::SimpleMap(path_exprs) = &mut apply_expr.operator {
                     for path_expr in path_exprs {
-                        self.rewrite_user_function_references_path_expr(path_expr);
+                        self.rewrite_user_function_references_path_expr(path_expr, namespaces);
                     }
                 }
             }
             xpath_ast::ExprSingle::Let(let_expr) => {
-                self.rewrite_user_function_references_expr_single(&mut let_expr.var_expr);
-                self.rewrite_user_function_references_expr_single(&mut let_expr.return_expr);
+                self.rewrite_user_function_references_expr_single(&mut let_expr.var_expr, namespaces);
+                self.rewrite_user_function_references_expr_single(&mut let_expr.return_expr, namespaces);
             }
             xpath_ast::ExprSingle::If(if_expr) => {
-                self.rewrite_user_function_references_expr(&mut if_expr.condition);
-                self.rewrite_user_function_references_expr_single(&mut if_expr.then);
-                self.rewrite_user_function_references_expr_single(&mut if_expr.else_);
+                self.rewrite_user_function_references_expr(&mut if_expr.condition, namespaces);
+                self.rewrite_user_function_references_expr_single(&mut if_expr.then, namespaces);
+                self.rewrite_user_function_references_expr_single(&mut if_expr.else_, namespaces);
             }
             xpath_ast::ExprSingle::Binary(binary_expr) => {
-                self.rewrite_user_function_references_path_expr(&mut binary_expr.left);
-                self.rewrite_user_function_references_path_expr(&mut binary_expr.right);
+                self.rewrite_user_function_references_path_expr(&mut binary_expr.left, namespaces);
+                self.rewrite_user_function_references_path_expr(&mut binary_expr.right, namespaces);
             }
             xpath_ast::ExprSingle::For(for_expr) => {
-                self.rewrite_user_function_references_expr_single(&mut for_expr.var_expr);
-                self.rewrite_user_function_references_expr_single(&mut for_expr.return_expr);
+                self.rewrite_user_function_references_expr_single(&mut for_expr.var_expr, namespaces);
+                self.rewrite_user_function_references_expr_single(&mut for_expr.return_expr, namespaces);
             }
             xpath_ast::ExprSingle::Quantified(quantified_expr) => {
-                self.rewrite_user_function_references_expr_single(&mut quantified_expr.var_expr);
+                self.rewrite_user_function_references_expr_single(&mut quantified_expr.var_expr, namespaces);
                 self.rewrite_user_function_references_expr_single(
                     &mut quantified_expr.satisfies_expr,
+                    namespaces,
                 );
             }
         }
     }
 
-    fn rewrite_user_function_references_path_expr(&self, path_expr: &mut xpath_ast::PathExpr) {
+    fn rewrite_user_function_references_path_expr(
+        &self,
+        path_expr: &mut xpath_ast::PathExpr,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
         for step in &mut path_expr.steps {
-            self.rewrite_user_function_references_step_expr(step);
+            self.rewrite_user_function_references_step_expr(step, namespaces);
         }
     }
 
-    fn rewrite_user_function_references_step_expr(&self, step: &mut xpath_ast::StepExprS) {
+    fn rewrite_user_function_references_step_expr(
+        &self,
+        step: &mut xpath_ast::StepExprS,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
         match &mut step.value {
             xpath_ast::StepExpr::PrimaryExpr(primary) => {
-                let extra_postfixes = self.rewrite_user_function_references_primary_expr(primary);
+                let extra_postfixes =
+                    self.rewrite_user_function_references_primary_expr(primary, namespaces);
                 if !extra_postfixes.is_empty() {
                     step.value = xpath_ast::StepExpr::PostfixExpr {
                         primary: primary.clone(),
@@ -3635,9 +3904,10 @@ impl<'a> IrConverter<'a> {
                 }
             }
             xpath_ast::StepExpr::PostfixExpr { primary, postfixes } => {
-                let extra_postfixes = self.rewrite_user_function_references_primary_expr(primary);
+                let extra_postfixes =
+                    self.rewrite_user_function_references_primary_expr(primary, namespaces);
                 for postfix in postfixes.iter_mut() {
-                    self.rewrite_user_function_references_postfix(postfix);
+                    self.rewrite_user_function_references_postfix(postfix, namespaces);
                 }
                 if !extra_postfixes.is_empty() {
                     let mut new_postfixes = extra_postfixes;
@@ -3647,7 +3917,7 @@ impl<'a> IrConverter<'a> {
             }
             xpath_ast::StepExpr::AxisStep(axis_step) => {
                 for predicate in &mut axis_step.predicates {
-                    self.rewrite_user_function_references_expr(predicate);
+                    self.rewrite_user_function_references_expr(predicate, namespaces);
                 }
             }
         }
@@ -3656,12 +3926,15 @@ impl<'a> IrConverter<'a> {
     fn rewrite_user_function_references_primary_expr(
         &self,
         primary: &mut xpath_ast::PrimaryExprS,
+        namespaces: &[ast::LiteralNamespace],
     ) -> Vec<xpath_ast::Postfix> {
         match &mut primary.value {
             xpath_ast::PrimaryExpr::FunctionCall(function_call) => {
                 for argument in &mut function_call.arguments {
-                    self.rewrite_user_function_references_expr_single(argument);
+                    self.rewrite_user_function_references_expr_single(argument, namespaces);
                 }
+
+                self.rewrite_static_format_number_decimal_format_name(function_call, namespaces);
 
                 let arity = match u8::try_from(function_call.arguments.len()) {
                     Ok(arity) => arity,
@@ -3688,33 +3961,33 @@ impl<'a> IrConverter<'a> {
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::Expr(expr) => {
-                self.rewrite_user_function_references_expr_or_empty(expr);
+                self.rewrite_user_function_references_expr_or_empty(expr, namespaces);
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::InlineFunction(inline_function) => {
-                self.rewrite_user_function_references_expr_or_empty(&mut inline_function.body);
+                self.rewrite_user_function_references_expr_or_empty(&mut inline_function.body, namespaces);
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::MapConstructor(map_constructor) => {
                 for entry in &mut map_constructor.entries {
-                    self.rewrite_user_function_references_expr_single(&mut entry.key);
-                    self.rewrite_user_function_references_expr_single(&mut entry.value);
+                    self.rewrite_user_function_references_expr_single(&mut entry.key, namespaces);
+                    self.rewrite_user_function_references_expr_single(&mut entry.value, namespaces);
                 }
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::ArrayConstructor(array_constructor) => {
                 match array_constructor {
                     xpath_ast::ArrayConstructor::Square(expr) => {
-                        self.rewrite_user_function_references_expr(expr);
+                        self.rewrite_user_function_references_expr(expr, namespaces);
                     }
                     xpath_ast::ArrayConstructor::Curly(expr) => {
-                        self.rewrite_user_function_references_expr_or_empty(expr);
+                        self.rewrite_user_function_references_expr_or_empty(expr, namespaces);
                     }
                 }
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::UnaryLookup(key_specifier) => {
-                self.rewrite_user_function_references_key_specifier(key_specifier);
+                self.rewrite_user_function_references_key_specifier(key_specifier, namespaces);
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::Literal(_)
@@ -3723,18 +3996,22 @@ impl<'a> IrConverter<'a> {
         }
     }
 
-    fn rewrite_user_function_references_postfix(&self, postfix: &mut xpath_ast::Postfix) {
+    fn rewrite_user_function_references_postfix(
+        &self,
+        postfix: &mut xpath_ast::Postfix,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
         match postfix {
             xpath_ast::Postfix::Predicate(expr) => {
-                self.rewrite_user_function_references_expr(expr);
+                self.rewrite_user_function_references_expr(expr, namespaces);
             }
             xpath_ast::Postfix::ArgumentList(arguments) => {
                 for argument in arguments {
-                    self.rewrite_user_function_references_expr_single(argument);
+                    self.rewrite_user_function_references_expr_single(argument, namespaces);
                 }
             }
             xpath_ast::Postfix::Lookup(key_specifier) => {
-                self.rewrite_user_function_references_key_specifier(key_specifier);
+                self.rewrite_user_function_references_key_specifier(key_specifier, namespaces);
             }
         }
     }
@@ -3742,10 +4019,79 @@ impl<'a> IrConverter<'a> {
     fn rewrite_user_function_references_key_specifier(
         &self,
         key_specifier: &mut xpath_ast::KeySpecifier,
+        namespaces: &[ast::LiteralNamespace],
     ) {
         if let xpath_ast::KeySpecifier::Expr(expr) = key_specifier {
-            self.rewrite_user_function_references_expr_or_empty(expr);
+            self.rewrite_user_function_references_expr_or_empty(expr, namespaces);
         }
+    }
+
+    fn rewrite_static_format_number_decimal_format_name(
+        &self,
+        function_call: &mut xpath_ast::FunctionCall,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
+        if function_call.arguments.len() != 3 {
+            return;
+        }
+        if function_call.name.value.local_name() != "format-number" {
+            return;
+        }
+        let namespace = function_call.name.value.namespace();
+        if !namespace.is_empty() && namespace != FN_NAMESPACE {
+            return;
+        }
+
+        let Some(lexical_qname) = Self::static_string_literal(&function_call.arguments[2]) else {
+            return;
+        };
+        let Some((local_name, namespace_uri)) =
+            self.resolve_static_qname_with_default(&lexical_qname, namespaces, "")
+        else {
+            return;
+        };
+
+        let rewritten = if namespace_uri.is_empty() {
+            local_name
+        } else {
+            format!("Q{{{namespace_uri}}}{local_name}")
+        };
+
+        if let Some(literal) = Self::static_string_literal_mut(&mut function_call.arguments[2]) {
+            *literal = rewritten;
+        }
+    }
+
+    fn static_string_literal(expr: &xpath_ast::ExprSingleS) -> Option<String> {
+        let xpath_ast::ExprSingle::Path(path_expr) = &expr.value else {
+            return None;
+        };
+        let [step] = path_expr.steps.as_slice() else {
+            return None;
+        };
+        let xpath_ast::StepExpr::PrimaryExpr(primary) = &step.value else {
+            return None;
+        };
+        let xpath_ast::PrimaryExpr::Literal(xpath_ast::Literal::String(value)) = &primary.value else {
+            return None;
+        };
+        Some(value.clone())
+    }
+
+    fn static_string_literal_mut(expr: &mut xpath_ast::ExprSingleS) -> Option<&mut String> {
+        let xpath_ast::ExprSingle::Path(path_expr) = &mut expr.value else {
+            return None;
+        };
+        let [step] = path_expr.steps.as_mut_slice() else {
+            return None;
+        };
+        let xpath_ast::StepExpr::PrimaryExpr(primary) = &mut step.value else {
+            return None;
+        };
+        let xpath_ast::PrimaryExpr::Literal(xpath_ast::Literal::String(value)) = &mut primary.value else {
+            return None;
+        };
+        Some(value)
     }
 
     fn pattern_predicate(
@@ -3753,7 +4099,7 @@ impl<'a> IrConverter<'a> {
         expr: &xpath_ast::ExprS,
     ) -> error::SpannedResult<ir::FunctionDefinition> {
         let context_names = self.variables.push_context();
-        let bindings = self.xpath(expr)?;
+        let bindings = self.xpath(expr, &[])?;
         self.variables.pop_context();
         // a predicate is a function that takes a sequence as an argument and returns
         // a boolean that is true if the sequence matches the predicate

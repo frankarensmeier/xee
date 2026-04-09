@@ -104,7 +104,8 @@ pub(crate) fn sequence_constructor() -> impl NodeParser<ast::SequenceConstructor
                 let span = state.span(node).ok_or(ElementError::Internal)?;
                 let parser_context = content.parser_context();
                 if context.expand_text {
-                    text_value_template(text.get(), span, &parser_context)
+                    let namespaces = context.literal_namespaces(state);
+                    text_value_template(text.get(), span, &parser_context, namespaces)
                 } else {
                     Ok(vec![ast::SequenceConstructorItem::Content(
                         ast::Content::Text(text.get().to_string()),
@@ -144,6 +145,7 @@ fn text_value_template(
     s: &str,
     span: Span,
     parser_context: &XPathParserContext,
+    namespaces: Vec<ast::LiteralNamespace>,
 ) -> Result<Vec<ast::SequenceConstructorItem>, ElementError> {
     let mut items = Vec::new();
     for token in ValueTemplateTokenizer::new(s, span, parser_context) {
@@ -152,7 +154,11 @@ fn text_value_template(
             ValueTemplateItem::String { text, span: _ } => ast::Content::Text(text.to_string()),
             ValueTemplateItem::Curly { c } => ast::Content::Text(c.to_string()),
             ValueTemplateItem::Value { xpath, span } => {
-                ast::Content::Value(Box::new(ast::Expression { xpath, span }))
+                ast::Content::Value(Box::new(ast::Expression {
+                    xpath,
+                    span,
+                    namespaces: namespaces.clone(),
+                }))
             }
         };
         let item = ast::SequenceConstructorItem::Content(content);

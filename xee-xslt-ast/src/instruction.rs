@@ -384,6 +384,7 @@ impl InstructionParser for ast::ApplyTemplates {
                         )
                         .unwrap(),
                         span: ast::Span::new(0, 0),
+                        namespaces: Vec::new(),
                     },
                 ),
             mode,

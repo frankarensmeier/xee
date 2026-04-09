@@ -14,6 +14,7 @@ use crate::atomic;
 use crate::error;
 use crate::function::StaticFunctionDescription;
 use crate::interpreter::Interpreter;
+use crate::library::numeric;
 use crate::sequence;
 use crate::wrap_xpath_fn;
 
@@ -92,6 +93,29 @@ fn resolve_xslt_qname(
     }
 
     Ok(name.into())
+}
+
+#[xpath_fn(
+    "fn:format-number-lexical($value as xs:string, $picture as xs:string) as xs:string"
+)]
+fn format_number_lexical2(
+    context: &crate::context::DynamicContext,
+    value: &str,
+    picture: &str,
+) -> error::Result<String> {
+    numeric::format_number_from_lexical(context, value, picture, None)
+}
+
+#[xpath_fn(
+    "fn:format-number-lexical($value as xs:string, $picture as xs:string, $decimal_format_name as xs:string) as xs:string"
+)]
+fn format_number_lexical3(
+    context: &crate::context::DynamicContext,
+    value: &str,
+    picture: &str,
+    decimal_format_name: &str,
+) -> error::Result<String> {
+    numeric::format_number_from_lexical(context, value, picture, Some(decimal_format_name))
 }
 
 #[xpath_fn(
@@ -349,6 +373,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(simple_content),
         wrap_xpath_fn!(group_by_first),
         wrap_xpath_fn!(resolve_xslt_qname),
+        wrap_xpath_fn!(format_number_lexical2),
+        wrap_xpath_fn!(format_number_lexical3),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),
     ]

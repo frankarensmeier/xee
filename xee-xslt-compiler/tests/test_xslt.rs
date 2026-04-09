@@ -52,6 +52,29 @@ fn evaluate_with_stylesheet_base(
     runnable.many(xot)
 }
 
+  fn evaluate_with_processor_xslt_version(
+    xot: &mut Xot,
+    xml: &str,
+    xslt: &str,
+    processor_xslt_version: u8,
+  ) -> error::SpannedResult<Sequence> {
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.processor_xslt_version(Some(processor_xslt_version));
+    let static_context = static_context_builder.build();
+    let program = parse(static_context, xslt).unwrap();
+
+    let root = xot.parse(xml).unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    runnable.many(xot)
+  }
+
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2350,6 +2373,148 @@ fn test_imported_predicate_match_patterns_restore_state_after_swallowed_error() 
     .unwrap();
 
     assert_eq!(xml(&xot, output), "<out><g/><c/></out>");
+}
+
+#[test]
+fn test_format_number_uses_default_decimal_format_symbols() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:decimal-format decimal-separator="|" grouping-separator="." minus-sign="~"/>
+  <xsl:template match="doc">
+    <out><xsl:value-of select="format-number(-12345.6, '#.##0|00')"/></out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>~12.345|60</out>");
+}
+
+#[test]
+fn test_format_number_invalid_picture_uses_processor_error_code_by_default() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number(931.4857, '000.##0')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::FODF1310);
+}
+
+#[test]
+fn test_format_number_invalid_picture_uses_xtde1310_in_xslt20_processor_mode() {
+    let mut xot = Xot::new();
+    let error = evaluate_with_processor_xslt_version(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number(931.4857, '000.##0')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        2,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTDE1310);
+}
+
+#[test]
+fn test_imported_decimal_format_merges_across_import_precedence() {
+    let temp_dir = unique_temp_dir("format-number-import-precedence");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:import href="imported.xsl"/>
+  <xsl:decimal-format minus-sign="~"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("imported.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:decimal-format decimal-separator="|"/>
+  <xsl:template match="/">
+    <out><xsl:value-of select="format-number(-10000093.7, '0|00')"/></out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>~10000093|70</out>");
+}
+
+#[test]
+fn test_format_number_resolves_prefixed_decimal_format_name_in_expression_context() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:decimal-format name="a:test" decimal-separator="," grouping-separator="."
+      xmlns:a="http://aaa.uri/"/>
+
+  <xsl:template match="/">
+    <o><xsl:value-of select="format-number(12.34, '0.000,00', 'b:test')" xmlns:b="http://aaa.uri/"/></o>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<o>0.012,34</o>");
+}
+
+#[test]
+fn test_format_number_accepts_high_precision_decimal_literal() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number(000123456789012345678901234567890.123456789012345678900000,
+      '##0.0####################################################')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out>123456789012345678901234567890.1234567890123456789</out>"
+    );
 }
 
 #[test]

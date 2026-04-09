@@ -587,10 +587,24 @@ impl<'a> Attributes<'a> {
     }
 
     fn _xpath(&self, s: &str, span: Span) -> Result<ast::Expression, AttributeError> {
-        Ok(ast::Expression {
-            xpath: self.content.parser_context().parse_xpath(s)?,
-            span,
-        })
+        let namespaces = self.content.context.literal_namespaces(self.content.state);
+        match self.content.parser_context().parse_xpath(s) {
+            Ok(xpath) => Ok(ast::Expression {
+                xpath,
+                span,
+                namespaces,
+            }),
+            Err(error) => {
+                let Some(rewritten) = rewrite_large_decimal_format_number_call(s) else {
+                    return Err(error.into());
+                };
+                Ok(ast::Expression {
+                    xpath: self.content.parser_context().parse_xpath(&rewritten)?,
+                    span,
+                    namespaces,
+                })
+            }
+        }
     }
 
     pub(crate) fn xpath(
@@ -1120,5 +1134,190 @@ impl<'a> Attributes<'a> {
         &self,
     ) -> impl Fn(&'a str, Span) -> Result<ast::NewEachTime, AttributeError> + '_ {
         Self::_new_each_time
+    }
+}
+
+fn rewrite_large_decimal_format_number_call(s: &str) -> Option<String> {
+    let mut result = String::new();
+    let mut cursor = 0;
+    let mut index = 0;
+    let mut changed = false;
+
+    while index < s.len() {
+        let Some(ch) = s[index..].chars().next() else {
+            break;
+        };
+        if ch == '\'' || ch == '"' {
+            index = skip_xpath_string(s, index, ch);
+            continue;
+        }
+
+        if let Some(rewrite) = parse_format_number_rewrite(s, index) {
+            result.push_str(&s[cursor..rewrite.name_start]);
+            result.push_str("format-number-lexical");
+            result.push_str(&s[rewrite.name_end..rewrite.arg_start]);
+            result.push('\'');
+            result.push_str(&rewrite.lexical);
+            result.push('\'');
+            cursor = rewrite.arg_end;
+            index = rewrite.call_end;
+            changed = true;
+            continue;
+        }
+
+        index += ch.len_utf8();
+    }
+
+    if !changed {
+        return None;
+    }
+    result.push_str(&s[cursor..]);
+    Some(result)
+}
+
+#[derive(Debug)]
+struct FormatNumberRewrite {
+    name_start: usize,
+    name_end: usize,
+    arg_start: usize,
+    arg_end: usize,
+    call_end: usize,
+    lexical: String,
+}
+
+fn parse_format_number_rewrite(s: &str, index: usize) -> Option<FormatNumberRewrite> {
+    const NAME: &str = "format-number";
+
+    if !s[index..].starts_with(NAME) {
+        return None;
+    }
+
+    if index > 0 {
+        let previous = s[..index].chars().next_back()?;
+        if is_xpath_name_char(previous) {
+            return None;
+        }
+    }
+
+    let name_end = index + NAME.len();
+    let mut open_paren = name_end;
+    while let Some(ch) = s[open_paren..].chars().next() {
+        if !ch.is_whitespace() {
+            break;
+        }
+        open_paren += ch.len_utf8();
+    }
+    if !s[open_paren..].starts_with('(') {
+        return None;
+    }
+
+    let mut depth_paren = 1usize;
+    let mut depth_bracket = 0usize;
+    let mut depth_brace = 0usize;
+    let mut comma = None;
+    let mut position = open_paren + 1;
+
+    while position < s.len() {
+        let ch = s[position..].chars().next()?;
+        if ch == '\'' || ch == '"' {
+            position = skip_xpath_string(s, position, ch);
+            continue;
+        }
+        match ch {
+            '(' => depth_paren += 1,
+            ')' => {
+                depth_paren -= 1;
+                if depth_paren == 0 {
+                    let comma = comma?;
+                    let raw_first_arg = &s[open_paren + 1..comma];
+                    let lexical = raw_first_arg.trim();
+                    if !is_large_decimal_literal(lexical) {
+                        return None;
+                    }
+                    return Some(FormatNumberRewrite {
+                        name_start: index,
+                        name_end,
+                        arg_start: open_paren + 1,
+                        arg_end: comma,
+                        call_end: position + ch.len_utf8(),
+                        lexical: lexical.to_string(),
+                    });
+                }
+            }
+            '[' => depth_bracket += 1,
+            ']' => depth_bracket = depth_bracket.saturating_sub(1),
+            '{' => depth_brace += 1,
+            '}' => depth_brace = depth_brace.saturating_sub(1),
+            ',' if depth_paren == 1 && depth_bracket == 0 && depth_brace == 0 && comma.is_none() => {
+                comma = Some(position);
+            }
+            _ => {}
+        }
+        position += ch.len_utf8();
+    }
+
+    None
+}
+
+fn is_large_decimal_literal(s: &str) -> bool {
+    let lexical = s.strip_prefix(['+', '-']).unwrap_or(s);
+    if lexical.parse::<Decimal>().is_ok() {
+        return false;
+    }
+
+    let mut seen_dot = false;
+    let mut digit_count = 0usize;
+    for ch in lexical.chars() {
+        match ch {
+            '.' if !seen_dot => seen_dot = true,
+            '0'..='9' => digit_count += 1,
+            _ => return false,
+        }
+    }
+    seen_dot && digit_count > 0
+}
+
+fn skip_xpath_string(s: &str, start: usize, quote: char) -> usize {
+    let mut position = start + quote.len_utf8();
+    while position < s.len() {
+        let ch = match s[position..].chars().next() {
+            Some(ch) => ch,
+            None => break,
+        };
+        position += ch.len_utf8();
+        if ch != quote {
+            continue;
+        }
+        if s[position..].starts_with(quote) {
+            position += quote.len_utf8();
+            continue;
+        }
+        break;
+    }
+    position
+}
+
+fn is_xpath_name_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_large_decimal_literal_in_format_number_call() {
+        let source = "format-number(000123456789012345678901234567890.123456789012345678900000, '##0.0')";
+        let rewritten = rewrite_large_decimal_format_number_call(source).unwrap();
+        assert_eq!(
+            rewritten,
+            "format-number-lexical('000123456789012345678901234567890.123456789012345678900000', '##0.0')"
+        );
+    }
+
+    #[test]
+    fn does_not_rewrite_regular_decimal_literal() {
+        let source = "format-number(12.34, '##0.0')";
+        assert!(rewrite_large_decimal_format_number_call(source).is_none());
     }
 }

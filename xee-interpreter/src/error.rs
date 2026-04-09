@@ -559,6 +559,11 @@ pub enum Error {
     /// It is a dynamic error if a stylesheet parameter is declared with
     /// required="yes" and no value is supplied.
     XTDE0050,
+    /// Invalid decimal format picture string in XSLT 2.0.
+    ///
+    /// It is a dynamic error if the picture string supplied to
+    /// format-number is invalid.
+    XTDE1310,
     /// Attribute not permitted on an XSLT element.
     ///
     /// It is a static error if an XSLT element has an attribute that is not
@@ -577,6 +582,22 @@ pub enum Error {
     /// template specify the same name.
     XTSE0580,
     XTSE0630,
+    /// Conflicting xsl:decimal-format declarations.
+    ///
+    /// It is a static error if two xsl:decimal-format declarations with the
+    /// same name and import precedence specify different values for the same
+    /// attribute.
+    XTSE1290,
+    /// Invalid zero-digit in xsl:decimal-format.
+    ///
+    /// It is a static error if the zero-digit attribute does not identify a
+    /// Unicode digit with numeric value zero.
+    XTSE1295,
+    /// Invalid xsl:decimal-format symbols.
+    ///
+    /// It is a static error if a decimal-format declaration uses invalid or
+    /// conflicting characters for the symbols that define the format.
+    XTSE1300,
     /// xsl:with-param does not match any declared template parameter.
     ///
     /// It is a static error if xsl:call-template supplies a non-tunnel

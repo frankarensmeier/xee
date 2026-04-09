@@ -4,6 +4,64 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 00:26 CEST
+
+### Status snapshot
+
+- Checkpoint focus: push `format-number` and `xsl:decimal-format` support forward far enough to unfilter the next real conformance tranche.
+- Newly unfiltered and passing vendor cases: `format-number-057n`, `format-number-060n`, `format-number-063`.
+- Checked suite after validation: `3374 passed / 0 failed / 0 error / 2 wrongE / 11219 filtered`.
+- Remaining filtered `format-number` cases after this checkpoint:
+  - `format-number-031`
+  - `format-number-040`
+  - `format-number-041`
+  - `format-number-050`
+  - `format-number-051`
+  - `format-number-069a`
+  - `format-number-069b`
+  - `format-number-070`
+
+### Progress made
+
+- Implemented `fn:format-number` runtime support with picture parsing, grouping, digit substitution, infinity/NaN handling, and decimal-format lookup.
+- Added shared static-context storage for default and named decimal formats, including import-precedence merge behavior and XSLT decimal-format validation.
+- Split stylesheet `@version` from processor XSLT version so XSLT 3.0 conformance cases no longer inherit 2.0-only `format-number` error remapping from a `version="2.0"` stylesheet.
+- Added a narrow XSLT-only lexical fallback for oversized decimal literals used as the first `format-number(...)` argument.
+- Preserved in-scope namespaces on parsed XSLT expressions and used that context to normalize static third-argument decimal-format QNames before runtime lookup.
+- Added focused regressions for default decimal-format symbols, import-precedence decimal-format merging, high-precision decimal literals, processor-version-sensitive invalid-picture errors, and prefixed decimal-format QName resolution.
+- Reduced the checked `format-number` filter block by three more cases: `057n`, `060n`, and `063`.
+
+### Obstacles seen
+
+#### Processor behavior was tied too tightly to stylesheet `@version`
+
+- Symptoms:
+  - `format-number-057n` and `format-number-060n` returned `XTDE1310` instead of `FODF1310`.
+- Root cause:
+  - the runtime remap for invalid-picture errors consulted the stylesheet version stored in static context, which conflated the stylesheet's compatibility declaration with the processor mode expected by the conformance case.
+- Resolution:
+  - store stylesheet XSLT version separately from processor XSLT version and base the remap on processor mode only.
+
+#### Static decimal-format QNames lost local namespace context
+
+- Symptoms:
+  - `format-number-063` failed with `FODF1280` when the third `format-number()` argument used a prefix declared on the containing XSLT instruction.
+- Root cause:
+  - runtime QName parsing only saw the global static-context namespaces, while the relevant prefix binding existed only in the expression's local XSLT namespace context.
+- Resolution:
+  - preserve literal namespaces on parsed expressions and rewrite static third-argument QName string literals into expanded `Q{...}local` form during XSLT compilation.
+
+### Working practices that helped
+
+- Unfilter only after both a focused vendor case rerun and a checked-suite rerun agree on the result.
+- Keep the QName fix in the XSLT AST/compiler layers rather than pushing local XSLT namespace semantics into generic XPath runtime code.
+
+### Current open edges
+
+- `format-number-069a` and `format-number-069b` still need proper exponent-separator feature gating.
+- `format-number-069b` still has a vendor placeholder expected code, so it likely needs a policy decision as well as an implementation change.
+- The remaining filtered `format-number` cases are now narrow conformance gaps rather than missing baseline support.
+
 ## 2026-04-09 22:32:18 CEST
 
 ### Status snapshot
