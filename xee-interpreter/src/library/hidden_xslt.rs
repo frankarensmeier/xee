@@ -1,10 +1,13 @@
 // functions used to implement the XSLT that aren't supposed to be
 // exposed to XPath
+use ahash::{HashMap, HashMapExt};
 use std::collections::HashSet;
 
 use iri_string::types::{IriReferenceStr, IriString};
+use xee_name::Namespaces;
+use xee_xpath_ast::parse_name;
 use xee_xpath_macros::xpath_fn;
-use xot::xmlname::OwnedName;
+use xot::xmlname::{NameStrInfo, OwnedName};
 use xot::Xot;
 
 use crate::atomic;
@@ -62,6 +65,33 @@ fn group_by_first(
     }
 
     Ok(result.into())
+}
+
+#[xpath_fn(
+    "fn:resolve-xslt-qname($lexical_name as xs:string, $default_namespace as xs:string, $namespace_map as xs:string, $force_namespace as xs:string) as xs:QName"
+)]
+fn resolve_xslt_qname(
+    lexical_name: &str,
+    default_namespace: &str,
+    namespace_map: &str,
+    force_namespace: &str,
+) -> error::Result<atomic::Atomic> {
+    let namespaces = decode_namespaces(namespace_map, default_namespace)?;
+    let mut name = parse_name(lexical_name, &namespaces)
+        .map_err(|_| error::Error::FOCA0002)?
+        .value;
+
+    if !force_namespace.is_empty() {
+        name = OwnedName::new(
+            name.local_name().to_string(),
+            force_namespace.to_string(),
+            name.prefix().to_string(),
+        );
+    } else if name.namespace().is_empty() && !default_namespace.is_empty() {
+        name = name.with_default_namespace(default_namespace);
+    }
+
+    Ok(name.into())
 }
 
 #[xpath_fn(
@@ -224,6 +254,37 @@ fn parse_character_maps(encoded: &str) -> error::Result<ahash::HashMap<char, Str
     Ok(character_maps)
 }
 
+fn decode_namespaces(namespace_map: &str, default_namespace: &str) -> error::Result<Namespaces> {
+    let mut namespaces = HashMap::new();
+    if !namespace_map.is_empty() {
+        for entry in namespace_map.split('|') {
+            let Some((prefix, uri)) = entry.split_once('=') else {
+                return Err(error::Error::FOCA0002);
+            };
+            let prefix = decode_hex(prefix)?;
+            let uri = decode_hex(uri)?;
+            namespaces.insert(prefix, uri);
+        }
+    }
+    Ok(Namespaces::new(
+        namespaces,
+        default_namespace.to_string(),
+        "".to_string(),
+    ))
+}
+
+fn decode_hex(value: &str) -> error::Result<String> {
+    let bytes = value
+        .as_bytes()
+        .chunks(2)
+        .map(|chunk| {
+            let hex = std::str::from_utf8(chunk).map_err(|_| error::Error::FOCA0002)?;
+            u8::from_str_radix(hex, 16).map_err(|_| error::Error::FOCA0002)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    String::from_utf8(bytes).map_err(|_| error::Error::FOCA0002)
+}
+
 fn parse_standalone(standalone: &str) -> error::Result<Option<bool>> {
     match standalone.trim() {
         "yes" | "true" | "1" => Ok(Some(true)),
@@ -287,6 +348,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
         wrap_xpath_fn!(group_by_first),
+        wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),
     ]

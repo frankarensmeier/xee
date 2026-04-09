@@ -599,7 +599,7 @@ impl<'a> IrConverter<'a> {
             )
         })?;
         let key = if let Some((local_name, namespace)) =
-            self.resolve_static_qname(&lexical_qname, namespaces)
+            self.resolve_static_qname_with_default(&lexical_qname, namespaces, "")
         {
             (namespace, local_name)
         } else {
@@ -3024,11 +3024,14 @@ impl<'a> IrConverter<'a> {
         name: &ast::ValueTemplate<String>,
         namespace: &Option<ast::ValueTemplate<String>>,
         namespaces: &[ast::LiteralNamespace],
+        default_namespace: &str,
     ) -> error::SpannedResult<Bindings> {
         let literal_name = self.static_value_template(name);
         let (localname_atom, bindings) = if let Some((local_name, namespace_uri)) = literal_name
             .as_deref()
-            .and_then(|literal_name| self.resolve_static_qname(literal_name, namespaces))
+            .and_then(|literal_name| {
+                self.resolve_static_qname_with_default(literal_name, namespaces, default_namespace)
+            })
         {
             let local_name_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(local_name)),
@@ -3054,6 +3057,38 @@ impl<'a> IrConverter<'a> {
                     .bind_expr_no_span(&mut self.variables, name));
             }
             bindings.atom_bindings()
+        } else if namespace.is_none() || literal_name.is_none() {
+            let (lexical_name_atom, bindings) = self.attribute_value_template(name)?.atom_bindings();
+            let default_namespace_atom = Spanned::new(
+                ir::Atom::Const(ir::Const::String(default_namespace.to_string())),
+                (0..0).into(),
+            );
+            let namespace_map_atom = Spanned::new(
+                ir::Atom::Const(ir::Const::String(self.encode_literal_namespaces(namespaces))),
+                (0..0).into(),
+            );
+            let (force_namespace_atom, namespace_bindings) = if let Some(namespace) = namespace {
+                self.attribute_value_template(namespace)?.atom_bindings()
+            } else {
+                (
+                    Spanned::new(ir::Atom::Const(ir::Const::String(String::new())), (0..0).into()),
+                    Bindings::empty(),
+                )
+            };
+            let expr = self.static_function_call_expr(
+                "resolve-xslt-qname",
+                FN_NAMESPACE,
+                4,
+                vec![
+                    lexical_name_atom,
+                    default_namespace_atom,
+                    namespace_map_atom,
+                    force_namespace_atom,
+                ],
+            );
+            return Ok(bindings
+                .concat(namespace_bindings)
+                .bind_expr_no_span(&mut self.variables, expr));
         } else {
             self.attribute_value_template(name)?.atom_bindings()
         };
@@ -3093,12 +3128,15 @@ impl<'a> IrConverter<'a> {
         Some(value)
     }
 
-    fn resolve_static_qname(
+    fn resolve_static_qname_with_default(
         &self,
         lexical_qname: &str,
         namespaces: &[ast::LiteralNamespace],
+        default_namespace: &str,
     ) -> Option<(String, String)> {
-        let (prefix, local_name) = lexical_qname.split_once(':')?;
+        let Some((prefix, local_name)) = lexical_qname.split_once(':') else {
+            return Some((lexical_qname.to_string(), default_namespace.to_string()));
+        };
         let namespace = namespaces
             .iter()
             .find(|namespace| namespace.prefix == prefix)
@@ -3107,18 +3145,54 @@ impl<'a> IrConverter<'a> {
         Some((local_name.to_string(), namespace.to_string()))
     }
 
+    fn default_element_namespace(&self, namespaces: &[ast::LiteralNamespace]) -> String {
+        namespaces
+            .iter()
+            .find(|namespace| namespace.prefix.is_empty())
+            .map(|namespace| namespace.uri.clone())
+            .unwrap_or_else(|| self.static_context.namespaces().default_element_namespace().to_string())
+    }
+
+    fn encode_literal_namespaces(&self, namespaces: &[ast::LiteralNamespace]) -> String {
+        let mut encoded = Vec::new();
+        let mut seen = HashSet::new();
+        for namespace in namespaces {
+            let key = (namespace.prefix.clone(), namespace.uri.clone());
+            if seen.insert(key.clone()) {
+                encoded.push(format!(
+                    "{}={}",
+                    Self::hex_encode(&key.0),
+                    Self::hex_encode(&key.1)
+                ));
+            }
+        }
+        encoded.join("|")
+    }
+
+    fn hex_encode(value: &str) -> String {
+        value
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect()
+    }
+
     fn static_name_namespace(
         &self,
         name: &ast::ValueTemplate<String>,
         namespace: &Option<ast::ValueTemplate<String>>,
         namespaces: &[ast::LiteralNamespace],
+        default_namespace: &str,
     ) -> Option<ast::LiteralNamespace> {
         let literal_name = self.static_value_template(name)?;
-        let (prefix, _) = literal_name.split_once(':')?;
-        let uri = if let Some(namespace) = namespace {
-            self.static_value_template(namespace)?
-        } else {
-            namespaces
+        let (prefix, uri) = if let Some(namespace) = namespace {
+            let prefix = literal_name
+                .split_once(':')
+                .map(|(prefix, _)| prefix.to_string())
+                .unwrap_or_default();
+            (prefix, self.static_value_template(namespace)?)
+        } else if let Some((prefix, _)) = literal_name.split_once(':') {
+            let uri = namespaces
                 .iter()
                 .find(|namespace| namespace.prefix == prefix)
                 .map(|namespace| namespace.uri.clone())
@@ -3127,17 +3201,25 @@ impl<'a> IrConverter<'a> {
                         .namespaces()
                         .by_prefix(prefix)
                         .map(str::to_string)
-                })?
+                })?;
+            (prefix.to_string(), uri)
+        } else if default_namespace.is_empty() {
+            return None;
+        } else {
+            (String::new(), default_namespace.to_string())
         };
-        Some(ast::LiteralNamespace {
-            prefix: prefix.to_string(),
-            uri,
-        })
+        Some(ast::LiteralNamespace { prefix, uri })
     }
 
     fn element(&mut self, element: &ast::Element) -> error::SpannedResult<Bindings> {
+        let default_namespace = self.default_element_namespace(&element.namespaces);
         let (name_atom, bindings) = self
-            .xml_name_dynamic(&element.name, &element.namespace, &element.namespaces)?
+            .xml_name_dynamic(
+                &element.name,
+                &element.namespace,
+                &element.namespaces,
+                &default_namespace,
+            )?
             .atom_bindings();
 
         let expr = ir::Expr::XmlElement(ir::XmlElement { name: name_atom });
@@ -3145,7 +3227,12 @@ impl<'a> IrConverter<'a> {
             .bind_expr_no_span(&mut self.variables, expr)
             .atom_bindings();
         let (element_atom, bindings) = if let Some(namespace) =
-            self.static_name_namespace(&element.name, &element.namespace, &element.namespaces)
+            self.static_name_namespace(
+                &element.name,
+                &element.namespace,
+                &element.namespaces,
+                &default_namespace,
+            )
         {
             let prefix_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(namespace.prefix)),
@@ -3210,7 +3297,7 @@ impl<'a> IrConverter<'a> {
 
     fn attribute(&mut self, attribute: &ast::Attribute) -> error::SpannedResult<Bindings> {
         let (name_atom, name_bindings) = self
-            .xml_name_dynamic(&attribute.name, &attribute.namespace, &attribute.namespaces)?
+            .xml_name_dynamic(&attribute.name, &attribute.namespace, &attribute.namespaces, "")?
             .atom_bindings();
         let (text_atom, text_bindings) = self
             .select_or_sequence_constructor_simple_content_with_separator(

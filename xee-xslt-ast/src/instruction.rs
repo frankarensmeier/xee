@@ -146,11 +146,13 @@ impl InstructionParser for ast::ElementNode {
         let mut namespaces = content
             .state
             .xot
-            .namespace_declarations(content.node)
-            .into_iter()
+            .namespaces_in_scope(content.node)
             .filter(|(prefix, namespace)| {
                 *namespace != content.state.names.xsl_ns
                     && *prefix != content.state.xot.xml_prefix()
+                    && !content
+                        .context
+                        .is_excluded_result_prefix(content.state.xot.prefix_str(*prefix))
                     && !parent_namespaces.contains(&(*prefix, *namespace))
             })
             .map(|(prefix, namespace)| ast::LiteralNamespace {
@@ -165,10 +167,9 @@ impl InstructionParser for ast::ElementNode {
             }
             let prefix = name.prefix().to_string();
             let uri = content.state.xot.namespace_str(name.namespace_id()).to_string();
-            if uri.is_empty()
-                || namespaces
-                    .iter()
-                    .any(|namespace| namespace.prefix == prefix && namespace.uri == uri)
+            if namespaces
+                .iter()
+                .any(|namespace| namespace.prefix == prefix && namespace.uri == uri)
                 || parent_namespaces.iter().any(|(parent_prefix, parent_namespace)| {
                     content.state.xot.prefix_str(*parent_prefix) == prefix
                         && content.state.xot.namespace_str(*parent_namespace) == uri
@@ -176,6 +177,20 @@ impl InstructionParser for ast::ElementNode {
             {
                 return Ok(());
             }
+
+            if uri.is_empty() {
+                let parent_has_default_namespace = parent_namespaces
+                    .iter()
+                    .any(|(parent_prefix, parent_namespace)| {
+                        content.state.xot.prefix_str(*parent_prefix).is_empty()
+                            && !content.state.xot.namespace_str(*parent_namespace).is_empty()
+                    });
+                if prefix.is_empty() && parent_has_default_namespace {
+                    namespaces.push(ast::LiteralNamespace { prefix, uri });
+                }
+                return Ok(());
+            }
+
             namespaces.push(ast::LiteralNamespace { prefix, uri });
             Ok(())
         };

@@ -411,11 +411,13 @@ fn map_serialization_node(
     character_maps: &HashMap<char, String>,
     xot: &mut Xot,
 ) -> xot::Node {
+    let mapped_root = xot.clone_node(node);
+    normalize_default_namespace_nodes(mapped_root, xot);
+
     if character_maps.is_empty() {
-        return node;
+        return mapped_root;
     }
 
-    let mapped_root = xot.clone_node(node);
     let mut text_nodes = Vec::new();
     if matches!(xot.value(mapped_root), xot::Value::Text(_)) {
         text_nodes.push(mapped_root);
@@ -436,6 +438,62 @@ fn map_serialization_node(
     }
 
     mapped_root
+}
+
+fn normalize_default_namespace_nodes(root: xot::Node, xot: &mut Xot) {
+    let mut elements = Vec::new();
+    if matches!(xot.value(root), xot::Value::Element(_)) {
+        elements.push(root);
+    }
+    elements.extend(xot.descendants(root).filter(|node| xot.is_element(*node)));
+
+    for element in elements {
+        let parent_default_namespace = xot
+            .parent(element)
+            .filter(|parent| xot.is_element(*parent))
+            .and_then(|parent| {
+                xot.namespaces_in_scope(parent)
+                    .find(|(prefix, _)| xot.prefix_str(*prefix).is_empty())
+                    .map(|(_, namespace)| xot.namespace_str(namespace).to_string())
+            })
+            .unwrap_or_default();
+
+        let element_namespace = xot
+            .node_name(element)
+            .map(|name| xot.namespace_str(xot.namespace_for_name(name)).to_string())
+            .unwrap_or_default();
+
+        let explicit_default_namespace = xot.children(element).find_map(|child| {
+            match xot.value(child) {
+                xot::Value::Namespace(namespace)
+                    if xot.prefix_str(namespace.prefix()).is_empty() =>
+                {
+                    Some((child, xot.namespace_str(namespace.namespace()).to_string()))
+                }
+                _ => None,
+            }
+        });
+
+        if element_namespace.is_empty() && !parent_default_namespace.is_empty() {
+            if explicit_default_namespace.as_ref().map(|(_, uri)| uri.as_str()) != Some("") {
+                if let Some((child, _)) = explicit_default_namespace {
+                    let _ = xot.remove(child);
+                }
+                let prefix = xot.add_prefix("");
+                let namespace = xot.add_namespace("");
+                let node = xot.new_namespace_node(prefix, namespace);
+                xot.any_append(element, node).unwrap();
+            }
+        } else if explicit_default_namespace
+            .as_ref()
+            .map(|(_, uri)| uri.as_str())
+            == Some(parent_default_namespace.as_str())
+        {
+            if let Some((child, _)) = explicit_default_namespace {
+                let _ = xot.remove(child);
+            }
+        }
+    }
 }
 
 fn apply_character_maps(value: &str, character_maps: &HashMap<char, String>) -> String {

@@ -194,6 +194,16 @@ impl Context {
             .collect()
     }
 
+    pub(crate) fn is_excluded_result_prefix(&self, prefix: &str) -> bool {
+        match &self.exclude_result_prefixes {
+            ast::ExcludeResultPrefixes::All => true,
+            ast::ExcludeResultPrefixes::Prefixes(prefixes) => prefixes.iter().any(|excluded| {
+                matches!(excluded, ast::ExcludeResultPrefix::Default if prefix.is_empty())
+                    || matches!(excluded, ast::ExcludeResultPrefix::Prefix(value) if value == prefix)
+            }),
+        }
+    }
+
     pub(crate) fn variable_names(&self) -> &VariableNames {
         &self.variable_names
     }

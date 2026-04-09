@@ -1322,6 +1322,10 @@ fn run_xpath_with_result(
     let context_item = if sequence.len() == 1 {
         match sequence.iter().next() {
             Some(Item::Function(_)) => None,
+            Some(Item::Node(node)) if !matches!(documents.xot().value(node), Value::Document) => {
+                let document = sequence.normalize(" ", documents.xot_mut())?;
+                Some(document.into())
+            }
             Some(item) => Some(item.clone()),
             None => None,
         }
@@ -1349,6 +1353,12 @@ fn serialize_for_assertion(
     sequence: &Sequence,
     method: Option<&str>,
 ) -> error::Result<String> {
+    let set_html_media_type = |params: &mut SerializationParameters| {
+        if params.media_type.as_deref().is_none_or(|media_type| media_type == "text/xml") {
+            params.media_type = Some("text/html".to_string());
+        }
+    };
+
     if matches!(method, Some("text")) {
         let node = sequence.normalize(&context.serialization_parameters().item_separator, documents.xot_mut())?;
         return Ok(documents.xot().string_value(node));
@@ -1367,8 +1377,8 @@ fn serialize_for_assertion(
 
     if let Some(method) = method {
         params.method = QNameOrString::String(method.to_string());
-        if (method == "html" || method == "xhtml") && params.media_type.is_none() {
-            params.media_type = Some("text/html".to_string());
+        if method == "html" || method == "xhtml" {
+            set_html_media_type(&mut params);
         }
     } else if !context.principal_result_documents().is_empty() {
         let normalized = sequence.normalize(&params.item_separator, documents.xot_mut())?;
@@ -1377,16 +1387,12 @@ fn serialize_for_assertion(
                 let (local_name, namespace) = documents.xot().name_ns_str(name);
                 if local_name.eq_ignore_ascii_case("html") && namespace.is_empty() {
                     params.method = QNameOrString::String("html".to_string());
-                    if params.media_type.is_none() {
-                        params.media_type = Some("text/html".to_string());
-                    }
+                    set_html_media_type(&mut params);
                 } else if local_name.eq_ignore_ascii_case("html")
                     && namespace == "http://www.w3.org/1999/xhtml"
                 {
                     params.method = QNameOrString::String("xhtml".to_string());
-                    if params.media_type.is_none() {
-                        params.media_type = Some("text/html".to_string());
-                    }
+                    set_html_media_type(&mut params);
                 }
             }
         }
@@ -1466,6 +1472,23 @@ mod tests {
         let sequence: Sequence = document_node.into();
 
         let expr = "/result/a = 'true'".to_string();
+        let result = run_xpath_with_result(&expr, &sequence, &mut documents).unwrap();
+
+        assert!(result.effective_boolean_value().unwrap());
+    }
+
+    #[test]
+    fn test_run_xpath_with_single_element_result_uses_document_context() {
+        let mut documents = Documents::new();
+        let uri: &IriStr = "http://example.com/result.xml".try_into().unwrap();
+        let handle = documents
+            .add_string(uri, "<out>Goodbye Mars!</out>")
+            .unwrap();
+        let document_node = documents.document_node(handle).unwrap();
+        let element_node = documents.xot().first_child(document_node).unwrap();
+        let sequence: Sequence = element_node.into();
+
+        let expr = "/out = 'Goodbye Mars!'".to_string();
         let result = run_xpath_with_result(&expr, &sequence, &mut documents).unwrap();
 
         assert!(result.effective_boolean_value().unwrap());
