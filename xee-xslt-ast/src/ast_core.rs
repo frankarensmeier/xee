@@ -1550,6 +1550,8 @@ pub struct ResultDocument {
     pub use_character_maps: Option<Vec<EqName>>,
     pub version: Option<ValueTemplate<NmToken>>,
 
+    pub namespaces: Vec<LiteralNamespace>,
+
     pub sequence_constructor: SequenceConstructor,
 
     pub span: Span,

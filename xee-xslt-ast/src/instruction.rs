@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 use xee_name::{Namespaces, VariableNames};
 use xot::Node;
+use xot::xmlname::NameStrInfo;
 
 use xee_xpath_ast::ast as xpath_ast;
 
@@ -142,10 +143,10 @@ impl InstructionParser for ast::ElementNode {
             }
             parent = content.state.xot.parent(node);
         }
-        let namespaces = content
+        let mut namespaces = content
             .state
             .xot
-            .namespaces_in_scope(content.node)
+            .namespace_declarations(content.node)
             .into_iter()
             .filter(|(prefix, namespace)| {
                 *namespace != content.state.names.xsl_ns
@@ -156,7 +157,34 @@ impl InstructionParser for ast::ElementNode {
                 prefix: content.state.xot.prefix_str(prefix).to_string(),
                 uri: content.state.xot.namespace_str(namespace).to_string(),
             })
-            .collect();
+            .collect::<Vec<_>>();
+
+        let mut add_required_namespace = |name: xot::xmlname::RefName| -> Result<()> {
+            if name.namespace_id() == content.state.names.xsl_ns {
+                return Ok(());
+            }
+            let prefix = name.prefix().to_string();
+            let uri = content.state.xot.namespace_str(name.namespace_id()).to_string();
+            if uri.is_empty()
+                || namespaces
+                    .iter()
+                    .any(|namespace| namespace.prefix == prefix && namespace.uri == uri)
+                || parent_namespaces.iter().any(|(parent_prefix, parent_namespace)| {
+                    content.state.xot.prefix_str(*parent_prefix) == prefix
+                        && content.state.xot.namespace_str(*parent_namespace) == uri
+                })
+            {
+                return Ok(());
+            }
+            namespaces.push(ast::LiteralNamespace { prefix, uri });
+            Ok(())
+        };
+
+        let element_name = content
+            .state
+            .xot
+            .name_ref(content.state.xot.node_name(content.node).unwrap(), content.node)?;
+        add_required_namespace(element_name)?;
         let mut element_attributes = Vec::new();
         for key in content.state.xot.attributes(content.node).keys() {
             let name = content.state.xot.name_ref(key, content.node)?;
@@ -164,6 +192,7 @@ impl InstructionParser for ast::ElementNode {
             if name.namespace_id() == content.state.names.xsl_ns {
                 continue;
             }
+            add_required_namespace(name.clone())?;
             let value = attributes.required(key, attributes.value_template(attributes.string()))?;
             element_attributes.push((name.to_owned(), value));
         }
@@ -1514,6 +1543,20 @@ impl InstructionParser for ast::ProcessingInstruction {
 impl InstructionParser for ast::ResultDocument {
     fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
         let names = &content.state.names;
+        let namespaces = content
+            .state
+            .xot
+            .namespaces_in_scope(content.node)
+            .into_iter()
+            .filter(|(prefix, namespace)| {
+                *namespace != content.state.names.xsl_ns
+                    && *prefix != content.state.xot.xml_prefix()
+            })
+            .map(|(prefix, namespace)| ast::LiteralNamespace {
+                prefix: content.state.xot.prefix_str(prefix).to_string(),
+                uri: content.state.xot.namespace_str(namespace).to_string(),
+            })
+            .collect();
 
         Ok(ast::ResultDocument {
             format: attributes.optional(
@@ -1612,9 +1655,11 @@ impl InstructionParser for ast::ResultDocument {
             )?,
             use_character_maps: attributes.optional(names.use_character_maps, attributes.eqnames())?,
             version: attributes.optional(
-                names.version,
+                names.output_version,
                 attributes.value_template(attributes.nmtoken()),
             )?,
+
+            namespaces,
 
             span: content.span()?,
 

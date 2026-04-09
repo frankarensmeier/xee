@@ -96,8 +96,9 @@ impl AssertAnyOf {
                     _ => failed_test_results.push(result),
                 }
             } else {
-                // any non-error is a failure, as we arrived with an error
-                return TestOutcome::Failed(Failure::AnyOf(self.clone(), failed_test_results));
+                // Non-error alternatives cannot satisfy an incoming error, but
+                // they should not prevent later <error/> alternatives from matching.
+                failed_test_results.push(TestOutcome::Unsupported);
             }
         }
         TestOutcome::Failed(Failure::AnyOf(self.clone(), failed_test_results))

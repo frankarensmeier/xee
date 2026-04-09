@@ -98,13 +98,14 @@ fn store_result_document(
 }
 
 #[xpath_fn(
-    "fn:store-principal-result-document($content as item()*, $method as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string) as item()*",
+    "fn:store-principal-result-document($content as item()*, $method as xs:string, $byte_order_mark as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string, $html_version as xs:string, $use_character_maps as xs:string, $version as xs:string) as item()*",
     context_first
 )]
 fn store_principal_result_document(
     context: &crate::context::DynamicContext,
     content: &sequence::Sequence,
     method: &str,
+    byte_order_mark: &str,
     cdata: &str,
     doctype_public: &str,
     doctype_system: &str,
@@ -112,10 +113,16 @@ fn store_principal_result_document(
     media_type: &str,
     omit_xml_declaration: &str,
     standalone: &str,
+    html_version: &str,
+    use_character_maps: &str,
+    version: &str,
 ) -> error::Result<sequence::Sequence> {
     let mut parameters = context.serialization_parameters().clone();
     if !method.is_empty() {
         parameters.method = sequence::QNameOrString::String(method.to_string());
+    }
+    if !byte_order_mark.is_empty() {
+        parameters.byte_order_mark = parse_boolean(byte_order_mark)?;
     }
     if !cdata.is_empty() {
         parameters.cdata_section_elements = parse_cdata_section_elements(context, cdata)?;
@@ -133,14 +140,21 @@ fn store_principal_result_document(
         parameters.media_type = Some(media_type.to_string());
     }
     if !omit_xml_declaration.is_empty() {
-        parameters.omit_xml_declaration = matches!(omit_xml_declaration, "yes" | "true" | "1");
+        parameters.omit_xml_declaration = parse_boolean(omit_xml_declaration)?;
     }
     if !standalone.is_empty() {
-        parameters.standalone = match standalone {
-            "yes" => Some(true),
-            "no" => Some(false),
-            _ => None,
-        };
+        parameters.standalone = parse_standalone(standalone)?;
+    }
+    if !html_version.is_empty() {
+        parameters.html_version = rust_decimal::Decimal::from_str_exact(html_version)
+            .map_err(|_| error::Error::SEPM0016)?;
+        parameters.explicit_html_version = true;
+    }
+    if !use_character_maps.is_empty() {
+        parameters.use_character_maps = parse_character_maps(use_character_maps)?;
+    }
+    if !version.is_empty() {
+        parameters.version = version.to_string();
     }
     context.store_principal_result_document(content.clone(), parameters);
     Ok(sequence::Sequence::default())
@@ -184,6 +198,47 @@ fn parse_cdata_section_elements(
             }
         })
         .collect()
+}
+
+fn parse_character_maps(encoded: &str) -> error::Result<ahash::HashMap<char, String>> {
+    let mut character_maps = ahash::HashMap::default();
+    for entry in encoded.split('|') {
+        let Some((character, replacement)) = entry.split_once('=') else {
+            return Err(error::Error::FOXT0002);
+        };
+        let character = u32::from_str_radix(character, 16)
+            .ok()
+            .and_then(char::from_u32)
+            .ok_or(error::Error::FOXT0002)?;
+        let replacement = replacement
+            .as_bytes()
+            .chunks(2)
+            .map(|chunk| {
+                let hex = std::str::from_utf8(chunk).map_err(|_| error::Error::FOXT0002)?;
+                u8::from_str_radix(hex, 16).map_err(|_| error::Error::FOXT0002)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let replacement = String::from_utf8(replacement).map_err(|_| error::Error::FOXT0002)?;
+        character_maps.insert(character, replacement);
+    }
+    Ok(character_maps)
+}
+
+fn parse_standalone(standalone: &str) -> error::Result<Option<bool>> {
+    match standalone.trim() {
+        "yes" | "true" | "1" => Ok(Some(true)),
+        "no" | "false" | "0" => Ok(Some(false)),
+        "omit" => Ok(None),
+        _ => Err(error::Error::SEPM0016),
+    }
+}
+
+fn parse_boolean(value: &str) -> error::Result<bool> {
+    match value.trim() {
+        "yes" | "true" | "1" => Ok(true),
+        "no" | "false" | "0" => Ok(false),
+        _ => Err(error::Error::SEPM0016),
+    }
 }
 
 fn simple_content_text_nodes(

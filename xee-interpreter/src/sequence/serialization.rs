@@ -25,6 +25,7 @@ pub struct SerializationParameters {
     pub encoding: String,
     pub escape_uri_attributes: bool,
     pub html_version: Decimal,
+    pub explicit_html_version: bool,
     pub include_content_type: bool,
     pub indent: bool,
     pub item_separator: String,
@@ -52,6 +53,7 @@ impl SerializationParameters {
             encoding: "UTF-8".to_string(),
             escape_uri_attributes: true,
             html_version: Decimal::from_str_exact("5.0").unwrap(),
+            explicit_html_version: false,
             include_content_type: true,
             indent: false,
             item_separator: " ".to_string(),
@@ -137,6 +139,7 @@ impl SerializationParameters {
             encoding,
             escape_uri_attributes,
             html_version,
+            explicit_html_version: false,
             include_content_type,
             indent,
             item_separator,
@@ -170,6 +173,7 @@ impl SerializationParameters {
             encoding: "UTF-8".to_string(),
             escape_uri_attributes: false,
             html_version: Decimal::from_str_exact("5.0").unwrap(),
+            explicit_html_version: false,
             include_content_type: false,
             indent: false,
             item_separator: " ".to_string(),
@@ -215,7 +219,11 @@ fn serialize_text(
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
     let node = arg.normalize(&parameters.item_separator, xot)?;
-    Ok(xot.string_value(node))
+    let serialized = apply_character_maps(
+        &xot.string_value(node),
+        &parameters.use_character_maps,
+    );
+    Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
 fn serialize_xml(
@@ -223,7 +231,11 @@ fn serialize_xml(
     parameters: SerializationParameters,
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
-    let node = arg.normalize(&parameters.item_separator, xot)?;
+    let node = map_serialization_node(
+        arg.normalize(&parameters.item_separator, xot)?,
+        &parameters.use_character_maps,
+        xot,
+    );
     let indentation = xot_indentation(&parameters, xot);
     let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
     let declaration = if !parameters.omit_xml_declaration {
@@ -234,7 +246,10 @@ fn serialize_xml(
     } else {
         None
     };
-    let doctype = match (parameters.doctype_public, parameters.doctype_system) {
+    let doctype = match (
+        parameters.doctype_public.clone(),
+        parameters.doctype_system.clone(),
+    ) {
         (Some(public), Some(system)) => Some(xot::output::xml::DocType::Public { public, system }),
         (None, Some(system)) => Some(xot::output::xml::DocType::System { system }),
         // TODO: this should really not happen?
@@ -252,7 +267,10 @@ fn serialize_xml(
         ..Default::default()
     };
 
-    Ok(xot.serialize_xml_string(output_parameters, node)?)
+    Ok(apply_byte_order_mark(
+        xot.serialize_xml_string(output_parameters, node)?,
+        &parameters,
+    ))
 }
 
 fn serialize_html(
@@ -260,7 +278,11 @@ fn serialize_html(
     parameters: SerializationParameters,
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
-    let node = arg.normalize(&parameters.item_separator, xot)?;
+    let node = map_serialization_node(
+        arg.normalize(&parameters.item_separator, xot)?,
+        &parameters.use_character_maps,
+        xot,
+    );
     if xot.document_element(node).is_err() {
         return Ok(xot.string_value(node));
     }
@@ -278,7 +300,15 @@ fn serialize_html(
         inject_content_type_meta(&mut serialized, &parameters, false);
     }
 
-    Ok(serialized)
+    if parameters.explicit_html_version {
+        if parameters.html_version >= Decimal::from_str_exact("5.0").unwrap() {
+            ensure_html5_doctype(&mut serialized);
+        } else {
+            remove_html5_doctype(&mut serialized);
+        }
+    }
+
+    Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
 fn serialize_xhtml(
@@ -286,7 +316,11 @@ fn serialize_xhtml(
     parameters: SerializationParameters,
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
-    let node = arg.normalize(&parameters.item_separator, xot)?;
+    let node = map_serialization_node(
+        arg.normalize(&parameters.item_separator, xot)?,
+        &parameters.use_character_maps,
+        xot,
+    );
     if xot.document_element(node).is_err() {
         return Ok(xot.string_value(node));
     }
@@ -304,6 +338,14 @@ fn serialize_xhtml(
         inject_content_type_meta(&mut serialized, &parameters, true);
     }
 
+    if parameters.explicit_html_version {
+        if parameters.html_version >= Decimal::from_str_exact("5.0").unwrap() {
+            ensure_html5_doctype(&mut serialized);
+        } else {
+            remove_html5_doctype(&mut serialized);
+        }
+    }
+
     remove_redundant_default_namespace(
         &mut serialized,
         " xmlns=\"http://www.w3.org/1999/xhtml\"",
@@ -316,7 +358,7 @@ fn serialize_xhtml(
         );
     }
 
-    Ok(serialized)
+    Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
 fn inject_content_type_meta(
@@ -348,6 +390,78 @@ fn remove_redundant_default_namespace(serialized: &mut String, namespace_attr: &
         serialized.replace_range(position..position + namespace_attr.len(), "");
         search_start = position;
     }
+}
+
+fn ensure_html5_doctype(serialized: &mut String) {
+    if !serialized.trim_start().starts_with("<!DOCTYPE html>") {
+        *serialized = format!("<!DOCTYPE html>\n{serialized}");
+    }
+}
+
+fn remove_html5_doctype(serialized: &mut String) {
+    let trimmed = serialized.trim_start();
+    let Some(rest) = trimmed.strip_prefix("<!DOCTYPE html>") else {
+        return;
+    };
+    *serialized = rest.trim_start_matches('\n').to_string();
+}
+
+fn map_serialization_node(
+    node: xot::Node,
+    character_maps: &HashMap<char, String>,
+    xot: &mut Xot,
+) -> xot::Node {
+    if character_maps.is_empty() {
+        return node;
+    }
+
+    let mapped_root = xot.clone_node(node);
+    let mut text_nodes = Vec::new();
+    if matches!(xot.value(mapped_root), xot::Value::Text(_)) {
+        text_nodes.push(mapped_root);
+    }
+    text_nodes.extend(
+        xot.descendants(mapped_root)
+            .filter(|descendant| matches!(xot.value(*descendant), xot::Value::Text(_))),
+    );
+
+    for text_node in text_nodes {
+        if let Some(text) = xot.text_mut(text_node) {
+            let current = text.get().to_string();
+            let mapped = apply_character_maps(&current, character_maps);
+            if mapped != current {
+                text.set(mapped);
+            }
+        }
+    }
+
+    mapped_root
+}
+
+fn apply_character_maps(value: &str, character_maps: &HashMap<char, String>) -> String {
+    if character_maps.is_empty() {
+        return value.to_string();
+    }
+
+    let mut mapped = String::new();
+    for character in value.chars() {
+        if let Some(replacement) = character_maps.get(&character) {
+            mapped.push_str(replacement);
+        } else {
+            mapped.push(character);
+        }
+    }
+    mapped
+}
+
+fn apply_byte_order_mark(
+    mut serialized: String,
+    parameters: &SerializationParameters,
+) -> String {
+    if parameters.byte_order_mark {
+        serialized.insert(0, '\u{FEFF}');
+    }
+    serialized
 }
 
 fn serialize_json(

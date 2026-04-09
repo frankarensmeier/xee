@@ -27,6 +27,9 @@ struct IrConverter<'a> {
     xslt_functions: HashMap<(OwnedName, u8), OwnedName>,
     namespace_aliases: HashMap<String, String>,
     attribute_sets: HashMap<(String, String), Vec<ast::AttributeSet>>,
+    named_outputs: HashMap<(String, String), (i64, ast::Output)>,
+    character_maps: HashMap<(String, String), (i64, ast::CharacterMap)>,
+    resolved_character_maps: HashMap<(String, String), ahash::HashMap<char, String>>,
     active_attribute_sets: Vec<(String, String)>,
     secondary_result_document_depth: usize,
     named_templates_with_absent_context: HashSet<String>,
@@ -309,6 +312,9 @@ impl<'a> IrConverter<'a> {
             xslt_functions: HashMap::new(),
             namespace_aliases: HashMap::new(),
             attribute_sets: HashMap::new(),
+            named_outputs: HashMap::new(),
+            character_maps: HashMap::new(),
+            resolved_character_maps: HashMap::new(),
             active_attribute_sets: Vec::new(),
             secondary_result_document_depth: 0,
             named_templates_with_absent_context: HashSet::new(),
@@ -412,6 +418,8 @@ impl<'a> IrConverter<'a> {
     ) -> error::SpannedResult<ir::Declarations> {
         self.register_xslt_function_names(declarations)?;
         self.collect_attribute_sets(declarations);
+        self.collect_named_outputs(declarations);
+        self.collect_character_maps(declarations);
         self.collect_named_templates_with_absent_context(declarations);
         self.collect_namespace_aliases(declarations);
         // Register global variable/param names early so $var references resolve.
@@ -445,6 +453,14 @@ impl<'a> IrConverter<'a> {
         (name.namespace().to_string(), name.local_name().to_string())
     }
 
+    fn character_map_key(name: &ast::EqName) -> (String, String) {
+        (name.namespace().to_string(), name.local_name().to_string())
+    }
+
+    fn output_key(name: &ast::EqName) -> (String, String) {
+        (name.namespace().to_string(), name.local_name().to_string())
+    }
+
     fn collect_attribute_sets(&mut self, declarations: &[PreprocessedDeclaration]) {
         for declaration in declarations {
             let ast::Declaration::AttributeSet(attribute_set) = &declaration.declaration else {
@@ -455,6 +471,225 @@ impl<'a> IrConverter<'a> {
                 .or_default()
                 .push((**attribute_set).clone());
         }
+    }
+
+    fn collect_character_maps(&mut self, declarations: &[PreprocessedDeclaration]) {
+        for declaration in declarations {
+            let ast::Declaration::CharacterMap(character_map) = &declaration.declaration else {
+                continue;
+            };
+            let key = Self::character_map_key(&character_map.name);
+            let should_replace = match self.character_maps.get(&key) {
+                Some((precedence, _)) => declaration.import_precedence >= *precedence,
+                None => true,
+            };
+            if should_replace {
+                self.character_maps
+                    .insert(key, (declaration.import_precedence, (**character_map).clone()));
+            }
+        }
+    }
+
+    fn collect_named_outputs(&mut self, declarations: &[PreprocessedDeclaration]) {
+        for declaration in declarations {
+            let ast::Declaration::Output(output) = &declaration.declaration else {
+                continue;
+            };
+            let Some(name) = &output.name else {
+                continue;
+            };
+            let key = Self::output_key(name);
+            let should_replace = match self.named_outputs.get(&key) {
+                Some((precedence, _)) => declaration.import_precedence >= *precedence,
+                None => true,
+            };
+            if should_replace {
+                self.named_outputs
+                    .insert(key, (declaration.import_precedence, (**output).clone()));
+            }
+        }
+    }
+
+    fn resolve_character_maps(
+        &mut self,
+        names: &[ast::EqName],
+    ) -> error::SpannedResult<ahash::HashMap<char, String>> {
+        let mut resolved = ahash::HashMap::default();
+        let mut visiting = HashSet::new();
+        for name in names {
+            for (character, replacement) in self.resolve_character_map(name, &mut visiting)? {
+                resolved.insert(character, replacement);
+            }
+        }
+        Ok(resolved)
+    }
+
+    fn resolve_character_map(
+        &mut self,
+        name: &ast::EqName,
+        visiting: &mut HashSet<(String, String)>,
+    ) -> error::SpannedResult<ahash::HashMap<char, String>> {
+        let key = Self::character_map_key(name);
+        if let Some(resolved) = self.resolved_character_maps.get(&key) {
+            return Ok(resolved.clone());
+        }
+        if !visiting.insert(key.clone()) {
+            return Err(error::Error::Unsupported(
+                "Circular xsl:character-map dependencies are not supported yet".to_string(),
+            )
+            .into());
+        }
+
+        let Some((_, character_map)) = self.character_maps.get(&key).cloned() else {
+            return Err(error::Error::Unsupported(format!(
+                "Unknown xsl:character-map {}",
+                name.local_name()
+            ))
+            .into());
+        };
+
+        let mut resolved = ahash::HashMap::default();
+        if let Some(used_character_maps) = &character_map.use_character_maps {
+            for used_character_map in used_character_maps {
+                for (character, replacement) in
+                    self.resolve_character_map(used_character_map, visiting)?
+                {
+                    resolved.insert(character, replacement);
+                }
+            }
+        }
+        for output_character in character_map.output_characters {
+            resolved.insert(output_character.character, output_character.string);
+        }
+
+        visiting.remove(&key);
+        self.resolved_character_maps
+            .insert(key.clone(), resolved.clone());
+        Ok(resolved)
+    }
+
+    fn encode_character_maps(character_maps: &ahash::HashMap<char, String>) -> String {
+        let mut entries = character_maps.iter().collect::<Vec<_>>();
+        entries.sort_by_key(|(character, _)| **character as u32);
+        entries
+            .into_iter()
+            .map(|(character, replacement)| {
+                format!(
+                    "{:x}={}",
+                    *character as u32,
+                    replacement
+                        .as_bytes()
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
+    fn resolve_named_output(
+        &self,
+        format: &ast::ValueTemplate<ast::EqName>,
+        namespaces: &[ast::LiteralNamespace],
+    ) -> error::SpannedResult<ast::Output> {
+        let lexical_qname = self.static_value_template(format).ok_or_else(|| {
+            error::Error::Unsupported(
+                "Dynamic xsl:result-document @format is not supported yet".to_string(),
+            )
+        })?;
+        let key = if let Some((local_name, namespace)) =
+            self.resolve_static_qname(&lexical_qname, namespaces)
+        {
+            (namespace, local_name)
+        } else {
+            (String::new(), lexical_qname)
+        };
+        let Some((_, output)) = self.named_outputs.get(&key) else {
+            return Err(error::Error::Unsupported("Unknown xsl:result-document @format".to_string()).into());
+        };
+        Ok(output.clone())
+    }
+
+    fn output_method_literal(
+        method: Option<&ast::OutputMethod>,
+    ) -> error::SpannedResult<Option<String>> {
+        Ok(match method {
+            Some(ast::OutputMethod::Xml) => Some("xml".to_string()),
+            Some(ast::OutputMethod::Html) => Some("html".to_string()),
+            Some(ast::OutputMethod::Xhtml) => Some("xhtml".to_string()),
+            Some(ast::OutputMethod::Text) => Some("text".to_string()),
+            Some(ast::OutputMethod::Json) => Some("json".to_string()),
+            None => None,
+            method => {
+                return Err(error::Error::Unsupported(format!(
+                    "Output method {:?} not supported yet",
+                    method
+                ))
+                .into())
+            }
+        })
+    }
+
+    fn output_standalone_literal(standalone: Option<&ast::Standalone>) -> Option<String> {
+        match standalone {
+            Some(ast::Standalone::Bool(true)) => Some("yes".to_string()),
+            Some(ast::Standalone::Bool(false)) => Some("no".to_string()),
+            Some(ast::Standalone::Omit) => Some("omit".to_string()),
+            None => None,
+        }
+    }
+
+    fn validate_standalone_literal(value: &str) -> error::SpannedResult<String> {
+        let trimmed = value.trim();
+        match trimmed {
+            "yes" | "true" | "1" | "no" | "false" | "0" | "omit" => {
+                Ok(trimmed.to_string())
+            }
+            _ => Err(error::Error::XTSE0020.into()),
+        }
+    }
+
+    fn validate_boolean_literal(value: &str) -> error::SpannedResult<String> {
+        let trimmed = value.trim();
+        match trimmed {
+            "yes" | "true" | "1" | "no" | "false" | "0" => Ok(trimmed.to_string()),
+            _ => Err(error::Error::XTSE0020.into()),
+        }
+    }
+
+    fn qname_list_literal(names: &[ast::EqName]) -> String {
+        names.iter()
+            .map(|name| {
+                if name.prefix().is_empty() {
+                    name.local_name().to_string()
+                } else {
+                    format!("{}:{}", name.prefix(), name.local_name())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn merge_literal_qname_lists(base: &[ast::EqName], extra: Option<String>) -> String {
+        let mut merged = base
+            .iter()
+            .map(|name| {
+                if name.prefix().is_empty() {
+                    name.local_name().to_string()
+                } else {
+                    format!("{}:{}", name.prefix(), name.local_name())
+                }
+            })
+            .collect::<Vec<_>>();
+        if let Some(extra) = extra {
+            for token in extra.split_ascii_whitespace() {
+                if !merged.iter().any(|existing| existing == token) {
+                    merged.push(token.to_string());
+                }
+            }
+        }
+        merged.join(" ")
     }
 
     fn collect_named_templates_with_absent_context(
@@ -1090,12 +1325,6 @@ impl<'a> IrConverter<'a> {
             ))
             .into());
         }
-        if !output.use_character_maps.is_empty() {
-            return Err(error::Error::Unsupported(String::from(
-                "Output: Character maps are not supported yet",
-            ))
-            .into());
-        }
         if output.build_tree {
             return Err(error::Error::Unsupported(String::from(
                 "Output: Build tree is not supported yet",
@@ -1121,6 +1350,9 @@ impl<'a> IrConverter<'a> {
             Some(ast::OutputMethod::Html) => {
                 serialization.method = QNameOrString::String("html".to_string())
             }
+            Some(ast::OutputMethod::Xhtml) => {
+                serialization.method = QNameOrString::String("xhtml".to_string())
+            }
             Some(ast::OutputMethod::Text) => {
                 serialization.method = QNameOrString::String("text".to_string())
             }
@@ -1139,6 +1371,7 @@ impl<'a> IrConverter<'a> {
         assign_if_some(&mut serialization.encoding, output.encoding.clone());
         serialization.escape_uri_attributes = output.escape_uri_attributes;
         assign_if_some(&mut serialization.html_version, output.html_version);
+        serialization.explicit_html_version = output.html_version.is_some();
         serialization.include_content_type = output.include_content_type;
         serialization.indent = output.indent;
         assign_if_some(
@@ -1184,6 +1417,9 @@ impl<'a> IrConverter<'a> {
             .suppress_indentation
             .extend(output.suppress_indentation.clone());
         serialization.undeclare_prefixes = output.undeclare_prefixes;
+        if !output.use_character_maps.is_empty() {
+            serialization.use_character_maps = self.resolve_character_maps(&output.use_character_maps)?;
+        }
         assign_if_some(&mut serialization.version, output.version.clone());
         Ok(())
     }
@@ -1370,18 +1606,12 @@ impl<'a> IrConverter<'a> {
             || result_document.type_.is_some()
             || result_document.allow_duplicate_names.is_some()
             || result_document.build_tree.is_some()
-            || result_document.bye_order_mark.is_some()
-            || result_document.encoding.is_some()
             || result_document.escape_uri_attributes.is_some()
-            || result_document.html_version.is_some()
-            || result_document.indent.is_some()
             || result_document.item_separator.is_some()
             || result_document.json_node_output_method.is_some()
             || result_document.normalization_form.is_some()
             || result_document.parameter_document.is_some()
             || result_document.suppress_indentation.is_some()
-            || result_document.use_character_maps.is_some()
-            || result_document.version.is_some()
         {
             return Err(error::Error::Unsupported(String::from(
                 "xsl:result-document serialization attributes are not supported yet",
@@ -1408,6 +1638,11 @@ impl<'a> IrConverter<'a> {
             }
         };
 
+        let formatted_output = match &result_document.format {
+            Some(format) => Some(self.resolve_named_output(format, &result_document.namespaces)?),
+            None => None,
+        };
+
         let method_literal = if let Some(method) = &result_document.method {
             self.static_value_template(method).ok_or_else(|| {
                 error::SpannedError {
@@ -1417,20 +1652,50 @@ impl<'a> IrConverter<'a> {
                     span: Some((result_document.span.start..result_document.span.end).into()),
                 }
             })?
+        } else if let Some(output) = formatted_output.as_ref() {
+            Self::output_method_literal(output.method.as_ref())?.unwrap_or_default()
         } else {
             String::new()
         };
         let method_atom = Spanned::new(ir::Atom::Const(ir::Const::String(method_literal)), (0..0).into());
 
+        let byte_order_mark_literal = if let Some(byte_order_mark) = &result_document.bye_order_mark {
+            let byte_order_mark_literal = self.static_value_template(byte_order_mark).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @byte-order-mark is not supported yet"
+                            .to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?;
+            Self::validate_boolean_literal(&byte_order_mark_literal)?
+        } else if let Some(output) = formatted_output.as_ref() {
+            output.byte_order_mark.to_string()
+        } else {
+            String::new()
+        };
+        let byte_order_mark_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(byte_order_mark_literal)),
+            (0..0).into(),
+        );
+
         let cdata_literal = if let Some(cdata_section_elements) = &result_document.cdata_section_elements {
-            self.static_value_template(cdata_section_elements).ok_or_else(|| {
+            let direct_literal = self.static_value_template(cdata_section_elements).ok_or_else(|| {
                 error::SpannedError {
                     error: error::Error::Unsupported(
                         "Dynamic xsl:result-document @cdata-section-elements is not supported yet".to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
                 }
-            })?
+            })?;
+            if let Some(output) = formatted_output.as_ref() {
+                Self::merge_literal_qname_lists(&output.cdata_section_elements, Some(direct_literal))
+            } else {
+                direct_literal
+            }
+        } else if let Some(output) = formatted_output.as_ref() {
+            Self::qname_list_literal(&output.cdata_section_elements)
         } else {
             String::new()
         };
@@ -1445,6 +1710,8 @@ impl<'a> IrConverter<'a> {
                     span: Some((result_document.span.start..result_document.span.end).into()),
                 }
             })?
+        } else if let Some(output) = formatted_output.as_ref() {
+            output.doctype_public.clone().unwrap_or_default()
         } else {
             String::new()
         };
@@ -1460,6 +1727,8 @@ impl<'a> IrConverter<'a> {
                     span: Some((result_document.span.start..result_document.span.end).into()),
                 }
             })?
+        } else if let Some(output) = formatted_output.as_ref() {
+            output.doctype_system.clone().unwrap_or_default()
         } else {
             String::new()
         };
@@ -1476,6 +1745,8 @@ impl<'a> IrConverter<'a> {
                     span: Some((result_document.span.start..result_document.span.end).into()),
                 }
             })?
+        } else if let Some(output) = formatted_output.as_ref() {
+            output.include_content_type.to_string()
         } else {
             String::new()
         };
@@ -1493,6 +1764,8 @@ impl<'a> IrConverter<'a> {
                     span: Some((result_document.span.start..result_document.span.end).into()),
                 }
             })?
+        } else if let Some(output) = formatted_output.as_ref() {
+            output.media_type.clone().unwrap_or_default()
         } else {
             String::new()
         };
@@ -1501,7 +1774,7 @@ impl<'a> IrConverter<'a> {
 
         let omit_xml_declaration_literal =
             if let Some(omit_xml_declaration) = &result_document.omit_xml_declaration {
-                self.static_value_template(omit_xml_declaration).ok_or_else(|| {
+                let omit_xml_declaration_literal = self.static_value_template(omit_xml_declaration).ok_or_else(|| {
                     error::SpannedError {
                         error: error::Error::Unsupported(
                             "Dynamic xsl:result-document @omit-xml-declaration is not supported yet"
@@ -1509,7 +1782,10 @@ impl<'a> IrConverter<'a> {
                         ),
                         span: Some((result_document.span.start..result_document.span.end).into()),
                     }
-                })?
+                })?;
+                Self::validate_boolean_literal(&omit_xml_declaration_literal)?
+            } else if let Some(output) = formatted_output.as_ref() {
+                output.omit_xml_declaration.to_string()
             } else {
                 String::new()
             };
@@ -1519,23 +1795,102 @@ impl<'a> IrConverter<'a> {
         );
 
         let standalone_literal = if let Some(standalone) = &result_document.standalone {
-            self.static_value_template(standalone).ok_or_else(|| {
+            let standalone_literal = self.static_value_template(standalone).ok_or_else(|| {
                 error::SpannedError {
                     error: error::Error::Unsupported(
                         "Dynamic xsl:result-document @standalone is not supported yet".to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
                 }
-            })?
+            })?;
+            Self::validate_standalone_literal(&standalone_literal)?
+        } else if let Some(output) = formatted_output.as_ref() {
+            Self::output_standalone_literal(output.standalone.as_ref()).unwrap_or_default()
         } else {
             String::new()
         };
         let standalone_atom =
             Spanned::new(ir::Atom::Const(ir::Const::String(standalone_literal)), (0..0).into());
 
+        let (html_version_atom, html_version_bindings) = if let Some(html_version) = &result_document.html_version {
+            if let Some(html_version_literal) = self.static_value_template(html_version) {
+                rust_decimal::Decimal::from_str_exact(&html_version_literal).map_err(|_| {
+                    error::SpannedError {
+                        error: error::Error::XTSE0020,
+                        span: Some((result_document.span.start..result_document.span.end).into()),
+                    }
+                })?;
+                (
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(html_version_literal)),
+                        (0..0).into(),
+                    ),
+                    Bindings::empty(),
+                )
+            } else {
+                self.attribute_value_template(html_version)?.atom_bindings()
+            }
+        } else if let Some(output) = formatted_output.as_ref() {
+            (
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(
+                        output
+                            .html_version
+                            .map(|html_version| html_version.to_string())
+                            .unwrap_or_default(),
+                    )),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            )
+        } else {
+            (
+                Spanned::new(ir::Atom::Const(ir::Const::String(String::new())), (0..0).into()),
+                Bindings::empty(),
+            )
+        };
+
+        let use_character_maps_literal = if let Some(use_character_maps) = &result_document.use_character_maps {
+            let mut merged_character_maps = if let Some(output) = formatted_output.as_ref() {
+                self.resolve_character_maps(&output.use_character_maps)?
+            } else {
+                ahash::HashMap::default()
+            };
+            for (character, replacement) in self.resolve_character_maps(use_character_maps)? {
+                merged_character_maps.insert(character, replacement);
+            }
+            Self::encode_character_maps(&merged_character_maps)
+        } else if let Some(output) = formatted_output.as_ref() {
+            Self::encode_character_maps(&self.resolve_character_maps(&output.use_character_maps)?)
+        } else {
+            String::new()
+        };
+        let use_character_maps_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(use_character_maps_literal)),
+            (0..0).into(),
+        );
+
+        let version_literal = if let Some(version) = &result_document.version {
+            self.static_value_template(version).ok_or_else(|| {
+                error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @output-version is not supported yet"
+                            .to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                }
+            })?
+        } else if let Some(output) = formatted_output.as_ref() {
+            output.version.clone().unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let version_atom =
+            Spanned::new(ir::Atom::Const(ir::Const::String(version_literal)), (0..0).into());
+
         if let Some(href) = &result_document.href {
             let (href_atom, href_bindings) = self.attribute_value_template(href)?.atom_bindings();
-            let bindings = href_bindings.concat(content_bindings);
+            let bindings = href_bindings.concat(content_bindings).concat(html_version_bindings);
             let expr = self.static_function_call_expr(
                 "store-result-document",
                 FN_NAMESPACE,
@@ -1548,10 +1903,11 @@ impl<'a> IrConverter<'a> {
         let expr = self.static_function_call_expr(
             "store-principal-result-document",
             FN_NAMESPACE,
-            9,
+            13,
             vec![
                 content_atom,
                 method_atom,
+                byte_order_mark_atom,
                 cdata_atom,
                 doctype_public_atom,
                 doctype_system_atom,
@@ -1559,9 +1915,14 @@ impl<'a> IrConverter<'a> {
                 media_type_atom,
                 omit_xml_declaration_atom,
                 standalone_atom,
+                html_version_atom,
+                use_character_maps_atom,
+                version_atom,
             ],
         );
-        Ok(content_bindings.bind_expr_no_span(&mut self.variables, expr))
+        Ok(content_bindings
+            .concat(html_version_bindings)
+            .bind_expr_no_span(&mut self.variables, expr))
     }
 
     fn sequence_constructor_content(
@@ -2184,10 +2545,13 @@ impl<'a> IrConverter<'a> {
         ))
     }
 
-    fn attribute_value_template(
+    fn attribute_value_template<V>(
         &mut self,
-        value_template: &ast::ValueTemplate<String>,
-    ) -> error::SpannedResult<Bindings> {
+        value_template: &ast::ValueTemplate<V>,
+    ) -> error::SpannedResult<Bindings>
+    where
+        V: Clone + PartialEq + Eq,
+    {
         let mut all_bindings = Vec::new();
         for item in &value_template.template {
             let bindings = match item {
