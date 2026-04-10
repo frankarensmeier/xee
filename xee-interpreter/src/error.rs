@@ -603,6 +603,13 @@ pub enum Error {
     /// It is a static error if a decimal-format declaration uses invalid or
     /// conflicting characters for the symbols that define the format.
     XTSE1300,
+    /// Inconsistent later higher-precedence static variable.
+    ///
+    /// It is a static error if a variable declared with static="yes" is
+    /// inconsistent with another static variable of the same name that is
+    /// declared earlier in stylesheet tree order and that has lower import
+    /// precedence.
+    XTSE3450,
     /// xsl:with-param does not match any declared template parameter.
     ///
     /// It is a static error if xsl:call-template supplies a non-tunnel

@@ -1,4 +1,5 @@
 use xee_xpath_compiler::context::Variables;
+use std::path::PathBuf;
 use xot::Xot;
 
 use crate::ast_core as ast;
@@ -20,6 +21,22 @@ pub fn parse_transform_with_static_variables(
     processor_xslt_version: Option<u8>,
     processor_xpath_version: Option<u8>,
 ) -> Result<(ast::Transform, Variables)> {
+    parse_transform_with_static_variables_and_base_dir(
+        s,
+        initial_static_variables,
+        processor_xslt_version,
+        processor_xpath_version,
+        None,
+    )
+}
+
+pub fn parse_transform_with_static_variables_and_base_dir(
+    s: &str,
+    initial_static_variables: Variables,
+    processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
+    base_dir: Option<PathBuf>,
+) -> Result<(ast::Transform, Variables)> {
     let mut xot = Xot::new();
     let names = Names::new(&mut xot);
     let (node, span_info) = xot
@@ -36,6 +53,7 @@ pub fn parse_transform_with_static_variables(
         Variables::new(),
         processor_xslt_version,
         processor_xpath_version,
+        base_dir,
         &mut xot,
     )?;
     let parser = XsltParser::new(&state);

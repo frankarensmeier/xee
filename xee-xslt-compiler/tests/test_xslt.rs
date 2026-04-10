@@ -2605,6 +2605,138 @@ fn test_use_when_instance_of_uses_xpath_default_namespace_for_types() {
 }
 
 #[test]
+fn test_use_when_sees_static_variable_from_included_module() {
+    let temp_dir = unique_temp_dir("use-when-include-static-vars");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:variable name="inc" select="true()" static="yes"/>
+  <xsl:include href="included.xsl"/>
+  <xsl:template name="main" use-when="$oink">
+    <xsl:call-template name="action"/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("included.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template name="action" use-when="$inc">
+    <ok/>
+  </xsl:template>
+  <xsl:variable name="oink" select="true()" static="yes"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+        "main",
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<ok/>");
+}
+
+#[test]
+fn test_use_when_reports_xtse3450_for_inconsistent_imported_static_variable() {
+    let temp_dir = unique_temp_dir("use-when-import-static-conflict");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:import href="imported.xsl"/>
+  <xsl:variable name="inc" select="true()" static="yes"/>
+  <xsl:template name="main" use-when="$inc">
+    <xsl:call-template name="action"/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("imported.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template name="action">
+    <ok/>
+  </xsl:template>
+  <xsl:variable name="inc" select="false()" static="yes"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut static_context_builder = StaticContextBuilder::default();
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let error = parse_with_base_dir(
+        static_context_builder.build(),
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE3450);
+}
+
+#[test]
+fn test_use_when_reports_xtse3450_for_reimported_inconsistent_static_variable() {
+    let temp_dir = unique_temp_dir("use-when-reimport-static-conflict");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:import href="a.xsl"/>
+  <xsl:variable name="one" static="yes" select="$flip-flop"/>
+  <xsl:import href="b.xsl"/>
+  <xsl:variable name="two" static="yes" select="$flip-flop"/>
+  <xsl:import href="a.xsl"/>
+  <xsl:variable name="three" static="yes" select="$flip-flop"/>
+  <xsl:template name="main" use-when="$one and not($two) and $three">
+    <ok/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("a.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:variable name="flip-flop" select="true()" static="yes"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("b.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:variable name="flip-flop" select="false()" static="yes"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut static_context_builder = StaticContextBuilder::default();
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let error = parse_with_base_dir(
+        static_context_builder.build(),
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE3450);
+}
+
+#[test]
 fn test_imported_decimal_format_merges_across_import_precedence() {
     let temp_dir = unique_temp_dir("format-number-import-precedence");
     let stylesheet_path = temp_dir.join("main.xsl");

@@ -4,6 +4,63 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 09:54 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the `use-when` static-variable visibility and precedence tranche around `0133`, `0137`, and `0138`.
+- Direct vendor verification now passes for:
+  - `use-when-0133`
+  - `use-when-0137`
+  - `use-when-0138`
+- Focused compiler regressions for the `use-when` tranche now pass at `8 passed / 0 failed`.
+- Full unfiltered `use-when` bucket is currently `86 passed / 5 failed / 10 error / 1 wrongE`; this tranche fixed the static-variable cases, but the remaining failures are now concentrated elsewhere.
+
+### Progress made
+
+- Added a base-dir-aware XSLT AST parse entry point so static evaluation can resolve relative `xsl:include` and `xsl:import` hrefs while building the `use-when` static environment.
+- Taught static evaluation to load static variables from included and imported stylesheet modules before evaluating later top-level `use-when` expressions, matching stylesheet tree order instead of treating each module in isolation.
+- Carried imported and included static-variable names into the parser context used for subsequent static XPath compilation, so later `use-when` expressions can successfully bind references such as `$oink` after an include.
+- Added precedence-aware tracking for static variables and parameters during static evaluation, including `XTSE3450` when a later higher-precedence declaration is inconsistent with an earlier lower-precedence declaration.
+- Wired the compiler-side stylesheet loading path through the same base-dir-aware AST entry point so nested import/include static evaluation uses consistent filesystem resolution.
+- Added focused compiler regressions for:
+  - included-module static-variable visibility into later `use-when`
+  - inconsistent imported static variables raising `XTSE3450`
+  - repeated imports with conflicting static-variable values raising `XTSE3450`
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_use_when_supports_function_available_and_element_available -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_use_when_sees_static_variable_from_included_module -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_use_when_reports_xtse3450_for_inconsistent_imported_static_variable -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_use_when_reports_xtse3450_for_reimported_inconsistent_static_variable -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_use_when_ -- --nocapture`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0133`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0137`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0138`
+- `cargo run -q -p xee-testrunner -- all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml | rg '^use-when-[0-9]+'`
+
+### Obstacles seen
+
+#### Top-level static evaluation could not see future include/import contributions in stylesheet tree order
+
+- Symptoms:
+  - `use-when-0133` still raised `XPST0008` because `$oink` from an included module was not visible when compiling a later top-level `use-when`.
+- Root cause:
+  - static evaluation only considered the current module's already-seen declarations and had no way to resolve relative stylesheet references during AST-level processing.
+- Resolution:
+  - resolve includes/imports during static evaluation using the stylesheet base directory, merge their static variables into the active static environment, and rebuild the parser context with the new variable names before evaluating later top-level declarations.
+
+#### Static-variable precedence logic was silently overwriting conflicting declarations
+
+- Symptoms:
+  - `use-when-0137` and `0138` could not report the required `XTSE3450` conflict semantics for inconsistent later higher-precedence declarations.
+- Root cause:
+  - static evaluation tracked only a flat name-to-value map, so it lost import-precedence information and could not distinguish safe shadowing from inconsistent override.
+- Resolution:
+  - track static-variable values together with module precedence and declaration kind, compare precedence during merge, and raise `XTSE3450` when a later higher-precedence declaration is inconsistent with an earlier lower-precedence declaration.
+
 ## 2026-04-10 08:52 CEST
 
 ### Status snapshot

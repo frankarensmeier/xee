@@ -16,7 +16,7 @@ use xee_xpath_ast::{ast as xpath_ast, pattern::transform_pattern, span::Spanned}
 use xee_xslt_ast::{
     ast,
     error::{AttributeError, ElementError},
-    parse_transform_with_static_variables,
+    parse_transform_with_static_variables_and_base_dir,
 };
 use xot::{xmlname::{NameStrInfo, OwnedName}, Xot};
 
@@ -336,11 +336,12 @@ pub fn parse_with_base_dir_and_initial_mode(
     if static_context.processor_xpath_version().is_none() {
         static_context.set_processor_xpath_version(Some(31));
     }
-    let transform = parse_transform_with_static_variables(
+    let transform = parse_transform_with_static_variables_and_base_dir(
         xslt,
         StaticVariables::new(),
         static_context.processor_xslt_version(),
         static_context.processor_xpath_version(),
+        base_dir.clone(),
     );
     // TODO: better error handling
     let (transform, static_variables) = match transform {
@@ -639,11 +640,12 @@ fn load_stylesheet(
     let stylesheet_version = detect_stylesheet_version(&content);
 
     // Parse the stylesheet
-    let (transform, static_variables) = parse_transform_with_static_variables(
+    let (transform, static_variables) = parse_transform_with_static_variables_and_base_dir(
         &content,
         initial_static_variables,
         Some(3),
         Some(31),
+        next_base_dir.clone(),
     )
     .map_err(|e| {
         let mapped = map_parse_error(&content, e);

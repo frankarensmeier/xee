@@ -16,10 +16,12 @@
 // statically we need to pass in the names of any known global variables that
 // we've encountered before.
 
+use std::{cmp::Ordering, collections::HashMap, path::PathBuf};
+
 use xot::{NameId, Node, Xot};
 
 use xee_xpath_ast::ast as xpath_ast;
-use xee_xpath_compiler::{compile, context::Variables, sequence::Sequence};
+use xee_xpath_compiler::{compile, context::Variables, error, sequence::{Item, Sequence}};
 use xee_xpath_compiler::context::StaticContext;
 use xee_xpath_ast::FN_NAMESPACE;
 
@@ -27,8 +29,48 @@ use crate::attributes::Attributes;
 use crate::content::Content;
 use crate::context::Context;
 use crate::error::ElementError;
+use crate::parse::parse_transform_with_static_variables_and_base_dir;
 use crate::state::State;
 use crate::whitespace::strip_whitespace;
+
+#[derive(Clone)]
+struct StaticVariableEntry {
+    value: Sequence,
+    precedence: Vec<usize>,
+    is_param: bool,
+}
+
+fn compare_precedence(left: &[usize], right: &[usize]) -> Ordering {
+    for (left_part, right_part) in left.iter().zip(right.iter()) {
+        match left_part.cmp(right_part) {
+            Ordering::Equal => continue,
+            ordering => return ordering,
+        }
+    }
+
+    if left.len() == right.len() {
+        Ordering::Equal
+    } else if left.len() < right.len() {
+        Ordering::Greater
+    } else {
+        Ordering::Less
+    }
+}
+
+fn sequence_contains_function_items(value: &Sequence) -> bool {
+    value.iter().any(|item| matches!(item, Item::Function(_)))
+}
+
+fn static_values_consistent(
+    existing: &StaticVariableEntry,
+    value: &Sequence,
+    is_param: bool,
+) -> bool {
+    existing.is_param == is_param
+        && !sequence_contains_function_items(&existing.value)
+        && !sequence_contains_function_items(value)
+        && existing.value == *value
+}
 
 fn disable_use_when_restricted_functions(
     static_context: &mut StaticContext,
@@ -53,9 +95,12 @@ fn disable_use_when_restricted_functions(
 
 struct StaticEvaluator {
     static_global_variables: Variables,
+    static_global_variable_entries: HashMap<xpath_ast::Name, StaticVariableEntry>,
     static_parameters: Variables,
     processor_xslt_version: Option<u8>,
     processor_xpath_version: Option<u8>,
+    base_dir: Option<PathBuf>,
+    module_precedence: Vec<usize>,
     to_remove: Vec<Node>,
     to_remove_attribute: Vec<(Node, NameId)>,
 }
@@ -66,14 +111,189 @@ impl StaticEvaluator {
         static_parameters: Variables,
         processor_xslt_version: Option<u8>,
         processor_xpath_version: Option<u8>,
+        base_dir: Option<PathBuf>,
+        module_precedence: Vec<usize>,
     ) -> Self {
+        let static_global_variable_entries = initial_static_variables
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.clone(),
+                    StaticVariableEntry {
+                        value: value.clone(),
+                        precedence: module_precedence.clone(),
+                        is_param: false,
+                    },
+                )
+            })
+            .collect();
         Self {
             static_global_variables: initial_static_variables,
+            static_global_variable_entries,
             static_parameters,
             processor_xslt_version,
             processor_xpath_version,
+            base_dir,
+            module_precedence,
             to_remove: Vec::new(),
             to_remove_attribute: Vec::new(),
+        }
+    }
+
+    fn remember_static_variable(
+        &mut self,
+        name: xpath_ast::Name,
+        value: Sequence,
+        is_param: bool,
+        span: crate::ast_core::Span,
+    ) -> Result<(), ElementError> {
+        if let Some(existing) = self.static_global_variable_entries.get(&name) {
+            if compare_precedence(&self.module_precedence, &existing.precedence) == Ordering::Greater
+                && !static_values_consistent(existing, &value, is_param)
+            {
+                return Err(ElementError::XPathRunTime(
+                    error::Error::XTSE3450.with_ast_span((span.start..span.end).into()),
+                ));
+            }
+        }
+
+        self.static_global_variables.insert(name.clone(), value.clone());
+        self.static_global_variable_entries.insert(
+            name,
+            StaticVariableEntry {
+                value,
+                precedence: self.module_precedence.clone(),
+                is_param,
+            },
+        );
+        Ok(())
+    }
+
+    fn resolve_stylesheet_href(&self, href: &str) -> (PathBuf, Option<PathBuf>) {
+        let path = if let Some(base_dir) = &self.base_dir {
+            base_dir.join(href)
+        } else {
+            PathBuf::from(href)
+        };
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+        let next_base_dir = canonical
+            .parent()
+            .or_else(|| path.parent())
+            .map(std::path::Path::to_path_buf);
+        (path, next_base_dir)
+    }
+
+    fn merge_imported_static_variable(
+        &mut self,
+        name: xpath_ast::Name,
+        value: Sequence,
+        precedence: Vec<usize>,
+        is_param: bool,
+        span: crate::ast_core::Span,
+    ) -> Result<(), ElementError> {
+        if let Some(existing) = self.static_global_variable_entries.get(&name) {
+            match compare_precedence(&precedence, &existing.precedence) {
+                Ordering::Greater => {
+                    if !static_values_consistent(existing, &value, is_param) {
+                        return Err(ElementError::XPathRunTime(
+                            error::Error::XTSE3450.with_ast_span((span.start..span.end).into()),
+                        ));
+                    }
+                }
+                Ordering::Equal => {
+                    self.static_global_variables.insert(name.clone(), value.clone());
+                    self.static_global_variable_entries.insert(
+                        name,
+                        StaticVariableEntry {
+                            value,
+                            precedence,
+                            is_param,
+                        },
+                    );
+                }
+                Ordering::Less => {}
+            }
+            return Ok(());
+        }
+
+        self.static_global_variables.insert(name.clone(), value.clone());
+        self.static_global_variable_entries.insert(
+            name,
+            StaticVariableEntry {
+                value,
+                precedence,
+                is_param,
+            },
+        );
+        Ok(())
+    }
+
+    fn evaluate_stylesheet_reference(
+        &mut self,
+        attributes: &Attributes,
+        href: &str,
+        precedence: Vec<usize>,
+    ) -> Result<(), ElementError> {
+        let (path, base_dir) = self.resolve_stylesheet_href(href);
+        let content = std::fs::read_to_string(&path).map_err(|_| {
+            ElementError::Unsupported(format!("Could not read stylesheet: {href}"))
+        })?;
+        let (_, imported_static_variables) = parse_transform_with_static_variables_and_base_dir(
+            &content,
+            self.static_global_variables.clone(),
+            self.processor_xslt_version,
+            self.processor_xpath_version,
+            base_dir,
+        )?;
+        let span = attributes
+            .content
+            .state
+            .span(attributes.content.node)
+            .ok_or(ElementError::Internal)?;
+
+        for (name, value) in imported_static_variables {
+            self.merge_imported_static_variable(name, value, precedence.clone(), false, span)?;
+        }
+        Ok(())
+    }
+
+    fn evaluate_top_level_import_or_include(
+        &mut self,
+        attributes: &Attributes,
+        import_index: usize,
+    ) -> Result<bool, ElementError> {
+        let element = attributes
+            .content
+            .state
+            .xot
+            .element(attributes.content.node)
+            .ok_or(ElementError::Internal)?;
+        let (local_name, namespace) = attributes.content.state.xot.name_ns_str(element.name());
+        if namespace != "http://www.w3.org/1999/XSL/Transform" {
+            return Ok(false);
+        }
+
+        let href_name = attributes.content.state.names.href;
+        let Some(href) = attributes.content.state.xot.attributes(attributes.content.node).get(href_name) else {
+            return Ok(false);
+        };
+
+        match local_name {
+            "import" => {
+                let mut precedence = self.module_precedence.clone();
+                precedence.push(import_index);
+                self.evaluate_stylesheet_reference(attributes, href, precedence)?;
+                Ok(true)
+            }
+            "include" => {
+                self.evaluate_stylesheet_reference(
+                    attributes,
+                    href,
+                    self.module_precedence.clone(),
+                )?;
+                Ok(true)
+            }
+            _ => Ok(false),
         }
     }
 
@@ -88,6 +308,7 @@ impl StaticEvaluator {
     ) -> Result<(), ElementError> {
         let names = &state.names;
         let mut node = state.xot.first_child(top_node);
+        let mut import_index = 0usize;
 
         let top_content = Content::new(top_node, state, top_context);
         let top_attributes = top_content.attributes(state.xot.element(top_node).unwrap());
@@ -99,6 +320,15 @@ impl StaticEvaluator {
                 let current_content = Content::new(current, state, context);
                 let attributes = current_content.attributes(element);
                 let attributes = attributes.with_standard()?.with_static_standard()?;
+                if self.evaluate_top_level_import_or_include(&attributes, import_index)? {
+                    let (local_name, namespace) = state.xot.name_ns_str(element.name());
+                    if namespace == "http://www.w3.org/1999/XSL/Transform" && local_name == "import" {
+                        import_index += 1;
+                    }
+                    context = self.context_with_static_variables(attributes.content.context.clone());
+                    node = state.xot.next_sibling(current);
+                    continue;
+                }
                 if !self.evaluate_use_when(&top_attributes, xot)?
                     || !self.evaluate_use_when(&attributes, xot)?
                 {
@@ -115,6 +345,13 @@ impl StaticEvaluator {
             node = state.xot.next_sibling(current);
         }
         Ok(())
+    }
+
+    fn context_with_static_variables(&self, mut context: Context) -> Context {
+        for name in self.static_global_variables.keys() {
+            context = context.with_variable_name(name);
+        }
+        context
     }
 
     fn update_tree(&self, state: &mut State) -> Result<(), ElementError> {
@@ -138,7 +375,12 @@ impl StaticEvaluator {
             let select = attributes.required(names.select, attributes.xpath())?;
             let value = self.evaluate_static_xpath(select.xpath, &attributes.content, xot)?;
             let context = attributes.content.context.with_variable_name(&name);
-            self.static_global_variables.insert(name, value);
+            let span = attributes
+                .content
+                .state
+                .span(attributes.content.node)
+                .ok_or(ElementError::Internal)?;
+            self.remember_static_variable(name, value, false, span)?;
             Ok(context)
         } else {
             Ok(attributes.content.context)
@@ -178,7 +420,12 @@ impl StaticEvaluator {
                     }
                 }
             };
-            self.static_global_variables.insert(name, insert_value);
+            let span = attributes
+                .content
+                .state
+                .span(attributes.content.node)
+                .ok_or(ElementError::Internal)?;
+            self.remember_static_variable(name, insert_value, true, span)?;
             Ok(context)
         } else {
             Ok(attributes.content.context)
@@ -291,6 +538,7 @@ pub(crate) fn static_evaluate(
         static_parameters,
         None,
         None,
+        None,
         xot,
     )
 }
@@ -302,6 +550,7 @@ pub(crate) fn static_evaluate_with_initial_variables(
     static_parameters: Variables,
     processor_xslt_version: Option<u8>,
     processor_xpath_version: Option<u8>,
+    base_dir: Option<PathBuf>,
     xot: &mut Xot,
 ) -> Result<Variables, ElementError> {
     strip_whitespace(&mut state.xot, &state.names, node);
@@ -314,6 +563,8 @@ pub(crate) fn static_evaluate_with_initial_variables(
         static_parameters,
         processor_xslt_version,
         processor_xpath_version,
+        base_dir,
+        Vec::new(),
     );
 
     evaluator.evaluate_top_level(node, state, top_context, xot)?;
@@ -562,6 +813,9 @@ mod tests {
             document_element,
             initial_static_variables,
             Variables::new(),
+            None,
+            None,
+            None,
             &mut xot,
         )
         .unwrap();
