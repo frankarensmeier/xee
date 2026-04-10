@@ -650,7 +650,6 @@ bug-4301
 bug-4401
 bug-4501
 bug-5101
-bug-5501
 bug-5601
 bug-6201
 bug-6401
@@ -661,10 +660,7 @@ built-in-templates-0302
 = call-template
 call-template-0102
 call-template-0103
-call-template-0104
-call-template-0105
 call-template-0106
-call-template-0107
 call-template-0110
 call-template-0111
 call-template-0201
@@ -906,7 +902,6 @@ copy-of-011
 copy-of-012
 copy-of-013
 = core-function
-core-function-084
 = current
 current-001
 = current-output-uri
@@ -1067,7 +1062,6 @@ document-1901
 document-2002
 document-2003
 document-2009
-document-2011
 document-2101
 document-2301
 document-2401
@@ -1158,7 +1152,6 @@ error-0010z
 error-0020i
 error-0020j
 error-0030a
-error-0040a
 error-0041a
 error-0044a
 error-0044aa
@@ -2254,7 +2247,6 @@ initial-template-003
 initial-template-003a
 initial-template-004
 initial-template-081
-initial-template-901
 initial-template-902a
 = innermost
 innermost-001
@@ -2670,7 +2662,6 @@ match-279
 match-282
 match-284
 = math
-math-0103
 math-1201
 math-2404
 math-2406
@@ -9240,31 +9231,11 @@ sx-union-333
 sx-union-334
 sx-union-335
 = system-property
-system-property-001
-system-property-002
-system-property-003
-system-property-004
-system-property-005
-system-property-006
-system-property-007
-system-property-008
-system-property-009
-system-property-010
-system-property-011
 system-property-012
-system-property-013
 system-property-014a
-system-property-014b
-system-property-015
-system-property-016
-system-property-017
 system-property-018
-system-property-019
 system-property-019a
-system-property-020
-system-property-021
 system-property-022
-system-property-023
 system-property-024
 system-property-025
 = system-property-gen
@@ -10922,9 +10893,6 @@ use-package-294
 use-package-295
 use-package-296
 = use-when
-use-when-0103
-use-when-0104
-use-when-0106
 use-when-0107
 use-when-0108
 use-when-0111
@@ -10946,7 +10914,6 @@ use-when-0135
 use-when-0136
 use-when-0137
 use-when-0138
-use-when-0212
 use-when-0213
 use-when-0214
 use-when-0222
@@ -11029,7 +10996,6 @@ validation-2002
 = variable
 = version
 version-001
-version-002
 version-003
 version-004
 version-005
@@ -11049,9 +11015,7 @@ version-022
 version-023
 version-023a
 version-024
-version-025
 version-026
-version-027
 version-028
 version-029
 version-030
