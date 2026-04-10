@@ -556,31 +556,17 @@ backwards-042
 backwards-043
 backwards-045
 = base-uri
-base-uri-001
 base-uri-002
 base-uri-003
-base-uri-004
-base-uri-005
 base-uri-006
-base-uri-008
 base-uri-009
 base-uri-010
-base-uri-011
-base-uri-012
 base-uri-013
 base-uri-014
-base-uri-015
 base-uri-016
-base-uri-018
-base-uri-019
-base-uri-020
-base-uri-021
-base-uri-022
 base-uri-023
 base-uri-024
 base-uri-025
-base-uri-026
-base-uri-027
 base-uri-028
 base-uri-029
 base-uri-030
@@ -596,9 +582,6 @@ base-uri-039
 base-uri-040
 base-uri-041
 base-uri-042
-base-uri-043
-base-uri-044
-base-uri-045
 base-uri-046
 base-uri-047
 base-uri-048
@@ -690,7 +673,6 @@ catalog-006b
 catalog-007
 catalog-008
 catalog-009
-catalog-010
 catalog-012
 = character-map
 character-map-001
@@ -726,13 +708,11 @@ choose-0104
 choose-0105
 choose-0106
 choose-0107
-choose-0604
 choose-1204
 choose-1803
 choose-1804
 = collation
 = collations
-collations-0101
 collations-0102
 collations-0103
 collations-0104
@@ -792,9 +772,7 @@ context-item-012
 context-item-013
 context-item-014
 context-item-016
-context-item-019
 context-item-901
-context-item-902
 context-item-903
 context-item-905
 context-item-906
@@ -1678,12 +1656,9 @@ expression-3201
 expression-3901
 expression-4301
 = extension-functions
-extension-functions-0101
-extension-functions-0102
 extension-functions-0103
 extension-functions-0104
 extension-functions-0105
-extension-functions-0106
 extension-functions-0201
 = for
 = for-each-group
@@ -1880,7 +1855,6 @@ function-0120b
 function-0122
 function-0302
 function-0302b
-function-0303
 function-0501
 function-0701
 function-1003
@@ -1898,7 +1872,6 @@ function-1029
 function-1030
 function-1031
 function-1101
-function-1201
 function-1701
 function-1901
 function-1902
@@ -1913,15 +1886,9 @@ function-5001
 function-5011
 = function-available
 function-available-0204
-function-available-0801
-function-available-1006
 function-available-1008
 function-available-1010
 function-available-1011
-function-available-1015
-function-available-1016
-function-available-1017
-function-available-1018
 = function-lookup
 function-lookup-001
 function-lookup-002
@@ -1950,7 +1917,6 @@ higher-order-functions-003
 higher-order-functions-007
 higher-order-functions-020
 higher-order-functions-023
-higher-order-functions-057
 higher-order-functions-058
 higher-order-functions-060
 higher-order-functions-066
@@ -2075,7 +2041,6 @@ import-schema-077
 import-schema-078
 import-schema-079
 import-schema-080
-import-schema-081
 import-schema-082
 import-schema-083
 import-schema-084
@@ -2251,16 +2216,12 @@ initial-template-902a
 = innermost
 innermost-001
 = iterate
-iterate-004
 iterate-006
 iterate-008
 iterate-009
 iterate-010
 iterate-012
 iterate-013
-iterate-016
-iterate-017
-iterate-018
 iterate-022
 iterate-023
 iterate-024
@@ -2268,7 +2229,6 @@ iterate-025
 iterate-026
 iterate-027
 iterate-029
-iterate-030
 iterate-031
 iterate-035
 iterate-036
@@ -2442,8 +2402,6 @@ load-xquery-module-004
 = lre
 lre-011
 lre-019
-lre-020
-lre-021
 lre-022
 lre-027
 lre-028
@@ -3004,7 +2962,6 @@ namespace-alias-1903
 namespace-alias-1904
 namespace-alias-1905
 namespace-alias-2613
-namespace-alias-3602
 = next-match
 next-match-036
 next-match-037
@@ -3613,7 +3570,6 @@ output-0281
 output-0282
 output-0283
 output-0284
-output-0285
 output-0301
 output-0302
 output-0303
@@ -3872,8 +3828,6 @@ package-version-912a
 = position
 position-0103
 position-0401
-position-0701
-position-0702
 position-1301
 position-1302
 position-1303
@@ -3907,7 +3861,6 @@ position-4001
 position-4104
 position-4105
 position-4901
-position-6002
 position-6101
 position-6302
 position-6601
@@ -6038,11 +5991,7 @@ resolve-uri-011
 resolve-uri-012
 resolve-uri-013
 resolve-uri-014
-resolve-uri-015
 resolve-uri-016
-resolve-uri-017
-resolve-uri-018
-resolve-uri-019
 resolve-uri-021
 resolve-uri-022
 resolve-uri-023
@@ -6146,7 +6095,6 @@ select-1802
 select-1901
 select-2001
 select-2002
-select-2003
 select-2006
 select-2009
 select-2012
@@ -6155,8 +6103,6 @@ select-2019
 select-2020
 select-2021
 select-2022
-select-2027
-select-2028
 select-2032
 select-2038
 select-2305
@@ -7007,7 +6953,6 @@ shadow-003
 shadow-004
 shadow-005
 shadow-006
-shadow-008
 = si-LRE
 si-lre-001
 si-lre-002
@@ -7950,13 +7895,7 @@ snapshot-0111
 snapshot-0112
 = sort
 sort-001
-sort-002
-sort-003
 sort-005
-sort-006
-sort-007
-sort-008
-sort-009
 sort-010
 sort-012
 sort-013
@@ -7967,23 +7906,13 @@ sort-017
 sort-018
 sort-019
 sort-020
-sort-021
 sort-026
 sort-027
 sort-028
 sort-029
-sort-033
-sort-036
-sort-037
-sort-038
-sort-039
-sort-040
 sort-041
 sort-042
 sort-043
-sort-044
-sort-046
-sort-047
 sort-049
 sort-050
 sort-051
@@ -8000,10 +7929,6 @@ sort-067
 sort-071
 sort-072
 sort-073
-sort-074
-sort-075
-sort-076
-sort-077
 sort-078
 sort-079
 sort-080
@@ -8074,7 +7999,6 @@ static-002
 static-002a
 static-002b
 static-002c
-static-003
 static-003a
 static-004
 static-004a
@@ -8101,12 +8025,8 @@ static-013b
 static-013c
 static-014
 static-015
-static-018
-static-019
-static-020
 static-021
 static-022
-static-023
 static-024
 static-025
 static-026
@@ -9233,7 +9153,6 @@ sx-union-335
 = system-property
 system-property-012
 system-property-014a
-system-property-018
 system-property-019a
 system-property-022
 system-property-024
@@ -9266,7 +9185,6 @@ try-008
 try-009
 try-010
 try-011
-try-012
 try-013
 try-014
 try-015
@@ -10893,51 +10811,7 @@ use-package-294
 use-package-295
 use-package-296
 = use-when
-use-when-0107
-use-when-0108
-use-when-0111
-use-when-0112
-use-when-0118
-use-when-0119
-use-when-0120
-use-when-0121
-use-when-0123
-use-when-0124
-use-when-0125
-use-when-0126
-use-when-0127a
-use-when-0128
-use-when-0131
-use-when-0132
-use-when-0133
-use-when-0135
 use-when-0136
-use-when-0137
-use-when-0138
-use-when-0213
-use-when-0214
-use-when-0222
-use-when-0226
-use-when-0227
-use-when-0407
-use-when-0407a
-use-when-0411
-use-when-0414
-use-when-0415
-use-when-0416
-use-when-0417
-use-when-0419
-use-when-0420
-use-when-0423
-use-when-0424
-use-when-0425
-use-when-0426
-use-when-0427
-use-when-0428
-use-when-0429
-use-when-0430
-use-when-0431
-use-when-0501
 = validation
 validation-0004
 validation-0005
@@ -10999,7 +10873,6 @@ version-001
 version-003
 version-004
 version-005
-version-006
 version-007
 version-008
 version-009
@@ -11008,14 +10881,12 @@ version-012
 version-013
 version-014
 version-017
-version-019
 version-020
 version-021
 version-022
 version-023
 version-023a
 version-024
-version-026
 version-028
 version-029
 version-030
@@ -11298,8 +11169,6 @@ xpath-default-namespace-0105
 xpath-default-namespace-0106
 xpath-default-namespace-0108
 xpath-default-namespace-0201
-xpath-default-namespace-0401
-xpath-default-namespace-0502
 xpath-default-namespace-0503
 xpath-default-namespace-0701
 xpath-default-namespace-0702
@@ -11308,7 +11177,6 @@ xpath-default-namespace-0703
 xsl-document-0402
 xsl-document-0404
 xsl-document-0603
-xsl-document-0606
 xsl-document-0701
 = xslt-compat
 xslt-compat-001

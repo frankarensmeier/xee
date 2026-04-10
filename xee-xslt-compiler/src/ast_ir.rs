@@ -447,6 +447,14 @@ fn parse_initial_mode_value(
 
 fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
     match error {
+        ElementError::Unsupported(reason) => {
+            if reason.starts_with("Could not read stylesheet: ") {
+                error::Error::XTSE0165.into()
+            } else {
+                error::Error::Unsupported(format!("Failed parsing XSLT: Unsupported({reason:?})"))
+                    .into()
+            }
+        }
         ElementError::Attribute(attribute_error) => match attribute_error {
             AttributeError::NotFound { span, .. } => error::SpannedError {
                 error: error::Error::XTSE0010,

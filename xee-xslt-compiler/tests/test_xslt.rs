@@ -3241,6 +3241,31 @@ fn test_evaluate_with_stylesheet_path_resolves_relative_include() {
 }
 
 #[test]
+fn test_evaluate_with_stylesheet_path_reports_xtse0165_for_missing_include() {
+  let temp_dir = unique_temp_dir("evaluate-stylesheet-path-missing-include");
+  let stylesheet_path = temp_dir.join("main.xsl");
+  fs::write(
+    &stylesheet_path,
+    r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:include href="missing.xsl"/>
+</xsl:stylesheet>"#,
+  )
+  .unwrap();
+
+  let mut xot = Xot::new();
+  let error = evaluate_with_stylesheet_path(
+    &mut xot,
+    "<doc/>",
+    &fs::read_to_string(&stylesheet_path).unwrap(),
+    &stylesheet_path,
+  )
+  .unwrap_err();
+
+  assert_eq!(error.value(), error::Error::XTSE0165);
+}
+
+#[test]
 fn test_imported_decimal_format_merges_across_import_precedence() {
     let temp_dir = unique_temp_dir("format-number-import-precedence");
     let stylesheet_path = temp_dir.join("main.xsl");

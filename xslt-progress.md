@@ -4,6 +4,45 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 12:30 CEST
+
+### Status snapshot
+
+- Checkpoint focus: clean up the post-filter-refresh error-code regressions exposed by the vendor sweep and establish the exact shape of the remaining open tail.
+- Full filtered vendor sweep is now `3663 passed / 3 failed / 0 error / 0 wrongE / 10929 filtered`.
+- The previous `WrongE` bucket is gone; all remaining open cases are ordinary failures in one cluster:
+  - `error-0150b`
+  - `error-0150c`
+  - `error-0150e`
+- The same underlying parser behavior is also still visible in filtered sibling cases `error-0150a` and `error-0150d` when run directly.
+
+### Progress made
+
+- Mapped stylesheet-reference failures raised during AST static evaluation from raw `Unsupported("Could not read stylesheet: ...")` into the spec error code `XTSE0165`.
+- Added a focused compiler regression that verifies stylesheet-path evaluation reports `XTSE0165` for a missing included stylesheet instead of leaking a generic unsupported error.
+- Re-ran the full `error-0165` vendor cluster and cleared it completely after the mapping fix.
+- Refreshed the vendor filter baseline so the current suite summary reflects the new state with zero wrong-error mismatches.
+- Investigated the remaining failing cases and confirmed they are all variants of one unresolved simplified-stylesheet-module problem rather than unrelated regressions.
+
+### Validation used for the checkpoint
+
+- `cargo test -q -p xee-xslt-compiler --test test_xslt test_evaluate_with_stylesheet_path_reports_xtse0165_for_missing_include -- --nocapture`
+- `cargo run -q --release -p xee-testrunner -- -v all vendor/xslt-tests/tests/misc/error/_error-test-set.xml error-0165`
+- `cargo run -q --release -p xee-testrunner -- -v check vendor/xslt-tests | rg '\.\.\. FAIL|WrongE|Error:'`
+- `cargo run -q --release -p xee-testrunner -- -v all vendor/xslt-tests/tests/misc/error/_error-test-set.xml error-0150`
+
+### Obstacles seen
+
+#### The remaining failure tail is a single `XTSE0150` parser gap around simplified stylesheet modules
+
+- Symptoms:
+  - the only unfiltered failures left are `error-0150b`, `error-0150c`, and `error-0150e`, all of which expect `XTSE0150` or `XTSE0165` when an included/imported resource is not a valid stylesheet module because it is effectively a simplified stylesheet without the required `xsl:version`.
+  - direct runs of the filtered siblings `error-0150a` and `error-0150d` show the same underlying leak as generic `Unsupported`.
+- Root cause:
+  - the parser still does not normalize the "outermost literal result element without `xsl:version`" family into `XTSE0150`, so that condition bubbles up as a generic unsupported parse outcome when encountered directly or through include/import processing.
+- Resolution:
+  - not fixed in this checkpoint; leave the suite at zero `WrongE`, record the exact open cluster, and tackle `XTSE0150` as the next parser-mapping tranche.
+
 ## 2026-04-10 12:01 CEST
 
 ### Status snapshot
