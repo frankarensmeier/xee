@@ -2183,10 +2183,8 @@ impl<'a> IrConverter<'a> {
                 "Internal bug: variable node should have been processed already",
             ))
             .into()),
-            MapEntry(_) => Err(error::Error::Unsupported(String::from(
-                "xsl:map-entry is only supported as a child of xsl:map",
-            ))
-            .into()),
+            MapEntry(entry) => self.map_entry(entry),
+            AnalyzeString(analyze_string) => self.analyze_string(analyze_string),
             _ => Err(error::Error::Unsupported(format!(
                 "Instruction not supported: {:?}",
                 instruction
@@ -2196,45 +2194,166 @@ impl<'a> IrConverter<'a> {
     }
 
     fn map(&mut self, map: &ast::Map) -> error::SpannedResult<Bindings> {
-        let mut bindings = Bindings::empty();
-        let mut members = Vec::new();
+        // Compile the body as a sequence constructor — each xsl:map-entry
+        // produces a singleton map, other instructions can too.
+        let body_bindings = self.sequence_constructor(&map.sequence_constructor)?;
+        let (body_atom, body_bindings) = body_bindings.atom_bindings();
 
-        for item in &map.sequence_constructor {
-            let entry = match item {
-                ast::SequenceConstructorItem::Instruction(
-                    ast::SequenceConstructorInstruction::MapEntry(entry),
-                ) => entry,
-                ast::SequenceConstructorItem::Content(ast::Content::Text(text))
-                    if text.trim().is_empty() =>
-                {
-                    continue;
-                }
-                _ => {
-                    return Err(error::Error::Unsupported(String::from(
-                        "xsl:map currently only supports xsl:map-entry children",
-                    ))
-                    .into())
-                }
-            };
+        // Wrap with map:merge to combine the singleton maps
+        let merge_expr = self.static_function_call_expr(
+            "merge",
+            "http://www.w3.org/2005/xpath-functions/map",
+            1,
+            vec![body_atom],
+        );
 
-            let (key_atom, key_bindings) = self.expression(&entry.key)?.atom_bindings();
-            let value_bindings = if let Some(select) = &entry.select {
-                self.expression(select)?
+        Ok(body_bindings.bind_expr(
+            &mut self.variables,
+            Spanned::new(merge_expr, (map.span.start..map.span.end).into()),
+        ))
+    }
+
+    fn map_entry(&mut self, entry: &ast::MapEntry) -> error::SpannedResult<Bindings> {
+        let (key_atom, key_bindings) = self.expression(&entry.key)?.atom_bindings();
+        let value_bindings = if let Some(select) = &entry.select {
+            self.expression(select)?
+        } else {
+            self.sequence_constructor(&entry.sequence_constructor)?
+        };
+        let (value_atom, value_bindings) = value_bindings.atom_bindings();
+
+        let entry_expr = self.static_function_call_expr(
+            "entry",
+            "http://www.w3.org/2005/xpath-functions/map",
+            2,
+            vec![key_atom, value_atom],
+        );
+
+        let bindings = key_bindings.concat(value_bindings);
+        Ok(bindings.bind_expr(
+            &mut self.variables,
+            Spanned::new(entry_expr, (entry.span.start..entry.span.end).into()),
+        ))
+    }
+
+    fn analyze_string(
+        &mut self,
+        analyze_string: &ast::AnalyzeString,
+    ) -> error::SpannedResult<Bindings> {
+        // Compile select expression
+        let (select_atom, select_bindings) = self.expression(&analyze_string.select)?.atom_bindings();
+        let select_str_expr =
+            self.static_function_call_expr("string", FN_NAMESPACE, 1, vec![select_atom]);
+        let (input_atom, input_bindings) = select_bindings
+            .bind_expr_no_span(&mut self.variables, select_str_expr)
+            .atom_bindings();
+
+        // Compile regex AVT
+        let regex_bindings = self.attribute_value_template(&analyze_string.regex)?;
+        let (regex_atom, regex_bindings) = regex_bindings.atom_bindings();
+
+        // Compile flags AVT (default empty string)
+        let (flags_atom, flags_bindings) = if let Some(flags) = &analyze_string.flags {
+            let fb = self.attribute_value_template(flags)?;
+            fb.atom_bindings()
+        } else {
+            let empty = Spanned::new(
+                ir::Atom::Const(ir::Const::String(String::new())),
+                (0..0).into(),
+            );
+            (empty, Bindings::empty())
+        };
+
+        // Compile matching-substring body as a closure(xs:string) -> item()*
+        let (match_fn_atom, match_fn_bindings) =
+            if let Some(matching) = &analyze_string.matching_substring {
+                self.analyze_string_closure(&matching.sequence_constructor)?
             } else {
-                self.sequence_constructor(&entry.sequence_constructor)?
+                self.empty_closure()?
             };
-            let (value_atom, value_bindings) = value_bindings.atom_bindings();
 
-            bindings = bindings.concat(key_bindings).concat(value_bindings);
-            members.push((key_atom, value_atom));
-        }
+        // Compile non-matching-substring body as a closure(xs:string) -> item()*
+        let (non_match_fn_atom, non_match_fn_bindings) =
+            if let Some(non_matching) = &analyze_string.non_matching_substring {
+                self.analyze_string_closure(&non_matching.sequence_constructor)?
+            } else {
+                self.empty_closure()?
+            };
+
+        let bindings = input_bindings
+            .concat(regex_bindings)
+            .concat(flags_bindings)
+            .concat(match_fn_bindings)
+            .concat(non_match_fn_bindings);
+
+        let expr = self.static_function_call_expr(
+            "xslt-analyze-string",
+            FN_NAMESPACE,
+            5,
+            vec![
+                input_atom,
+                regex_atom,
+                flags_atom,
+                match_fn_atom,
+                non_match_fn_atom,
+            ],
+        );
 
         Ok(bindings.bind_expr(
             &mut self.variables,
-            Spanned::new(
-                ir::Expr::MapConstructor(ir::MapConstructor { members }),
-                (map.span.start..map.span.end).into(),
-            ),
+            Spanned::new(expr, (analyze_string.span.start..analyze_string.span.end).into()),
+        ))
+    }
+
+    /// Create a closure that takes a string parameter and evaluates the body
+    /// with that string as the context item.
+    fn analyze_string_closure(
+        &mut self,
+        sequence_constructor: &[ast::SequenceConstructorItem],
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        let param_name = self.variables.new_name();
+        let context_names = self.variables.push_context();
+        let body_bindings = self
+            .with_template_continuation_availability(false, |this| {
+                this.sequence_constructor(sequence_constructor)
+            })?;
+        self.variables.pop_context();
+
+        let body = ir::Expr::Map(ir::Map {
+            context_names,
+            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), (0..0).into()),
+            return_expr: Box::new(body_bindings.expr()),
+        });
+
+        let body_bindings = Bindings::empty().bind_expr_no_span(&mut self.variables, body);
+        Ok(self.closure(
+            vec![ir::Param {
+                name: param_name,
+                type_: None,
+                default: None,
+                required: false,
+                original_name: None,
+                tunnel: false,
+            }],
+            body_bindings,
+        ))
+    }
+
+    /// Create an empty closure that returns the empty sequence.
+    fn empty_closure(&mut self) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        let param_name = self.variables.new_name();
+        let empty = self.empty_sequence();
+        let body = Bindings::new(self.variables.new_binding_no_span(empty.value));
+        Ok(self.closure(
+            vec![ir::Param {
+                name: param_name,
+                type_: None,
+                default: None,
+                required: false,
+                original_name: None,
+                tunnel: false,
+            }],
+            body,
         ))
     }
 

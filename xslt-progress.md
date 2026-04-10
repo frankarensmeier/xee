@@ -1370,3 +1370,26 @@ instead of replacing it.
 - Many tests remain filtered, so there is still substantial unsupported surface area.
 - `xsl:use-package` is still unsupported and blocks some otherwise nearby test cases.
 - `xsl:apply-imports` remains a good short-term target because its dedicated bucket currently has one behavioral failure instead of a broad unsupported feature wall.
+
+## 2026-04-11 00:35 CEST — xsl:map generalization and xsl:analyze-string
+
+### Status snapshot
+
+- **XSLT conformance**: 3450 passed / 0 failed / 0 error / 5343 filtered / 5802 unsupported (14595 total)
+- **+32 new passes** over previous baseline (3418)
+
+### What was done
+
+1. **Filter fix**: Identified `catalog-008` as a 57-second W3C meta-test (validates schema vs syntax proformas across thousands of stylesheets). Added to exclusion filter. Full `check` sweep dropped from ~60s to ~6s in release mode.
+
+2. **`xsl:map` generalization**: Rewrote `xsl:map` lowering from static `MapConstructor` IR to dynamic `map:entry()` + `map:merge()` calls. `xsl:map-entry` is now a standalone instruction producing singleton maps. This allows `xsl:for-each`, `xsl:if`, and any XSLT instruction inside `xsl:map`.
+
+3. **`xsl:analyze-string`**: Full implementation via hidden `xslt-analyze-string(input, regex, flags, match_fn, non_match_fn)` function. The matching/non-matching substring bodies compile to closures with the matched substring as context item. Uses regexml's `analyze()` for regex iteration. `regex-group()` not yet implemented.
+
+### DocBook frontier
+
+```
+[Unsupported] Error: xsl:number level="single" (node-counting form)
+```
+
+Next blocker is `xsl:number` with `level="single"` — the node-counting form that counts preceding siblings matching a pattern. Only `value=` (value-form) is currently implemented.

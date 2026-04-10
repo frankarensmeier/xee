@@ -623,6 +623,54 @@ fn simple_content_text_nodes(
     Ok(r.into())
 }
 
+#[xpath_fn(
+    "fn:xslt-analyze-string($input as xs:string, $regex as xs:string, $flags as xs:string, $match_fn as function(*), $non_match_fn as function(*)) as item()*"
+)]
+fn xslt_analyze_string(
+    interpreter: &mut Interpreter,
+    input: &str,
+    regex: &str,
+    flags: &str,
+    match_fn: sequence::Item,
+    non_match_fn: sequence::Item,
+) -> error::Result<sequence::Sequence> {
+    use regexml::AnalyzeEntry;
+
+    let compiled_regex = interpreter.regex(regex, flags)?;
+    let analyze_results = compiled_regex.analyze(input)?;
+
+    let match_function = match_fn.to_function()?;
+    let non_match_function = non_match_fn.to_function()?;
+
+    let mut result = Vec::new();
+    for entry in analyze_results {
+        let (substring, function) = match &entry {
+            AnalyzeEntry::Match(match_entries) => {
+                let mut s = String::new();
+                collect_match_text(match_entries, &mut s);
+                (s, &match_function)
+            }
+            AnalyzeEntry::NonMatch(s) => (s.clone(), &non_match_function),
+        };
+        let arg: sequence::Sequence =
+            sequence::Item::Atomic(atomic::Atomic::from(substring)).into();
+        let items = interpreter.call_function_with_arguments(function, &[arg])?;
+        for item in items.iter() {
+            result.push(item.clone());
+        }
+    }
+    Ok(result.into())
+}
+
+fn collect_match_text(entries: &[regexml::MatchEntry], out: &mut String) {
+    for entry in entries {
+        match entry {
+            regexml::MatchEntry::String(s) => out.push_str(s),
+            regexml::MatchEntry::Group { value, .. } => collect_match_text(value, out),
+        }
+    }
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
@@ -635,6 +683,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),
+        wrap_xpath_fn!(xslt_analyze_string),
     ]
 }
 

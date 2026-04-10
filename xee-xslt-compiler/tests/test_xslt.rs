@@ -5944,3 +5944,117 @@ fn test_key_with_third_argument() {
     assert_eq!(xml(&xot, output), "<out>two</out>");
 }
 
+#[test]
+fn test_xsl_map_with_for_each() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<items><item key='a' val='1'/><item key='b' val='2'/></items>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:map="http://www.w3.org/2005/xpath-functions/map"
+    version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:variable name="m" as="map(*)">
+        <xsl:map>
+          <xsl:for-each select="items/item">
+            <xsl:map-entry key="string(@key)" select="string(@val)"/>
+          </xsl:for-each>
+        </xsl:map>
+      </xsl:variable>
+      <xsl:value-of select="map:get($m, 'a')"/>-<xsl:value-of select="map:get($m, 'b')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let rendered = xml(&xot, output);
+    assert!(rendered.contains(">1-2</out>"));
+}
+
+#[test]
+fn test_xsl_map_with_conditional_entries() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc flag='true'/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:map="http://www.w3.org/2005/xpath-functions/map"
+    version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:variable name="m" as="map(*)">
+        <xsl:map>
+          <xsl:map-entry key="'always'" select="'yes'"/>
+          <xsl:if test="doc/@flag = 'true'">
+            <xsl:map-entry key="'conditional'" select="'included'"/>
+          </xsl:if>
+        </xsl:map>
+      </xsl:variable>
+      <xsl:value-of select="map:get($m, 'always')"/>-<xsl:value-of select="map:get($m, 'conditional')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let rendered = xml(&xot, output);
+    assert!(rendered.contains(">yes-included</out>"));
+}
+
+#[test]
+fn test_xsl_analyze_string_basic() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc>foo123bar456</doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:analyze-string select="doc" regex="[0-9]+">
+        <xsl:matching-substring>
+          <n><xsl:value-of select="."/></n>
+        </xsl:matching-substring>
+        <xsl:non-matching-substring>
+          <t><xsl:value-of select="."/></t>
+        </xsl:non-matching-substring>
+      </xsl:analyze-string>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out><t>foo</t><n>123</n><t>bar</t><n>456</n></out>"
+    );
+}
+
+#[test]
+fn test_xsl_analyze_string_matching_only() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc>abc</doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:analyze-string select="doc" regex="[a-z]">
+        <xsl:matching-substring>
+          <xsl:value-of select="upper-case(.)"/>
+        </xsl:matching-substring>
+      </xsl:analyze-string>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>ABC</out>");
+}

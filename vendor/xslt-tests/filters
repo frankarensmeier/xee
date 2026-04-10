@@ -135,32 +135,11 @@ accumulator-090
 accumulator-091
 = analyze-string
 analyze-string-001
-analyze-string-002
-analyze-string-003
-analyze-string-005
-analyze-string-006
-analyze-string-007
 analyze-string-008
-analyze-string-012
 analyze-string-033
 analyze-string-034
-analyze-string-035
-analyze-string-036
 analyze-string-037
 analyze-string-042
-analyze-string-048
-analyze-string-049
-analyze-string-050
-analyze-string-051
-analyze-string-052
-analyze-string-053
-analyze-string-063
-analyze-string-064
-analyze-string-065
-analyze-string-067
-analyze-string-069
-analyze-string-070
-analyze-string-071
 analyze-string-072
 analyze-string-073
 analyze-string-074
@@ -182,7 +161,6 @@ analyze-string-093
 analyze-string-094
 analyze-string-095
 analyze-string-096
-analyze-string-098
 analyze-string-099
 analyze-string-100
 = apply-imports
@@ -258,8 +236,6 @@ available-system-properties-028
 = avt
 avt-0303
 avt-0401
-avt-0501
-avt-0601
 avt-0701
 avt-0801
 avt-0901
@@ -1485,13 +1461,9 @@ lre-109
 = maps
 maps-001
 maps-002
-maps-003
-maps-004
-maps-005
 maps-007
 maps-008
 maps-012
-maps-017
 maps-901a
 maps-901b
 maps-901c
@@ -2464,10 +2436,7 @@ position-8202
 = predicate
 predicate-056
 = regex
-regex-017
 regex-018
-regex-027
-regex-028
 = regex-classes
 regex-classes-001
 regex-classes-002
@@ -5513,7 +5482,6 @@ coco-101
 coco-102
 coco-103
 = whitespace
-whitespace-001
 whitespace-028
 = xml-to-json
 xml-to-json-A019
