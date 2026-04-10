@@ -426,6 +426,46 @@ fn test_stylesheet_namespace_available_to_xs_qname() {
 }
 
 #[test]
+fn test_builtin_xml_namespace_available_without_declaration() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<doc xml:id="x"/>"#,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:value-of select="/doc/@xml:id"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>x</out>");
+}
+
+#[test]
+fn test_builtin_xs_namespace_available_without_declaration() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="'abc' instance of xs:string"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true</out>");
+}
+
+#[test]
 fn test_template_param_default_as_converts_runtime_value_for_tunnel_param() {
     let mut xot = Xot::new();
     let output = evaluate(

@@ -4,6 +4,41 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 16:52 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix missing built-in XPath/XSLT namespace bindings in the XSLT parser context after the first real DocBook NG reduction exposed a static `XPST0081` on `xml`/`xs` usage.
+- Built-in static prefixes such as `xml` and `xs` are now available in XSLT expressions even when the stylesheet does not redeclare them explicitly.
+- The minimal `xml:id` repro now succeeds instead of failing with `XPST0081`.
+- The minimal DocBook NG transformation moved past the previous namespace blocker and now fails later with `XTSE0090`, which is a better next reduction target.
+
+### Progress made
+
+- Traced the real DocBook NG `XPST0081` to a generic parser-context bug rather than a DocBook-specific construct.
+- Fixed `xee-xslt-ast` namespace-context construction so it preserves the built-in static namespaces from `xee-name::Namespaces::default_namespaces()` before overlaying stylesheet-declared prefixes.
+- Added focused compiler regressions proving that implicit `xml` and implicit `xs` namespace usage work in XSLT expressions without explicit namespace declarations.
+- Re-ran the minimal DocBook NG transformation and confirmed the failure advanced from `XPST0081` to `XTSE0090`.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_builtin_xml_namespace_available_without_declaration -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_builtin_xs_namespace_available_without_declaration -- --nocapture`
+- `cargo run --bin xee -- xslt /tmp/xee-xml-prefix-test.xsl /tmp/xee-xml-prefix-test.xml`
+- `cargo run --bin xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/print.xsl /tmp/xee-docbook-min.xml`
+
+### Obstacles seen
+
+#### The XSLT parser context was dropping required built-in prefixes
+
+- Symptoms:
+  - a minimal XPath expression using `@xml:id` failed with `XPST0081` unless `xmlns:xml` was declared explicitly.
+  - the first reduced real DocBook NG transformation also failed with `XPST0081`, making it look like a DocBook-specific issue at first.
+- Root cause:
+  - `xee-xslt-ast::Context::namespaces()` rebuilt the namespace table from stylesheet prefixes only, which discarded required built-in static bindings such as `xml`, `xs`, `fn`, `map`, `array`, `err`, and `output`.
+- Resolution:
+  - seed the namespace table from `Namespaces::default_namespaces()` and then overlay explicit stylesheet prefixes, preserving the required static namespace baseline.
+
 ## 2026-04-10 16:01 CEST
 
 ### Status snapshot
