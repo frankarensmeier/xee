@@ -2096,6 +2096,7 @@ impl<'a> IrConverter<'a> {
             Element(element) => self.element(element),
             Text(text) => self.text(text),
             Try(try_) => self.try_(try_),
+            Map(map) => self.map(map),
             Attribute(attribute) => self.attribute(attribute),
             Namespace(namespace) => self.namespace(namespace),
             Comment(comment) => self.comment(comment),
@@ -2113,12 +2114,59 @@ impl<'a> IrConverter<'a> {
                 "Internal bug: variable node should have been processed already",
             ))
             .into()),
+            MapEntry(_) => Err(error::Error::Unsupported(String::from(
+                "xsl:map-entry is only supported as a child of xsl:map",
+            ))
+            .into()),
             _ => Err(error::Error::Unsupported(format!(
                 "Instruction not supported: {:?}",
                 instruction
             ))
             .into()),
         }
+    }
+
+    fn map(&mut self, map: &ast::Map) -> error::SpannedResult<Bindings> {
+        let mut bindings = Bindings::empty();
+        let mut members = Vec::new();
+
+        for item in &map.sequence_constructor {
+            let entry = match item {
+                ast::SequenceConstructorItem::Instruction(
+                    ast::SequenceConstructorInstruction::MapEntry(entry),
+                ) => entry,
+                ast::SequenceConstructorItem::Content(ast::Content::Text(text))
+                    if text.trim().is_empty() =>
+                {
+                    continue;
+                }
+                _ => {
+                    return Err(error::Error::Unsupported(String::from(
+                        "xsl:map currently only supports xsl:map-entry children",
+                    ))
+                    .into())
+                }
+            };
+
+            let (key_atom, key_bindings) = self.expression(&entry.key)?.atom_bindings();
+            let value_bindings = if let Some(select) = &entry.select {
+                self.expression(select)?
+            } else {
+                self.sequence_constructor(&entry.sequence_constructor)?
+            };
+            let (value_atom, value_bindings) = value_bindings.atom_bindings();
+
+            bindings = bindings.concat(key_bindings).concat(value_bindings);
+            members.push((key_atom, value_atom));
+        }
+
+        Ok(bindings.bind_expr(
+            &mut self.variables,
+            Spanned::new(
+                ir::Expr::MapConstructor(ir::MapConstructor { members }),
+                (map.span.start..map.span.end).into(),
+            ),
+        ))
     }
 
     fn message(&mut self, message: &ast::Message) -> error::SpannedResult<Bindings> {

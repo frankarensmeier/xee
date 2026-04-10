@@ -4,6 +4,105 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 20:40 CEST
+
+### Status snapshot
+
+- Checkpoint focus: unblock the next real DocBook NG parameter-layer frontier by lowering `xsl:map` into the existing XPath map-constructor IR instead of treating it as an unsupported XSLT instruction.
+- Global variables can now be constructed with `xsl:map` and read back through ordinary map functions such as `map:get(...)`.
+- The live DocBook path now moves past `param.xsl` map construction and reaches the next unsupported construct: `xsl:evaluate`.
+- The first newly reached `xsl:evaluate` use is in the DocBook chunking layer and is genuinely dynamic, so the next tranche looks materially larger than the map fix.
+
+### Progress made
+
+- Added XSLT compiler lowering for `xsl:map` by collecting `xsl:map-entry` children, compiling their keys and values, and emitting `ir::Expr::MapConstructor`.
+- Added an explicit unsupported error for stray `xsl:map-entry` outside `xsl:map` so failures stay precise instead of falling through to the generic unsupported-instruction path.
+- Added a focused regression proving that a global variable can be built with `xsl:map` and queried with `map:get(...)` during template execution.
+- Re-ran the real DocBook entry stylesheet and confirmed that the semantic frontier moved again, from unsupported map construction to unsupported `xsl:evaluate`.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_global_variable_can_be_built_with_xsl_map -- --nocapture`
+- `cargo run -q -p xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/main.xsl /tmp/xee-docbook-min.xml`
+
+### Obstacles seen
+
+#### Namespace serialization made the new reduced regression too strict at first
+
+- Symptoms:
+  - the new `xsl:map` regression produced the correct value but serialized extra in-scope namespaces on the `<out/>` element, so exact string comparison failed.
+- Resolution:
+  - relax the assertion to validate the element shape and payload instead of incidental namespace serialization.
+
+#### The next real blocker is now `xsl:evaluate`
+
+- Symptoms:
+  - after the map fix, the real DocBook run stops on `Instruction not supported: Evaluate(...)` rather than in `param.xsl` map construction.
+- Assessment:
+  - this confirms the `xsl:map` tranche worked.
+  - it also means the next DocBook-path step is no longer a narrow lowering gap; it will likely require dynamic XPath compilation/evaluation plumbing.
+
+## 2026-04-10 20:28 CEST
+
+### Status snapshot
+
+- Checkpoint commit: `36bf6100` (`Checkpoint DocBook pattern and static-scope fixes`).
+- Checkpoint focus: clear the next real DocBook NG parser/compiler blockers after the multiline AVT fix by reducing them to generic pattern and static-scope issues.
+- Match patterns with kind tests plus predicates now parse correctly, including reduced shapes such as `node()[1]`, `text()[1]`, and `text()[parent::a/parent::sup]`.
+- Imported stylesheet modules can now see earlier in-scope static globals from the including stylesheet chain when evaluating `use-when` and related static expressions.
+- The top-level DocBook NG `main.xsl`, `docbook.xsl`, and `print.xsl` runs now move past the previous `XPST0003` and `XPST0008` frontiers.
+- The current real frontier is now an ordinary unsupported construct: `xsl:map` / `xsl:map-entry` in the DocBook parameter layer, first visible from `param.xsl` while building `vp:static-parameters` and `vp:dynamic-parameters`.
+
+### Progress made
+
+- Fixed XPath pattern parsing for kind-test steps with predicates by adding a narrow fallback path that rewrites eligible single-step kind-test patterns through the ordinary XPath path parser and converts the result back into a pattern AST.
+- Added focused parser regressions proving that `node()[1]` and `text()[1]` are accepted as patterns.
+- Added an end-to-end XSLT regression proving that a reduced DocBook-shaped match pattern `text()[parent::a/parent::sup]` now parses and executes correctly.
+- Fixed compiler-side import/include preprocessing so imported stylesheet modules inherit the current in-scope static-variable environment instead of always starting from an empty static context.
+- Added a focused regression proving that `use-when` inside an imported module can see a static variable established earlier through the including stylesheet chain.
+- Re-ran the real DocBook NG entry points and confirmed that the frontier moved again, this time from parser/static-name failures to unsupported map construction in `param.xsl`.
+- Kept the separate tooling note about multi-file XSLT diagnostics in `NEXT_XSLT_TRANCHE_2026-04-10.md`; the semantic frontier has moved, but the CLI still renders multi-file failures against the entry stylesheet source.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xpath-ast test_kind_test_with_predicate -- --nocapture`
+- `cargo test -p xee-xpath-ast test_text_kind_test_with_predicate -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_match_pattern_predicate_accepts_parent_axis_path_expression -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_use_when_in_imported_module_sees_earlier_static_variable_from_including_stylesheet -- --nocapture`
+- `target/debug/xee xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/main.xsl /tmp/xee-docbook-min.xml`
+- `target/debug/xee xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/docbook.xsl /tmp/xee-docbook-min.xml`
+- `target/debug/xee xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/print.xsl /tmp/xee-docbook-min.xml`
+
+### Obstacles seen
+
+#### Pattern parsing rejected valid predicates on kind-test steps
+
+- Symptoms:
+  - reduced real-world shapes such as `text()[parent::a/parent::sup]` failed with `XPST0003`.
+  - even simpler valid patterns like `text()[1]` and `node()[1]` failed at the `[` token while equivalent XPath path expressions still parsed.
+- Root cause:
+  - the pattern parser accepted name tests with predicates but did not correctly cover kind-test steps with predicates.
+- Resolution:
+  - add a narrow fallback that recognizes the affected kind-test shapes, parses them through the ordinary XPath path parser, and converts the result back into the pattern representation.
+
+#### Imported modules lost access to earlier static globals from the including chain
+
+- Symptoms:
+  - after the pattern fix, the next DocBook frontier became `XPST0008` from imported modules that referenced static variables established earlier in the surrounding stylesheet chain.
+  - reduced reproductions showed that `use-when` inside an imported module could not see a static variable defined by an earlier included parameter/variable layer.
+- Root cause:
+  - compiler-side stylesheet preprocessing loaded imported modules with an empty initial static-variable environment instead of the current in-scope one.
+- Resolution:
+  - thread the current in-scope static-variable map through imported-module loading and recursive preprocessing, matching the visibility needed by the reduced repro and the DocBook import graph.
+
+#### The next real blocker is now unsupported map construction, not another parser bug
+
+- Symptoms:
+  - `main.xsl`, `docbook.xsl`, and `print.xsl` now stop with an `Unsupported` error describing `xsl:map` / `xsl:map-entry` rather than `XPST0003` or `XPST0008`.
+- Assessment:
+  - this is meaningful forward motion: the current live DocBook path is no longer stuck on syntax or static-name binding and has advanced into an ordinary unsupported XSLT 3.0 instruction family.
+  - the next DocBook-path tranche is therefore a feature-support decision around map construction in the parameter layer, not another parser reduction.
+
 ## 2026-04-10 17:46 CEST
 
 ### Status snapshot

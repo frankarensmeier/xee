@@ -1589,6 +1589,37 @@ fn test_global_variable_can_reference_later_global_param() {
 }
 
 #[test]
+fn test_global_variable_can_be_built_with_xsl_map() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:map="http://www.w3.org/2005/xpath-functions/map"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    version="3.0">
+  <xsl:variable name="params" as="map(xs:QName, item()*)">
+    <xsl:map>
+      <xsl:map-entry key="QName('', 'debug')" select="'keep'"/>
+    </xsl:map>
+  </xsl:variable>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:value-of select="map:get($params, QName('', 'debug'))"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let rendered = xml(&xot, output);
+    assert!(rendered.starts_with("<out"));
+    assert!(rendered.contains(">keep</out>"));
+}
+
+#[test]
 fn test_call_template_unknown_param_is_ignored_in_xslt_1_mode() {
     let mut xot = Xot::new();
     let output = evaluate(
