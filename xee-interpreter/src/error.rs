@@ -547,6 +547,8 @@ pub enum Error {
     /// precedence, unless it also contains another binding with the same name
     /// and higher import precedence.
     XTSE0010,
+    /// Variable-binding element has both a select attribute and non-empty content.
+    XTSE0620,
     /// Missing XTSE0710 XSLT static error code needed by attribute-set validation.
     XTSE0710,
     /// Invalid value for an XSLT-defined attribute.
@@ -574,6 +576,8 @@ pub enum Error {
     /// It is a static error if an XSLT element has an attribute that is not
     /// permitted for that instruction.
     XTSE0090,
+    /// Invalid value for the version attribute on the stylesheet element.
+    XTSE0110,
     /// Imported or included stylesheet module cannot be located or processed.
     XTSE0165,
     /// Pattern is not allowed in this XSLT version.
@@ -615,6 +619,8 @@ pub enum Error {
     /// It is a static error if xsl:call-template supplies a non-tunnel
     /// parameter that is not declared by the called template.
     XTSE0680,
+    /// Invalid XSLT attribute on a literal result element.
+    XTSE0805,
     /// xsl:break or xsl:next-iteration outside of xsl:iterate's tail position
     ///
     /// It is a static error if an xsl:break or xsl:next-iteration element

@@ -2737,6 +2737,400 @@ fn test_use_when_reports_xtse3450_for_reimported_inconsistent_static_variable() 
 }
 
 #[test]
+fn test_use_when_false_on_include_skips_included_stylesheet() {
+    let temp_dir = unique_temp_dir("use-when-include-false");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<t:transform version="2.0" xmlns:t="http://www.w3.org/1999/XSL/Transform">
+  <t:include href="include3.xsl" use-when="false()"/>
+  <t:template match="doc">
+    <out>
+      <t:apply-templates/>
+    </out>
+  </t:template>
+  <t:template match="a" use-when="true()">
+    <print_a><t:next-match/></print_a>
+  </t:template>
+</t:transform>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("include3.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:transform version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" use-when="true()">
+  <xsl:template match="b">
+    <print_b><xsl:next-match/></print_b>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc><elem><a>a1</a><a>a2</a><b>b1</b><b>b2</b></elem></doc>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><print_a>a1</print_a><print_a>a2</print_a>b1b2</out>");
+}
+
+#[test]
+fn test_use_when_on_stylesheet_does_not_remove_top_level_children() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><elem><a>a1</a><a>a2</a><b>b1</b><b>b2</b></elem></doc>",
+        r#"
+<t:transform xmlns:t="http://www.w3.org/1999/XSL/Transform" version="2.0" use-when="false()">
+  <t:template match="elem">
+    <out>
+      <t:copy>
+        <t:apply-templates/>
+      </t:copy>
+    </out>
+  </t:template>
+
+  <t:template match="a | b" use-when="true()">
+    <print>
+      <t:next-match/>
+    </print>
+  </t:template>
+</t:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out><elem><print>a1</print><print>a2</print><print>b1</print><print>b2</print></elem></out>"
+    );
+}
+
+#[test]
+fn test_use_when_xsl_attribute_on_lre_reports_xtse0805() {
+    let error = parse(
+        StaticContextBuilder::default().build(),
+        r#"
+<t:transform xmlns:t="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <t:template match="doc">
+    <out>
+      <elem t:use-when="true()" t:if="See what happens!">error</elem>
+    </out>
+  </t:template>
+</t:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE0805);
+}
+
+#[test]
+fn test_use_when_invalid_stylesheet_version_reports_xtse0110() {
+    let error = parse(
+        StaticContextBuilder::default().build(),
+        r#"
+<t:transform xmlns:t="http://www.w3.org/1999/XSL/Transform"
+             version="'2.0'"
+             use-when="false()">
+  <t:template match="elem">
+    <out>
+      <t:copy>
+        <t:apply-templates/>
+      </t:copy>
+    </out>
+  </t:template>
+
+  <t:template match="a | b" use-when="true()">
+    <print>
+      <t:next-match/>
+    </print>
+  </t:template>
+</t:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE0110);
+}
+
+#[test]
+fn test_use_when_false_on_included_stylesheet_root_skips_module() {
+    let temp_dir = unique_temp_dir("use-when-included-root-false");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:include href="include.xsl"/>
+  <xsl:template match="doc">
+    <out><xsl:apply-templates/></out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("include.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0" use-when="false()">
+  <xsl:template match="para">
+    <p><xsl:next-match/></p>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc><para>p1</para><para>p2</para></doc>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>p1p2</out>");
+}
+
+#[test]
+fn test_use_when_static_base_uri_uses_stylesheet_location() {
+    let temp_dir = unique_temp_dir("use-when-static-base-uri");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc" use-when="contains(static-base-uri(), 'main.xsl')">
+    <ok/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<ok/>");
+}
+
+#[test]
+fn test_use_when_static_base_uri_respects_xml_base() {
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                 version="3.0"
+                 xml:base="http://www.example.com/dir/">
+  <xsl:variable name="inc"
+                static="yes"
+                xml:base="../sub"
+                select="static-base-uri()"/>
+  <xsl:template name="main" use-when="$inc eq 'http://www.example.com/sub'">
+    <ok/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        std::path::Path::new("/tmp/use-when-static-base-uri-xml-base.xsl"),
+        "main",
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<ok/>");
+}
+
+#[test]
+fn test_use_when_masks_unavailable_extension_element_with_extension_attributes() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><para>p1</para><para>p2</para></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                version="2.0"
+                extension-element-prefixes="saxon"
+                xmlns:saxon="http://not.saxon.sf.net/">
+  <xsl:variable name="count-para" select="0" saxon:assignable="yes"/>
+
+  <xsl:template match="/">
+    <result>
+      <xsl:apply-templates/>
+      <count nr="{$count-para}"/>
+    </result>
+  </xsl:template>
+
+  <xsl:template match="*">
+    <xsl:copy>
+      <xsl:copy-of select="@*"/>
+      <xsl:apply-templates/>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="para">
+    <saxon:assign name="count-para"
+                  select="$count-para + 1"
+                  xsl:use-when="element-available('saxon:assign')"/>
+    <xsl:next-match/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<result xmlns:saxon=\"http://not.saxon.sf.net/\"><doc><para>p1</para><para>p2</para></doc><count nr=\"0\"/></result>"
+    );
+}
+
+#[test]
+fn test_use_when_doc_available_is_false_in_xslt20() {
+    let temp_dir = unique_temp_dir("use-when-doc-available");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<t:transform xmlns:t="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <t:variable name="v" as="element()*">
+    <a><b/></a>
+  </t:variable>
+
+  <t:template match="/">
+    <out>
+      <t:call-template name="temp"/>
+      <t:value-of select="doc-available($v)" use-when="doc-available('')"/>
+    </out>
+  </t:template>
+
+  <t:template name="temp">
+    <t:value-of select="doc-available('')"/>
+  </t:template>
+</t:transform>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true</out>");
+}
+
+#[test]
+fn test_use_when_fallback_is_ignored_for_supported_instruction() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    exclude-result-prefixes="xs"
+    version="2.0">
+  <xsl:template match="/">
+    <result>
+      <xsl:value-of>
+        <xsl:text>Success</xsl:text>
+        <xsl:fallback use-when="function-available('string')">Nothing to fallback on</xsl:fallback>
+      </xsl:value-of>
+    </result>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<result>Success</result>");
+}
+
+#[test]
+fn test_use_when_inside_fallback_lre_does_not_emit_content() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    exclude-result-prefixes="xs"
+    version="2.0">
+  <xsl:template match="/">
+    <result>
+      <xsl:value-of>
+        <xsl:text>Success</xsl:text>
+        <xsl:fallback>
+          <row xsl:use-when="function-available('string')">Nothing to fallback on</row>
+        </xsl:fallback>
+      </xsl:value-of>
+    </result>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<result>Success</result>");
+}
+
+#[test]
+fn test_use_when_in_no_namespace_on_lre_does_not_hide_variable_binding_body_error() {
+    let error = parse(
+        StaticContextBuilder::default().build(),
+        r#"
+<xslt:transform xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                xmlns:xslt="http://www.w3.org/1999/XSL/Transform"
+                exclude-result-prefixes="xs"
+                version="3.0">
+  <xslt:variable name="x" as="xs:string" select="'correct'" static="true">
+    <not-allowed-but-disabled use-when="system-property('xslt:version') = '10.1'" />
+  </xslt:variable>
+
+  <xslt:template match="/">
+    <out var="{$x}" />
+  </xslt:template>
+</xslt:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE0620);
+}
+
+#[test]
+fn test_use_when_false_on_static_variable_body_prunes_content_before_xtse0620() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xslt:transform xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                xmlns:xslt="http://www.w3.org/1999/XSL/Transform"
+                exclude-result-prefixes="xs"
+                version="3.0">
+  <xslt:variable name="x" as="xs:string" select="'correct'" static="true">
+    <not-allowed-but-disabled xslt:use-when="system-property('xslt:version') = '10.1'" />
+  </xslt:variable>
+
+  <xslt:template match="/">
+    <out var="{$x}" />
+  </xslt:template>
+</xslt:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out var=\"correct\"/>");
+}
+
+#[test]
 fn test_imported_decimal_format_merges_across_import_precedence() {
     let temp_dir = unique_temp_dir("format-number-import-precedence");
     let stylesheet_path = temp_dir.join("main.xsl");

@@ -61,6 +61,93 @@ instead of replacing it.
 - Resolution:
   - track static-variable values together with module precedence and declaration kind, compare precedence during merge, and raise `XTSE3450` when a later higher-precedence declaration is inconsistent with an earlier lower-precedence declaration.
 
+## 2026-04-10 10:59 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the bulk of the remaining `use-when` conformance tail after the static-variable tranche, while explicitly deferring the DTD/entity parser case into a separate follow-up note.
+- Full `use-when` bucket is now `99 passed / 0 failed / 3 error / 0 wrongE`.
+- Focused compiler regressions for the `use-when` tranche now pass at `21 passed / 0 failed`.
+- Newly fixed vendor cases in this tranche:
+  - `use-when-0108`
+  - `use-when-0116`
+  - `use-when-0119`
+  - `use-when-0135`
+  - `use-when-0220`
+  - `use-when-0222`
+  - `use-when-0226`
+  - `use-when-0227`
+  - `use-when-0406`
+  - `use-when-0420`
+  - `use-when-0430`
+  - `use-when-0431`
+- Remaining tail after this checkpoint:
+  - `use-when-0136` deferred as a parser-capability tranche
+  - `use-when-0427` still errors with an internal parse failure
+  - `use-when-0501` still errors with runtime `XPTY0004`
+
+### Progress made
+
+- Added stylesheet-location-aware static evaluation so AST preprocessing can carry a real stylesheet URI and compute `static-base-uri()` correctly, including `xml:base` resolution.
+- Honored `use-when` on top-level `xsl:include` and `xsl:import` before loading referenced modules, and honored document-root `use-when` when evaluating included/imported stylesheet modules.
+- Preserved principal stylesheet top-level declarations when the stylesheet root itself has `use-when`, matching the vendor expectation that the root attribute does not prune the principal module body.
+- Mapped invalid stylesheet `version` values to `XTSE0110` and invalid XSLT-namespace attributes on literal result elements to `XTSE0805`.
+- Allowed foreign-namespace extension attributes on XSLT elements, which unblocks masked unavailable extension-element cases such as `0108`.
+- Implemented the XSLT 2.0 `doc-available()` `use-when` special case as `false` without broadening the restriction to `doc()`, which kept `0406` green without regressing `0128`.
+- Compiled `xsl:fallback` as a no-op for supported instructions while still statically processing its content for `use-when`, fixing `0420` and `0430`.
+- Added `XTSE0620` validation for variable-binding elements that combine `select` with non-empty content, while pruning `use-when`-disabled children in static variable and param bodies before that validation runs.
+- Added a dedicated follow-up note in `CHANGES-use-when-dtd-followup.md` describing why `0136` is deferred and what a future parser-capability tranche needs to satisfy.
+- Added focused compiler regressions for include/import gating, stylesheet-root semantics, static base URI, extension attributes, `doc-available()`, fallback handling, and `XTSE0620` edge cases.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_use_when_ -- --nocapture`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0108`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0116`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0119`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0135`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0220`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0222`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0226`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0227`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0406`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0420`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0430`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0431`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0128`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0421`
+- `cargo run -q -p xee-testrunner -- all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml | rg '^use-when-[0-9]+'`
+
+### Obstacles seen
+
+#### Static evaluation needed real stylesheet location and per-module root gating
+
+- Symptoms:
+  - `0116`, `0119`, `0135`, `0220`, and `0222` exposed mismatches around included modules, stylesheet roots, and `static-base-uri()`.
+- Root cause:
+  - AST static evaluation only had a filesystem base directory, not a stable stylesheet URI or a way to distinguish principal-stylesheet root handling from included/imported module root handling.
+- Resolution:
+  - thread stylesheet URI and module-root gating behavior through the AST parse and static-evaluation entry points, then resolve effective static base URI with `xml:base` support.
+
+#### `xsl:fallback` and variable-binding validation needed tighter phase separation
+
+- Symptoms:
+  - `0420` and `0430` treated fallback content as active even when the enclosing instruction was supported, and the first `XTSE0620` pass regressed `0421` by validating disabled content too early.
+- Root cause:
+  - fallback had no supported-instruction no-op path in IR lowering, and variable/param bodies were not traversed during static evaluation before later binding validation ran.
+- Resolution:
+  - lower `xsl:fallback` to an empty sequence for supported instructions, and statically evaluate variable/param children so `use-when`-disabled content is pruned before `XTSE0620` checks.
+
+#### `use-when-0136` is a parser-capability gap, not another expression-level bug
+
+- Symptoms:
+  - the case fails before normal XSLT static evaluation with `Unsupported("Failed parsing XSLT: Unsupported(\"Parse error: DTD is not supported\")")`.
+- Root cause:
+  - the stylesheet XML parser path does not support DTDs and external entities, so the entity-expanded content never enters the existing AST/static-evaluation pipeline.
+- Resolution:
+  - document the issue separately in `CHANGES-use-when-dtd-followup.md` and defer it from the current semantic-fix tranche.
+
 ## 2026-04-10 08:52 CEST
 
 ### Status snapshot

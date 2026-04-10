@@ -24,6 +24,7 @@ xee-xpath-ast = { path = "../xee-xpath-ast", version = "0.1.4" }
 xee-xpath-compiler = { path = "../xee-xpath-compiler", version = "0.1.5" }
 xee-name = { path = "../xee-name", version = "0.1.5" }
 ahash = { workspace = true }
+iri-string = { workspace = true }
 thiserror = { workspace = true }
 xot = { workspace = true }
 serde = { workspace = true, features = ["derive"], optional = true }

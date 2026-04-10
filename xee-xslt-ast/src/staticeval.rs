@@ -16,9 +16,10 @@
 // statically we need to pass in the names of any known global variables that
 // we've encountered before.
 
-use std::{cmp::Ordering, collections::HashMap, path::PathBuf};
+use std::{cmp::Ordering, collections::HashMap, path::{Path, PathBuf}};
 
-use xot::{NameId, Node, Xot};
+use iri_string::types::{IriAbsoluteString, IriReferenceStr};
+use xot::{xmlname::NameStrInfo, NameId, Node, Xot};
 
 use xee_xpath_ast::ast as xpath_ast;
 use xee_xpath_compiler::{compile, context::Variables, error, sequence::{Item, Sequence}};
@@ -29,7 +30,7 @@ use crate::attributes::Attributes;
 use crate::content::Content;
 use crate::context::Context;
 use crate::error::ElementError;
-use crate::parse::parse_transform_with_static_variables_and_base_dir;
+use crate::parse::parse_transform_with_static_variables_and_location;
 use crate::state::State;
 use crate::whitespace::strip_whitespace;
 
@@ -93,6 +94,44 @@ fn disable_use_when_restricted_functions(
     }
 }
 
+fn restricted_document_access_use_when_result(
+    xpath: &xpath_ast::XPath,
+    xslt_version: u8,
+) -> Option<Sequence> {
+    if xslt_version >= 3 {
+        return None;
+    }
+
+    let exprsingles = &xpath.0.value.0;
+    let [exprsingle] = exprsingles.as_slice() else {
+        return None;
+    };
+    let xpath_ast::ExprSingle::Path(path) = &exprsingle.value else {
+        return None;
+    };
+    let [step] = path.steps.as_slice() else {
+        return None;
+    };
+    let xpath_ast::StepExpr::PrimaryExpr(primary) = &step.value else {
+        return None;
+    };
+    let xpath_ast::PrimaryExpr::FunctionCall(function_call) = &primary.value else {
+        return None;
+    };
+
+    let namespace = function_call.name.value.namespace();
+    if !namespace.is_empty() && namespace != FN_NAMESPACE {
+        return None;
+    }
+
+    let restricted = matches!(function_call.name.value.local_name(), "doc-available");
+    if !restricted {
+        return None;
+    }
+
+    Some(Sequence::from(false))
+}
+
 struct StaticEvaluator {
     static_global_variables: Variables,
     static_global_variable_entries: HashMap<xpath_ast::Name, StaticVariableEntry>,
@@ -100,7 +139,9 @@ struct StaticEvaluator {
     processor_xslt_version: Option<u8>,
     processor_xpath_version: Option<u8>,
     base_dir: Option<PathBuf>,
+    document_base_uri: Option<IriAbsoluteString>,
     module_precedence: Vec<usize>,
+    honor_document_use_when: bool,
     to_remove: Vec<Node>,
     to_remove_attribute: Vec<(Node, NameId)>,
 }
@@ -113,6 +154,8 @@ impl StaticEvaluator {
         processor_xpath_version: Option<u8>,
         base_dir: Option<PathBuf>,
         module_precedence: Vec<usize>,
+        static_base_uri: Option<String>,
+        honor_document_use_when: bool,
     ) -> Self {
         let static_global_variable_entries = initial_static_variables
             .iter()
@@ -134,10 +177,16 @@ impl StaticEvaluator {
             processor_xslt_version,
             processor_xpath_version,
             base_dir,
+            document_base_uri: static_base_uri.and_then(|uri| uri.try_into().ok()),
             module_precedence,
+            honor_document_use_when,
             to_remove: Vec::new(),
             to_remove_attribute: Vec::new(),
         }
+    }
+
+    fn path_to_file_uri(path: &Path) -> String {
+        format!("file://{}", path.display()).replace(' ', "%20")
     }
 
     fn remember_static_variable(
@@ -235,15 +284,18 @@ impl StaticEvaluator {
         precedence: Vec<usize>,
     ) -> Result<(), ElementError> {
         let (path, base_dir) = self.resolve_stylesheet_href(href);
+        let resolved_path = path.canonicalize().unwrap_or_else(|_| path.clone());
         let content = std::fs::read_to_string(&path).map_err(|_| {
             ElementError::Unsupported(format!("Could not read stylesheet: {href}"))
         })?;
-        let (_, imported_static_variables) = parse_transform_with_static_variables_and_base_dir(
+        let (_, imported_static_variables) = parse_transform_with_static_variables_and_location(
             &content,
             self.static_global_variables.clone(),
             self.processor_xslt_version,
             self.processor_xpath_version,
             base_dir,
+            Some(Self::path_to_file_uri(&resolved_path)),
+            true,
         )?;
         let span = attributes
             .content
@@ -320,7 +372,10 @@ impl StaticEvaluator {
                 let current_content = Content::new(current, state, context);
                 let attributes = current_content.attributes(element);
                 let attributes = attributes.with_standard()?.with_static_standard()?;
-                if self.evaluate_top_level_import_or_include(&attributes, import_index)? {
+                if !self.evaluate_use_when(&attributes, xot)? {
+                    self.to_remove.push(current);
+                    context = attributes.content.context;
+                } else if self.evaluate_top_level_import_or_include(&attributes, import_index)? {
                     let (local_name, namespace) = state.xot.name_ns_str(element.name());
                     if namespace == "http://www.w3.org/1999/XSL/Transform" && local_name == "import" {
                         import_index += 1;
@@ -328,12 +383,6 @@ impl StaticEvaluator {
                     context = self.context_with_static_variables(attributes.content.context.clone());
                     node = state.xot.next_sibling(current);
                     continue;
-                }
-                if !self.evaluate_use_when(&top_attributes, xot)?
-                    || !self.evaluate_use_when(&attributes, xot)?
-                {
-                    self.to_remove.push(current);
-                    context = attributes.content.context;
                 } else if element.name() == names.xsl_variable {
                     context = self.evaluate_variable(attributes, xot)?;
                 } else if element.name() == names.xsl_param {
@@ -370,7 +419,7 @@ impl StaticEvaluator {
         xot: &mut Xot,
     ) -> Result<Context, ElementError> {
         let names = &attributes.content.state.names;
-        if attributes.boolean_with_default(names.static_, false)? {
+        let context = if attributes.boolean_with_default(names.static_, false)? {
             let name = attributes.required(names.name, attributes.eqname())?;
             let select = attributes.required(names.select, attributes.xpath())?;
             let value = self.evaluate_static_xpath(select.xpath, &attributes.content, xot)?;
@@ -381,10 +430,12 @@ impl StaticEvaluator {
                 .span(attributes.content.node)
                 .ok_or(ElementError::Internal)?;
             self.remember_static_variable(name, value, false, span)?;
-            Ok(context)
+            context
         } else {
-            Ok(attributes.content.context)
-        }
+            attributes.content.context.clone()
+        };
+        self.evaluate_children(attributes, xot)?;
+        Ok(context)
     }
 
     fn evaluate_param(
@@ -393,7 +444,7 @@ impl StaticEvaluator {
         xot: &mut Xot,
     ) -> Result<Context, ElementError> {
         let names = &attributes.content.state.names;
-        if attributes.boolean_with_default(names.static_, false)? {
+        let context = if attributes.boolean_with_default(names.static_, false)? {
             let name = attributes.required(names.name, attributes.eqname())?;
             let required = attributes.boolean_with_default(names.required, false)?;
             let context = attributes.content.context.with_variable_name(&name);
@@ -426,10 +477,12 @@ impl StaticEvaluator {
                 .span(attributes.content.node)
                 .ok_or(ElementError::Internal)?;
             self.remember_static_variable(name, insert_value, true, span)?;
-            Ok(context)
+            context
         } else {
-            Ok(attributes.content.context)
-        }
+            attributes.content.context.clone()
+        };
+        self.evaluate_children(attributes, xot)?;
+        Ok(context)
     }
 
     fn evaluate_other(
@@ -485,7 +538,14 @@ impl StaticEvaluator {
         };
 
         if let Some(use_when) = use_when {
-            let value = self.evaluate_static_xpath(use_when.xpath, &attributes.content, xot)?;
+            let value = if let Some(value) = restricted_document_access_use_when_result(
+                &use_when.xpath,
+                attributes.content.context.xslt_version_major(),
+            ) {
+                value
+            } else {
+                self.evaluate_static_xpath(use_when.xpath, &attributes.content, xot)?
+            };
             if !value
                 .effective_boolean_value()
                 // TODO: the way the span is added is ugly, but it ought
@@ -506,6 +566,8 @@ impl StaticEvaluator {
     ) -> Result<Sequence, xee_xpath_compiler::error::SpannedError> {
         let parser_context = content.parser_context();
         let mut static_context: StaticContext = parser_context.into();
+        static_context =
+            static_context.clone_with_static_base_uri(self.effective_static_base_uri(content));
         static_context.set_stylesheet_xslt_version(Some(content.context.xslt_version_major()));
         static_context.set_processor_xslt_version(self.processor_xslt_version);
         static_context.set_processor_xpath_version(self.processor_xpath_version);
@@ -522,6 +584,41 @@ impl StaticEvaluator {
         let runnable = program.runnable(&dynamic_context);
 
         runnable.many(xot)
+    }
+
+    fn effective_static_base_uri(&self, content: &Content) -> Option<IriAbsoluteString> {
+        self.node_base_uri(content.state, content.node)
+    }
+
+    fn node_base_uri(&self, state: &State, node: Node) -> Option<IriAbsoluteString> {
+        match state.xot.value(node) {
+            xot::Value::Document => self.document_base_uri.clone(),
+            xot::Value::Element(_) => {
+                if let Some(base) = state.xot.attributes(node).get(state.names.xml_base) {
+                    let base: &IriReferenceStr = base.as_str().try_into().ok()?;
+                    match base.to_iri() {
+                        Ok(iri) => iri.to_owned().try_into().ok(),
+                        Err(iri) => {
+                            let parent = state.xot.parent(node)?;
+                            let parent_base = self.node_base_uri(state, parent)?;
+                            iri.resolve_against(&parent_base).to_string().try_into().ok()
+                        }
+                    }
+                } else if let Some(parent) = state.xot.parent(node) {
+                    self.node_base_uri(state, parent)
+                } else {
+                    self.document_base_uri.clone()
+                }
+            }
+            xot::Value::Attribute(_)
+            | xot::Value::Comment(_)
+            | xot::Value::Text(_)
+            | xot::Value::ProcessingInstruction(_) => state
+                .xot
+                .parent(node)
+                .and_then(|parent| self.node_base_uri(state, parent)),
+            xot::Value::Namespace(_) => None,
+        }
     }
 }
 
@@ -553,6 +650,32 @@ pub(crate) fn static_evaluate_with_initial_variables(
     base_dir: Option<PathBuf>,
     xot: &mut Xot,
 ) -> Result<Variables, ElementError> {
+    static_evaluate_with_initial_variables_and_location(
+        state,
+        node,
+        initial_static_variables,
+        static_parameters,
+        processor_xslt_version,
+        processor_xpath_version,
+        base_dir,
+        None,
+        false,
+        xot,
+    )
+}
+
+pub(crate) fn static_evaluate_with_initial_variables_and_location(
+    state: &mut State,
+    node: Node,
+    initial_static_variables: Variables,
+    static_parameters: Variables,
+    processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
+    base_dir: Option<PathBuf>,
+    static_base_uri: Option<String>,
+    honor_document_use_when: bool,
+    xot: &mut Xot,
+) -> Result<Variables, ElementError> {
     strip_whitespace(&mut state.xot, &state.names, node);
     let mut top_context = Context::empty();
     for name in initial_static_variables.keys() {
@@ -565,7 +688,23 @@ pub(crate) fn static_evaluate_with_initial_variables(
         processor_xpath_version,
         base_dir,
         Vec::new(),
+        static_base_uri,
+        honor_document_use_when,
     );
+
+    if evaluator.honor_document_use_when {
+        let element = state.xot.element(node).ok_or(ElementError::Internal)?;
+        let top_content = Content::new(node, state, top_context.clone());
+        let top_attributes = top_content.attributes(element);
+        let top_attributes = top_attributes.with_standard()?.with_static_standard()?;
+        if !evaluator.evaluate_use_when(&top_attributes, xot)? {
+            for child in state.xot.children(node).collect::<Vec<_>>() {
+                evaluator.to_remove.push(child);
+            }
+            evaluator.update_tree(state)?;
+            return Ok(evaluator.static_global_variables);
+        }
+    }
 
     evaluator.evaluate_top_level(node, state, top_context, xot)?;
     evaluator.update_tree(state)?;
@@ -934,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn test_use_when_false_on_top_node() {
+    fn test_use_when_false_on_top_node_keeps_top_level_children() {
         let xml = r#"
         <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0" use-when="false()">
            <foo/>
@@ -951,9 +1090,43 @@ mod tests {
         static_evaluate(&mut state, document_element, Variables::new(), &mut xot).unwrap();
         assert_eq!(
             state.xot.to_string(document_element).unwrap(),
-            r#"<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0" use-when="false()"/>"#
+            r#"<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0" use-when="false()"><foo/></xsl:stylesheet>"#
         );
     }
+
+     #[test]
+    fn test_use_when_false_on_transform_root_keeps_top_level_children() {
+          let xml = r#"
+          <t:transform xmlns:t="http://www.w3.org/1999/XSL/Transform" version="2.0" use-when="false()">
+              <t:template match="elem">
+                  <out>
+                      <t:copy>
+                          <t:apply-templates/>
+                      </t:copy>
+                  </out>
+              </t:template>
+
+              <t:template match="a | b" use-when="true()">
+                  <print>
+                      <t:next-match/>
+                  </print>
+              </t:template>
+          </t:transform>
+          "#;
+          let mut xot = Xot::new();
+          let (root, span_info) = xot.parse_with_span_info(xml).unwrap();
+          let names = Names::new(&mut xot);
+          let document_element = xot.document_element(root).unwrap();
+
+          let mut state = State::new(xot, span_info, names);
+
+          let mut xot = Xot::new();
+          static_evaluate(&mut state, document_element, Variables::new(), &mut xot).unwrap();
+          assert_eq!(
+                state.xot.to_string(document_element).unwrap(),
+            r#"<t:transform xmlns:t="http://www.w3.org/1999/XSL/Transform" version="2.0" use-when="false()"><t:template match="elem"><out><t:copy><t:apply-templates/></t:copy></out></t:template><t:template match="a | b" use-when="true()"><print><t:next-match/></print></t:template></t:transform>"#
+          );
+     }
 
     #[test]
     fn test_use_when_on_other_content() {

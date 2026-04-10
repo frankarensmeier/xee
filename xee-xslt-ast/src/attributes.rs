@@ -145,11 +145,30 @@ impl<'a> Attributes<'a> {
     }
 
     pub(crate) fn validate_unseen(&self) -> Result<(), AttributeError> {
-        let unseen_attributes = self.unseen_attributes();
+        let unseen_attributes = self
+            .unseen_attributes()
+            .into_iter()
+            .filter(|name| {
+                if *name == self.content.state.names.xml_base {
+                    return false;
+                }
+                let namespace = self.content.state.xot.namespace_for_name(*name);
+                self.content.state.xot.namespace_str(namespace).is_empty()
+                    || namespace == self.content.state.names.xsl_ns
+            })
+            .collect::<Vec<_>>();
         if !unseen_attributes.is_empty() {
+            let name = unseen_attributes[0];
+            let namespace = self.content.state.xot.namespace_for_name(name);
+            if !self.in_xsl_namespace() && namespace == self.content.state.names.xsl_ns {
+                return Err(AttributeError::StaticError {
+                    code: "XTSE0805",
+                    span: self.content.state.attribute_name_span(self.content.node, name)?,
+                });
+            }
             return Err(self.content.state.attribute_unexpected(
                 self.content.node,
-                unseen_attributes[0],
+                name,
                 "unexpected attribute",
             ));
         }
@@ -274,7 +293,7 @@ impl<'a> Attributes<'a> {
             extension_element_prefixes: self
                 .optional(names.extension_element_prefixes, self.prefixes())?,
             use_when,
-            version: self.optional(names.version, Self::_decimal)?,
+            version: self.optional(names.version, Self::_stylesheet_version_decimal)?,
             xpath_default_namespace,
         })
     }
@@ -335,6 +354,13 @@ impl<'a> Attributes<'a> {
 
     fn _string(s: &str, _span: Span) -> Result<String, AttributeError> {
         Ok(s.to_string())
+    }
+
+    fn _stylesheet_version_decimal(s: &str, span: Span) -> Result<Decimal, AttributeError> {
+        Decimal::from_str(s).map_err(|_| AttributeError::StaticError {
+            code: "XTSE0110",
+            span,
+        })
     }
 
     pub(crate) fn string(&self) -> impl Fn(&'a str, Span) -> Result<String, AttributeError> + '_ {

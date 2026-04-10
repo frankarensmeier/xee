@@ -17,6 +17,7 @@ use xee_xslt_ast::{
     ast,
     error::{AttributeError, ElementError},
     parse_transform_with_static_variables_and_base_dir,
+    parse_transform_with_static_variables_and_location,
 };
 use xot::{xmlname::{NameStrInfo, OwnedName}, Xot};
 
@@ -336,13 +337,25 @@ pub fn parse_with_base_dir_and_initial_mode(
     if static_context.processor_xpath_version().is_none() {
         static_context.set_processor_xpath_version(Some(31));
     }
-    let transform = parse_transform_with_static_variables_and_base_dir(
-        xslt,
-        StaticVariables::new(),
-        static_context.processor_xslt_version(),
-        static_context.processor_xpath_version(),
-        base_dir.clone(),
-    );
+    let transform = if static_context.static_base_uri().is_some() {
+        parse_transform_with_static_variables_and_location(
+            xslt,
+            StaticVariables::new(),
+            static_context.processor_xslt_version(),
+            static_context.processor_xpath_version(),
+            base_dir.clone(),
+            static_context.static_base_uri().map(ToString::to_string),
+            false,
+        )
+    } else {
+        parse_transform_with_static_variables_and_base_dir(
+            xslt,
+            StaticVariables::new(),
+            static_context.processor_xslt_version(),
+            static_context.processor_xpath_version(),
+            base_dir.clone(),
+        )
+    };
     // TODO: better error handling
     let (transform, static_variables) = match transform {
         Ok(transform) => transform,
@@ -452,7 +465,9 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
             AttributeError::XPathParser(parser_error) => parser_error.into(),
             AttributeError::StaticError { code, span } => error::SpannedError {
                 error: match code {
+                    "XTSE0110" => error::Error::XTSE0110,
                     "XTSE0340" => error::Error::XTSE0340,
+                    "XTSE0805" => error::Error::XTSE0805,
                     _ => {
                         error::Error::Unsupported(format!("Unknown XSLT static error code: {code}"))
                     }
@@ -638,14 +653,17 @@ fn load_stylesheet(
     // Try to read the file
     let content = std::fs::read_to_string(&path).map_err(|_| error::Error::XTSE0165)?;
     let stylesheet_version = detect_stylesheet_version(&content);
+    let stylesheet_uri = format!("file://{}", canonical.display()).replace(' ', "%20");
 
     // Parse the stylesheet
-    let (transform, static_variables) = parse_transform_with_static_variables_and_base_dir(
+    let (transform, static_variables) = parse_transform_with_static_variables_and_location(
         &content,
         initial_static_variables,
         Some(3),
         Some(31),
         next_base_dir.clone(),
+        Some(stylesheet_uri),
+        true,
     )
     .map_err(|e| {
         let mapped = map_parse_error(&content, e);
@@ -1279,6 +1297,7 @@ impl<'a> IrConverter<'a> {
         for decl in declarations {
             match &decl.declaration {
                 ast::Declaration::Variable(var) => {
+                    self.validate_variable(var)?;
                     let name = self.variables.lookup_var_name(&var.name).unwrap();
                     let expr = self.with_hidden_global_name(&var.name, |this| {
                         let context_names = this.variables.push_context();
@@ -1373,7 +1392,28 @@ impl<'a> IrConverter<'a> {
         if param.required && (param.select.is_some() || !param.sequence_constructor.is_empty()) {
             return Err(error::Error::XTSE0010.into());
         }
+        if param.select.is_some()
+            && Self::has_non_empty_binding_content(&param.sequence_constructor)
+        {
+            return Err(error::Error::XTSE0620.into());
+        }
         Ok(())
+    }
+
+    fn validate_variable(&self, variable: &ast::Variable) -> error::SpannedResult<()> {
+        if variable.select.is_some()
+            && Self::has_non_empty_binding_content(&variable.sequence_constructor)
+        {
+            return Err(error::Error::XTSE0620.into());
+        }
+        Ok(())
+    }
+
+    fn has_non_empty_binding_content(sequence_constructor: &ast::SequenceConstructor) -> bool {
+        sequence_constructor.iter().any(|item| match item {
+            ast::SequenceConstructorItem::Content(ast::Content::Text(text)) => !text.trim().is_empty(),
+            _ => true,
+        })
     }
 
     fn global_variable_expr(
@@ -1458,6 +1498,11 @@ impl<'a> IrConverter<'a> {
         &mut self,
         with_param: &ast::WithParam,
     ) -> error::SpannedResult<(ir::WithParam, Bindings)> {
+        if with_param.select.is_some()
+            && Self::has_non_empty_binding_content(&with_param.sequence_constructor)
+        {
+            return Err(error::Error::XTSE0620.into());
+        }
         let bindings = if let Some(select) = &with_param.select {
             self.expression(select)?
         } else if with_param.sequence_constructor.is_empty() {
@@ -2047,6 +2092,12 @@ impl<'a> IrConverter<'a> {
             Namespace(namespace) => self.namespace(namespace),
             Comment(comment) => self.comment(comment),
             ProcessingInstruction(pi) => self.processing_instruction(pi),
+            Fallback(_) => {
+                let empty_sequence = self.empty_sequence();
+                Ok(Bindings::new(
+                    self.variables.new_binding_no_span(empty_sequence.value),
+                ))
+            }
             // TODO: xsl:variable does not produce content and is handled
             // earlier already should be unreachable!() but at this point this
             // can be reached so return unsupported
@@ -3102,6 +3153,7 @@ impl<'a> IrConverter<'a> {
             ast::SequenceConstructorInstruction::Variable(variable),
         ) = item
         {
+            self.validate_variable(variable)?;
             let var_bindings = if let Some(select) = &variable.select {
                 self.expression(select)?
             } else if variable.as_.is_some() {

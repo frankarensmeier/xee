@@ -3120,6 +3120,7 @@ dependencies = [
  "ahash 0.8.11",
  "blanket",
  "insta",
+ "iri-string",
  "ron 0.8.1",
  "rust_decimal",
  "serde",
