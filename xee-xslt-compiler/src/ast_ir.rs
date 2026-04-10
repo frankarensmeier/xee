@@ -556,7 +556,7 @@ fn process_stylesheet_module(
                 ) = load_stylesheet(
                     &import.href.to_string(),
                     base_dir.as_ref(),
-                    StaticVariables::new(),
+                    in_scope_static_variables.clone(),
                 )?;
                 if active_paths.contains(&resolved_path) {
                     return Err(error::Error::XTSE0180
@@ -572,7 +572,7 @@ fn process_stylesheet_module(
                     active_paths,
                     imported_module_path,
                     imported_version,
-                    StaticVariables::new(),
+                    in_scope_static_variables.clone(),
                     &imported_module_static_variables,
                 )?;
                 active_paths.pop();

@@ -272,6 +272,30 @@ fn test_match_node_pattern_does_not_capture_initial_document_node() {
     );
 }
 
+
+    #[test]
+    fn test_match_pattern_predicate_accepts_parent_axis_path_expression() {
+        let mut xot = Xot::new();
+        let output = evaluate(
+            &mut xot,
+            "<root><sup><a>x</a></sup><a>y</a></root>",
+            r#"
+    <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+      <xsl:template match="/">
+        <out><xsl:apply-templates/></out>
+      </xsl:template>
+
+      <xsl:template match="text()[parent::a/parent::sup]">
+        <hit/>
+      </xsl:template>
+
+      <xsl:template match="text()"/>
+    </xsl:stylesheet>"#,
+        )
+        .unwrap();
+
+        assert_eq!(xml(&xot, output), "<out><hit/></out>");
+    }
 #[test]
 fn test_apply_templates_sort_with_param() {
     let mut xot = Xot::new();
@@ -4245,6 +4269,71 @@ fn test_static_globals_flow_across_sequential_includes() {
 
     assert!(rendered.starts_with("<out"));
     assert!(rendered.contains("<ok/>"));
+
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn test_use_when_in_imported_module_sees_earlier_static_variable_from_including_stylesheet() {
+    let temp_dir = unique_temp_dir("static-import-scope");
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let main_path = temp_dir.join("main.xsl");
+    fs::write(
+        temp_dir.join("params.xsl"),
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:v="urn:test:variables"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    version="3.0">
+  <xsl:param name="debug" static="yes" as="xs:string" select="'keep'"/>
+  <xsl:variable name="v:debug" static="yes" as="xs:string*"
+      select="tokenize($debug, '[,\s]+') ! normalize-space(.)"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("imported.xsl"),
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:v="urn:test:variables"
+    version="3.0">
+  <xsl:template name="action" use-when="'keep' = $v:debug">
+    <ok/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("host.xsl"),
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:import href="imported.xsl"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        &main_path,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:include href="params.xsl"/>
+  <xsl:include href="host.xsl"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let xslt = fs::read_to_string(&main_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &xslt,
+        &main_path,
+        "action",
+    )
+    .unwrap();
+
+    assert!(xml(&xot, output).starts_with("<ok"));
 
     let _ = fs::remove_dir_all(temp_dir);
 }

@@ -440,6 +440,74 @@ fn parse_top_level_binary_pattern(
     Some(Ok(pattern::Pattern::Expr(left)))
 }
 
+fn rewrite_kind_test_step_to_xpath(input: &str) -> Option<String> {
+    let input = input.trim();
+    let prefix = if input.starts_with("attribute(") || input.starts_with("schema-attribute(") {
+        "attribute::"
+    } else if input.starts_with("namespace-node(") {
+        "namespace::"
+    } else if input.starts_with("text(")
+        || input.starts_with("node(")
+        || input.starts_with("comment(")
+        || input.starts_with("processing-instruction(")
+        || input.starts_with("element(")
+        || input.starts_with("schema-element(")
+    {
+        "child::"
+    } else {
+        return None;
+    };
+    Some(format!("{prefix}{input}"))
+}
+
+fn convert_xpath_axis(axis: ast::Axis) -> Option<pattern::ForwardAxis> {
+    match axis {
+        ast::Axis::Attribute => Some(pattern::ForwardAxis::Attribute),
+        ast::Axis::Child => Some(pattern::ForwardAxis::Child),
+        ast::Axis::Descendant => Some(pattern::ForwardAxis::Descendant),
+        ast::Axis::DescendantOrSelf => Some(pattern::ForwardAxis::DescendantOrSelf),
+        ast::Axis::Namespace => Some(pattern::ForwardAxis::Namespace),
+        ast::Axis::Self_ => Some(pattern::ForwardAxis::Self_),
+        _ => None,
+    }
+}
+
+fn parse_kind_test_pattern_via_xpath(
+    input: &str,
+    namespaces: &Namespaces,
+    variable_names: &VariableNames,
+) -> Option<Result<pattern::Pattern<ast::ExprS>, ParserError>> {
+    let rewritten = rewrite_kind_test_step_to_xpath(input)?;
+    let xpath = ast::XPath::parse(&rewritten, namespaces, variable_names).ok()?;
+    let exprs = xpath.0.value.0;
+    if exprs.len() != 1 {
+        return None;
+    }
+    let ast::ExprSingle::Path(path_expr) = exprs.into_iter().next()?.value else {
+        return None;
+    };
+
+    let mut steps = Vec::new();
+    for step in path_expr.steps {
+        let ast::StepExpr::AxisStep(axis_step) = step.value else {
+            return None;
+        };
+        let forward = convert_xpath_axis(axis_step.axis)?;
+        steps.push(pattern::StepExpr::AxisStep(pattern::AxisStep {
+            forward,
+            node_test: axis_step.node_test,
+            predicates: axis_step.predicates,
+        }));
+    }
+
+    Some(Ok(pattern::Pattern::Expr(pattern::ExprPattern::Path(
+        pattern::PathExpr {
+            root: pattern::PathRoot::Relative,
+            steps,
+        },
+    ))))
+}
+
 impl pattern::Pattern<ast::ExprS> {
     pub fn parse<'a>(
         input: &'a str,
@@ -451,7 +519,11 @@ impl pattern::Pattern<ast::ExprS> {
             Err(error) => match parse_top_level_binary_pattern(input, namespaces) {
                 Some(Ok(pattern)) => pattern,
                 Some(Err(fallback_error)) => return Err(fallback_error),
-                None => return Err(error),
+                None => match parse_kind_test_pattern_via_xpath(input, namespaces, _variable_names) {
+                    Some(Ok(pattern)) => pattern,
+                    Some(Err(fallback_error)) => return Err(fallback_error),
+                    None => return Err(error),
+                },
             },
         };
         // TODO: do we need to rename variables to unique names? probably
@@ -559,6 +631,21 @@ mod tests {
             &variable_names
         ));
     }
+
+    #[test]
+    fn test_kind_test_with_predicate() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        assert!(pattern::Pattern::parse("node()[1]", &namespaces, &variable_names).is_ok());
+    }
+
+    #[test]
+    fn test_text_kind_test_with_predicate() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        assert!(pattern::Pattern::parse("text()[1]", &namespaces, &variable_names).is_ok());
+    }
+
 
     #[test]
     fn test_union() {

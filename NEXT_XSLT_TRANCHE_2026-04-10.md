@@ -146,6 +146,23 @@ This keeps the prioritization signal honest: the current blockers being exposed
 by real stylesheet execution are still yielding generic parser fixes with a
 small enough blast radius for checkpoint work.
 
+## Tooling follow-up: multi-file XSLT diagnostics
+
+There is also a separate tooling-quality item worth keeping visible:
+
+- improve multi-file XSLT error reporting so failures in imported or included
+  stylesheets identify the real module path instead of always rendering
+  against the top-level entry stylesheet source.
+
+Recommended shape:
+
+1. carry source path or URI alongside spanned XSLT/XPath errors
+2. render Ariadne reports against the actual module source
+3. if practical, include an import/include trail for large stylesheet stacks
+
+This is not the current semantic frontier, but it would materially reduce the
+debugging cost of every future DocBook-style reduction.
+
 ## Suggested restart prompt
 
 ```text
