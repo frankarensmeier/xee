@@ -554,6 +554,11 @@ pub enum Error {
     /// It is a static error if an attribute defined for an XSLT instruction
     /// has a value that is not one of the permitted values.
     XTSE0020,
+    /// Requested initial template does not exist.
+    ///
+    /// It is a dynamic error if the supplied initial template name does not
+    /// identify a named template in the stylesheet.
+    XTDE0040,
     /// Required global parameter not supplied.
     ///
     /// It is a dynamic error if a stylesheet parameter is declared with

@@ -53,6 +53,36 @@ fn evaluate_with_stylesheet_base(
     runnable.many(xot)
 }
 
+  fn evaluate_named_template_with_stylesheet_base(
+    xot: &mut Xot,
+    xml: &str,
+    xslt: &str,
+    stylesheet_path: &std::path::Path,
+    template_name: &str,
+  ) -> error::SpannedResult<Sequence> {
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let static_context = static_context_builder.build();
+    let program = parse_with_base_dir(
+      static_context,
+      xslt,
+      stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+
+    let root = xot.parse(xml).unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    runnable.named_template(template_name, xot)
+  }
+
   fn evaluate_with_processor_xslt_version(
     xot: &mut Xot,
     xml: &str,
@@ -2859,6 +2889,30 @@ fn test_vendor_format_number_x43import_parses() {
     let xslt = fs::read_to_string(&stylesheet_path).unwrap();
 
     parse_xslt_transform(&xslt).unwrap();
+}
+
+#[test]
+fn test_missing_initial_template_uses_xtde0040() {
+  let mut xot = Xot::new();
+  let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("tests/fixtures/missing-initial-template.xsl");
+  let xslt = r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template name="main">
+  <out/>
+  </xsl:template>
+</xsl:stylesheet>"#;
+
+  let error = evaluate_named_template_with_stylesheet_base(
+    &mut xot,
+    "<doc/>",
+    xslt,
+    &stylesheet_path,
+    "nonsuch",
+  )
+  .unwrap_err();
+
+  assert_eq!(error.value(), error::Error::XTDE0040);
 }
 
 #[test]

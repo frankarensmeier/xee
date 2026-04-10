@@ -4,6 +4,39 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 07:26 CEST
+
+### Status snapshot
+
+- Checkpoint focus: finish the initial-template error-code follow-up for the remaining filtered `format-number-070` investigation.
+- Checked suite state remains: `3498 passed / 0 failed / 0 error / 0 wrongE / 11097 filtered`.
+- Remaining filtered `format-number` cases after this checkpoint:
+  - `format-number-070`
+
+### Progress made
+
+- Added the missing XSLT dynamic error code `XTDE0040` for requested initial templates that do not exist in the stylesheet.
+- Changed runtime named-template invocation so a missing requested initial template now raises `XTDE0040` instead of a generic `Unsupported` error.
+- Added a focused local regression for missing initial-template invocation and validated it against the dedicated vendor `initial-template-901` conformance case.
+- Re-ran vendor `format-number-070` after the error-code fix and confirmed the remaining failure is now a correctly classified `XTDE0040`, which supports leaving it filtered as a catalog mismatch rather than a `format-number` engine bug.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_missing_initial_template_uses_xtde0040 -- --nocapture`
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/misc/initial-template/_initial-template-test-set.xml initial-template-901`
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/fn/format-number/_format-number-test-set.xml format-number-070`
+
+### Obstacles seen
+
+#### The remaining 070 failure is a runner/catalog edge case, not a formatter defect
+
+- Symptoms:
+  - after the Unicode/import/system-property tranche, `format-number-070` still failed only when the vendor runner honored `<initial-template name="main"/>`.
+- Root cause:
+  - the stylesheet defines only `match="root"`, while the catalog requests a named initial template `main`; the correct processor response is therefore `XTDE0040`.
+- Resolution:
+  - fix the runtime error mapping to use `XTDE0040`, keep `format-number-070` filtered for now, and treat any further action as a separate runner-policy decision rather than `format-number` work.
+
 ## 2026-04-10 07:10 CEST
 
 ### Status snapshot
