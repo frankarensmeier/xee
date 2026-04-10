@@ -1,12 +1,13 @@
-use xee_name::{Namespaces, FN_NAMESPACE};
 use xot::{Node, Xot};
 
-use xee_interpreter::context::StaticContext;
+use std::path::{Path, PathBuf};
+
+use xee_interpreter::context::StaticContextBuilder;
 use xee_interpreter::error;
 use xee_interpreter::interpreter::Program;
 use xee_interpreter::sequence;
 
-use crate::ast_ir::parse;
+use crate::ast_ir::{parse, parse_with_base_dir};
 
 pub fn evaluate_program(
     xot: &mut Xot,
@@ -25,13 +26,45 @@ pub fn evaluate_program(
 }
 
 pub fn evaluate(xot: &mut Xot, xml: &str, xslt: &str) -> error::SpannedResult<sequence::Sequence> {
-    let namespaces = Namespaces::new(
-        Namespaces::default_namespaces(),
-        "".to_string(),
-        FN_NAMESPACE.to_string(),
-    );
-    let static_context = StaticContext::from_namespaces(namespaces);
+    let base_dir = std::env::current_dir().ok();
+    evaluate_with_base_dir(xot, xml, xslt, base_dir, None)
+}
+
+pub fn evaluate_with_stylesheet_path(
+    xot: &mut Xot,
+    xml: &str,
+    xslt: &str,
+    stylesheet_path: &Path,
+) -> error::SpannedResult<sequence::Sequence> {
+    let canonical = stylesheet_path
+        .canonicalize()
+        .unwrap_or_else(|_| stylesheet_path.to_path_buf());
+    let base_dir = canonical
+        .parent()
+        .or_else(|| stylesheet_path.parent())
+        .map(Path::to_path_buf);
+    let static_base_uri = format!("file://{}", canonical.display())
+        .replace(' ', "%20")
+        .try_into()
+        .ok();
+
+    evaluate_with_base_dir(xot, xml, xslt, base_dir, static_base_uri)
+}
+
+pub fn evaluate_with_base_dir(
+    xot: &mut Xot,
+    xml: &str,
+    xslt: &str,
+    base_dir: Option<PathBuf>,
+    static_base_uri: Option<iri_string::types::IriAbsoluteString>,
+) -> error::SpannedResult<sequence::Sequence> {
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(static_base_uri);
+    let static_context = static_context_builder.build();
     let root = xot.parse(xml).unwrap();
-    let program = parse(static_context, xslt).unwrap();
+    let program = match base_dir {
+        Some(base_dir) => parse_with_base_dir(static_context, xslt, Some(base_dir))?,
+        None => parse(static_context, xslt)?,
+    };
     evaluate_program(xot, &program, root)
 }

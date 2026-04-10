@@ -11,7 +11,7 @@ use xee_interpreter::{
 };
 use xee_name::{Namespaces, FN_NAMESPACE};
 use xee_xslt_ast::parse_transform as parse_xslt_transform;
-use xee_xslt_compiler::{evaluate, parse, parse_with_base_dir};
+use xee_xslt_compiler::{evaluate, evaluate_with_stylesheet_path, parse, parse_with_base_dir};
 use xot::Xot;
 
 fn xml(xot: &Xot, sequence: Sequence) -> String {
@@ -3203,6 +3203,41 @@ fn test_use_when_sort_without_select_can_sort_nodes() {
         xml(&xot, output),
         "<out><descending><item>wine bar</item><item>television</item><item>radio</item><item>love seat</item><item>chair</item><item>Xbox</item><item>VCR</item><item>Sofa</item><item>Mirror</item><item>Desk</item><item>DVD player</item><item>Coffee table</item><item>Closet</item><item>Carpet</item><item>Cabinet</item><item>Bed</item><item>04</item><item>002</item></descending></out>"
     );
+}
+
+#[test]
+fn test_evaluate_with_stylesheet_path_resolves_relative_include() {
+    let temp_dir = unique_temp_dir("evaluate-stylesheet-path-include");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:include href="include.xsl"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("include.xsl"),
+        r#"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <ok/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_path(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<ok/>");
 }
 
 #[test]

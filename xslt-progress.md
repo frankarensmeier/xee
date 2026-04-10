@@ -4,6 +4,50 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 12:01 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix the public XSLT execution path so stylesheet-relative `xsl:include` and `xsl:import` resolution works outside the test harness, and improve CLI diagnostics enough to expose the next real engine gap.
+- Scope of this tranche is intentionally general rather than DocBook-specific; DocBook NG was only used as the reproducer that exposed the location-loss bug.
+- Verified outcome after the fix: the CLI no longer fails with `Could not read stylesheet: docbook.xsl` and instead advances to the next unsupported feature.
+- Newly exposed next blocker from the real stylesheet chain:
+  - `Failed parsing XSLT: Unsupported("Unknown sequence constructor: Try")`
+
+### Progress made
+
+- Added a public compiler evaluation entry point that accepts the stylesheet path, derives the stylesheet base directory, sets a static base URI, and parses through the existing base-dir-aware compiler path.
+- Switched the `xee xslt` CLI command to use the stylesheet-path-aware evaluation entry point so relative stylesheet references resolve against the stylesheet location instead of the process working directory.
+- Removed the `unwrap()`-based parse path from public evaluation so stylesheet parse failures now propagate as structured XSLT errors instead of panicking inside the compiler helper.
+- Added a focused compiler regression proving that evaluating a stylesheet by path correctly resolves a relative `xsl:include`.
+- Improved CLI error rendering for spanless errors so `Unsupported(...)` now prints the underlying reason, which makes fresh-binary investigations actionable instead of collapsing into a generic banner.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_evaluate_with_stylesheet_path_resolves_relative_include -- --nocapture`
+- `cargo build -p xee`
+- `target/debug/xee xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/main.xsl /tmp/xee-docbook-min.xml`
+
+### Obstacles seen
+
+#### Public evaluation had drifted behind the base-dir-aware compiler path already used in tests
+
+- Symptoms:
+  - running the real CLI against a stylesheet chain with relative includes/imports failed early with `Could not read stylesheet: docbook.xsl` even though lower-level compiler code already knew how to resolve stylesheet-relative paths.
+- Root cause:
+  - the CLI read the stylesheet into a string and called a location-blind public `evaluate(...)` helper, which parsed using the current working directory and discarded the stylesheet file location entirely.
+- Resolution:
+  - add a stylesheet-path-aware public evaluation path, thread the derived base directory and static base URI into compilation, and use that path from the CLI.
+
+#### The CLI renderer hid the useful part of spanless `Unsupported` failures
+
+- Symptoms:
+  - once the loader issue was fixed, the CLI still only printed the generic unsupported-note banner, which obscured the actual next blocker in the stylesheet chain.
+- Root cause:
+  - `render_error(...)` printed only the note text after the ariadne report, while many parser/compile-time `Unsupported` errors reach the CLI without a span and keep their actionable reason only in `message()`.
+- Resolution:
+  - print the underlying message for spanless errors, which immediately exposed the next real engine gap as unsupported `xsl:try` rather than another misleading loader symptom.
+
 ## 2026-04-10 09:54 CEST
 
 ### Status snapshot

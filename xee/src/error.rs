@@ -2,6 +2,8 @@ use xee_xpath::error::Error;
 
 pub(crate) fn render_error(src: &str, e: Error) {
     let red = ariadne::Color::Red;
+    let message = e.error.message().to_string();
+    let note = e.error.note().to_string();
 
     let mut report = ariadne::Report::build(ariadne::ReportKind::Error, ("source", (0..0)))
         .with_code(e.error.code());
@@ -17,7 +19,12 @@ pub(crate) fn render_error(src: &str, e: Error) {
         .finish()
         .eprint(("source", ariadne::Source::from(src)))
         .unwrap();
-    println!("{}", e.error.note());
+    if e.span.is_none() && !message.is_empty() {
+        println!("{}", message);
+    }
+    if !note.is_empty() {
+        println!("{}", note);
+    }
 }
 
 pub(crate) fn render_parse_error(src: &str, e: xot::ParseError) {

@@ -35,7 +35,12 @@ impl Xslt {
 
         // Perform the XSLT transformation
         let mut xot = Xot::new();
-        let result = match xee_xslt_compiler::evaluate(&mut xot, &xml, &stylesheet) {
+        let result = match xee_xslt_compiler::evaluate_with_stylesheet_path(
+            &mut xot,
+            &xml,
+            &stylesheet,
+            &self.stylesheet,
+        ) {
             Ok(result) => result,
             Err(e) => {
                 render_error(&stylesheet, e);
