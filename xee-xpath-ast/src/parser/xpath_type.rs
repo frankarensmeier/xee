@@ -27,11 +27,15 @@ pub(crate) fn parser_type<'a, I>(
 where
     I: ValueInput<'a, Token = Token<'a>, Span = Span>,
 {
+    fn default_type_namespace(name: ast::NameS, default_element_namespace: &str) -> ast::NameS {
+        name.map(|name| name.with_default_namespace(default_element_namespace))
+    }
+
     let single_type = eqname
         .clone()
         .then(just(Token::QuestionMark).or_not())
-        .map(|(name, question_mark)| ast::SingleType {
-            name,
+        .map_with(|(name, question_mark), extra| ast::SingleType {
+            name: default_type_namespace(name, &extra.state().namespaces.default_element_namespace),
             optional: question_mark.is_some(),
         })
         .boxed();
@@ -46,7 +50,8 @@ where
         .ignore_then(empty_call.clone())
         .to(ast::ItemType::Item)
         .boxed();
-    let item_type_atomic_or_union = eqname.clone().try_map(|name, _span| {
+    let item_type_atomic_or_union = eqname.clone().try_map_with(|name, extra| {
+        let name = default_type_namespace(name, &extra.state().namespaces.default_element_namespace);
         Ok(ast::ItemType::AtomicOrUnionType(
             name_to_xs(&name.value).map_err(|_| ParserError::UnknownType {
                 name: name.value.clone(),
@@ -69,7 +74,9 @@ where
         let typed_map_test_entry = (eqname
             .then_ignore(just(Token::Comma))
             .then(sequence_type.clone()))
-        .try_map(|(key_type, value_type), _span| {
+        .try_map_with(|(key_type, value_type), extra| {
+            let key_type =
+                default_type_namespace(key_type, &extra.state().namespaces.default_element_namespace);
             Ok(ast::MapTest::TypedMapTest(Box::new(ast::TypedMapTest {
                 key_type: name_to_xs(&key_type.value).map_err(|_| ParserError::UnknownType {
                     name: key_type.value.clone(),

@@ -4,6 +4,67 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 08:52 CEST
+
+### Status snapshot
+
+- Checkpoint focus: finish the `use-when` follow-up around same-element `xpath-default-namespace` handling and processor-version-sensitive static evaluation.
+- Full `use-when` bucket moved from `83 passed / 5 failed / 12 error / 2 wrongE` to `87 passed / 5 failed / 8 error / 2 wrongE`.
+- Filtered full-suite regression remains clean after the tranche: `3534 passed / 0 failed / 0 error / 0 wrongE / 11061 filtered`.
+- Newly fixed `use-when` cases in this tranche:
+  - `use-when-0120`
+  - `use-when-0121`
+  - `use-when-0127b`
+
+### Progress made
+
+- Taught sequence-type parsing to apply the default element/type namespace to unprefixed atomic type names, which fixes `instance of string` style expressions when `xpath-default-namespace` points at XML Schema.
+- Threaded processor XSLT/XPath version overrides into static evaluation, so `use-when` no longer relies only on the stylesheet's declared `@version` when deciding function availability.
+- Fixed same-element `xpath-default-namespace` handling for `use-when` by parsing `use-when` with the element's own static namespace context before standard-attribute processing completes.
+- Preserved `use-when` as a seen standard attribute in that same-element reparsing path so the parser no longer misclassifies it as an unexpected attribute.
+- Added focused regressions for:
+  - XSLT 2.0 processor mode rejecting `generate-id()` in `use-when`
+  - XSLT 3.0 processor mode accepting the same construct even with a `version="2.0"` stylesheet
+  - `instance of string` under `xpath-default-namespace="http://www.w3.org/2001/XMLSchema"`
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_use_when_ -- --nocapture`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0120`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0121`
+- `cargo run -q -p xee-testrunner -- all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+- `cargo run -q -p xee-testrunner -- check vendor/xslt-tests/`
+
+### Obstacles seen
+
+#### Unprefixed atomic type names in sequence types were not using the default type namespace
+
+- Symptoms:
+  - `use-when-0120` and `0121` still failed around `instance of string` even after the earlier default-namespace fixes.
+- Root cause:
+  - the XPath sequence-type parser treated unprefixed atomic type names as having no namespace instead of the default element/type namespace.
+- Resolution:
+  - apply the default element namespace while parsing single types, atomic-or-union item types, and typed map key types.
+
+#### Static `use-when` evaluation only saw stylesheet version, not processor mode
+
+- Symptoms:
+  - the XSLT 3.0 processor-mode variant of the `generate-id()` `use-when` case still failed when the stylesheet itself declared `version="2.0"`.
+- Root cause:
+  - processor XSLT/XPath versions from the test harness were not threaded into AST-level static evaluation.
+- Resolution:
+  - pass processor version overrides through `parse_transform_with_static_variables` into static evaluation and use them when enforcing `use-when` function restrictions.
+
+#### Same-element `xpath-default-namespace` parsing briefly regressed into `XTSE0090`
+
+- Symptoms:
+  - after reparsing `use-when` in a temporary context, `0120` and `0121` surfaced as `XTSE0090` instead of evaluating normally.
+- Root cause:
+  - the reparsed `use-when` attribute was marked as seen only on the temporary `Attributes` instance, so the real parser later treated it as unexpected.
+- Resolution:
+  - propagate the seen marker onto the real attribute set before the reparsing step.
+
 ## 2026-04-10 08:34 CEST
 
 ### Status snapshot

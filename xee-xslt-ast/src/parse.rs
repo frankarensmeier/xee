@@ -10,12 +10,15 @@ use crate::{content::Content, context::Context, element::XsltParser, names::Name
 type Result<V> = std::result::Result<V, Error>;
 
 pub fn parse_transform(s: &str) -> Result<ast::Transform> {
-    parse_transform_with_static_variables(s, Variables::new()).map(|(transform, _)| transform)
+    parse_transform_with_static_variables(s, Variables::new(), None, None)
+        .map(|(transform, _)| transform)
 }
 
 pub fn parse_transform_with_static_variables(
     s: &str,
     initial_static_variables: Variables,
+    processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
 ) -> Result<(ast::Transform, Variables)> {
     let mut xot = Xot::new();
     let names = Names::new(&mut xot);
@@ -31,6 +34,8 @@ pub fn parse_transform_with_static_variables(
         node,
         initial_static_variables,
         Variables::new(),
+        processor_xslt_version,
+        processor_xpath_version,
         &mut xot,
     )?;
     let parser = XsltParser::new(&state);

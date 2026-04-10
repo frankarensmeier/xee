@@ -336,7 +336,12 @@ pub fn parse_with_base_dir_and_initial_mode(
     if static_context.processor_xpath_version().is_none() {
         static_context.set_processor_xpath_version(Some(31));
     }
-    let transform = parse_transform_with_static_variables(xslt, StaticVariables::new());
+    let transform = parse_transform_with_static_variables(
+        xslt,
+        StaticVariables::new(),
+        static_context.processor_xslt_version(),
+        static_context.processor_xpath_version(),
+    );
     // TODO: better error handling
     let (transform, static_variables) = match transform {
         Ok(transform) => transform,
@@ -637,6 +642,8 @@ fn load_stylesheet(
     let (transform, static_variables) = parse_transform_with_static_variables(
         &content,
         initial_static_variables,
+        Some(3),
+        Some(31),
     )
     .map_err(|e| {
         let mapped = map_parse_error(&content, e);

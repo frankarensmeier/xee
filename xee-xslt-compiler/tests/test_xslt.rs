@@ -2521,23 +2521,22 @@ fn test_use_when_supports_function_available_and_element_available() {
 
 #[test]
 fn test_use_when_generate_id_is_disabled_in_xslt20() {
-    let mut xot = Xot::new();
-    let output = evaluate(
-        &mut xot,
-        "<doc/>",
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.processor_xslt_version(Some(2));
+    let error = parse(
+        static_context_builder.build(),
         r#"
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
   <xsl:template match="doc">
     <out>
-      <xsl:value-of select="function-available('generate-id')"/>
-      <flag xsl:use-when="function-available('generate-id')">static</flag>
+      <flag xsl:use-when="generate-id(()) = ''">static</flag>
     </out>
   </xsl:template>
 </xsl:stylesheet>"#,
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(xml(&xot, output), "<out>true</out>");
+    assert_eq!(error.value(), error::Error::XPST0017);
 }
 
 #[test]
@@ -2559,6 +2558,50 @@ fn test_use_when_generate_id_is_enabled_in_xslt30() {
     .unwrap();
 
     assert_eq!(xml(&xot, output), "<out>true<flag>static</flag></out>");
+}
+
+#[test]
+fn test_use_when_generate_id_is_enabled_in_xslt20_stylesheet_with_xslt30_processor_mode() {
+    let mut xot = Xot::new();
+    let output = evaluate_with_processor_xslt_version(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <flag xsl:use-when="generate-id(()) = ''">static</flag>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        3,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><flag>static</flag></out>");
+}
+
+#[test]
+fn test_use_when_instance_of_uses_xpath_default_namespace_for_types() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<root><para>p1</para><para>p2</para></root>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0" xpath-default-namespace="http://www.w3.org/2001/XMLSchema">
+  <xsl:template match="*">
+    <xsl:copy>
+      <xsl:apply-templates/>
+    </xsl:copy>
+  </xsl:template>
+  <xsl:template match="*[local-name()='para']" use-when="'abc' instance of string">
+    <p><xsl:next-match/></p>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<root><p><para>p1</para></p><p><para>p2</para></p></root>");
 }
 
 #[test]

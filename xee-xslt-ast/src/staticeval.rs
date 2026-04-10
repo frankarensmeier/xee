@@ -54,15 +54,24 @@ fn disable_use_when_restricted_functions(
 struct StaticEvaluator {
     static_global_variables: Variables,
     static_parameters: Variables,
+    processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
     to_remove: Vec<Node>,
     to_remove_attribute: Vec<(Node, NameId)>,
 }
 
 impl StaticEvaluator {
-    fn new(initial_static_variables: Variables, static_parameters: Variables) -> Self {
+    fn new(
+        initial_static_variables: Variables,
+        static_parameters: Variables,
+        processor_xslt_version: Option<u8>,
+        processor_xpath_version: Option<u8>,
+    ) -> Self {
         Self {
             static_global_variables: initial_static_variables,
             static_parameters,
+            processor_xslt_version,
+            processor_xpath_version,
             to_remove: Vec::new(),
             to_remove_attribute: Vec::new(),
         }
@@ -251,9 +260,11 @@ impl StaticEvaluator {
         let parser_context = content.parser_context();
         let mut static_context: StaticContext = parser_context.into();
         static_context.set_stylesheet_xslt_version(Some(content.context.xslt_version_major()));
+        static_context.set_processor_xslt_version(self.processor_xslt_version);
+        static_context.set_processor_xpath_version(self.processor_xpath_version);
         disable_use_when_restricted_functions(
             &mut static_context,
-            content.context.xslt_version_major(),
+            self.processor_xslt_version.unwrap_or(content.context.xslt_version_major()),
         );
         let program = compile(static_context, xpath)?;
         let mut dynamic_context_builder = program.dynamic_context_builder();
@@ -273,7 +284,15 @@ pub(crate) fn static_evaluate(
     static_parameters: Variables,
     xot: &mut Xot,
 ) -> Result<Variables, ElementError> {
-    static_evaluate_with_initial_variables(state, node, Variables::new(), static_parameters, xot)
+    static_evaluate_with_initial_variables(
+        state,
+        node,
+        Variables::new(),
+        static_parameters,
+        None,
+        None,
+        xot,
+    )
 }
 
 pub(crate) fn static_evaluate_with_initial_variables(
@@ -281,6 +300,8 @@ pub(crate) fn static_evaluate_with_initial_variables(
     node: Node,
     initial_static_variables: Variables,
     static_parameters: Variables,
+    processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
     xot: &mut Xot,
 ) -> Result<Variables, ElementError> {
     strip_whitespace(&mut state.xot, &state.names, node);
@@ -288,7 +309,12 @@ pub(crate) fn static_evaluate_with_initial_variables(
     for name in initial_static_variables.keys() {
         top_context = top_context.with_variable_name(name);
     }
-    let mut evaluator = StaticEvaluator::new(initial_static_variables, static_parameters);
+    let mut evaluator = StaticEvaluator::new(
+        initial_static_variables,
+        static_parameters,
+        processor_xslt_version,
+        processor_xpath_version,
+    );
 
     evaluator.evaluate_top_level(node, state, top_context, xot)?;
     evaluator.update_tree(state)?;

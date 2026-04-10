@@ -242,6 +242,25 @@ impl<'a> Attributes<'a> {
     }
 
     fn _standard(&self, names: &StandardNames) -> Result<ast::Standard, AttributeError> {
+        let xpath_default_namespace = self.optional(names.xpath_default_namespace, self.uri())?;
+        let use_when = if let Some(xpath_default_namespace) = &xpath_default_namespace {
+            self.seen.borrow_mut().insert(names.use_when);
+            let content = self.content.with_context(self.content.context.with_static_standard(
+                self.content.xot_namespaces(),
+                ast::StaticStandard {
+                    xpath_default_namespace: Some(xpath_default_namespace.clone()),
+                },
+            ));
+            let attributes = Self {
+                content,
+                element: self.element,
+                seen: std::cell::RefCell::new(self.seen.borrow().clone()),
+            };
+            attributes.optional(names.use_when, attributes.xpath())?
+        } else {
+            self.optional(names.use_when, self.xpath())?
+        };
+
         Ok(ast::Standard {
             default_collation: self.optional(names.default_collation, self.uris())?,
             default_mode: self.optional(names.default_mode, self.default_mode())?,
@@ -254,9 +273,9 @@ impl<'a> Attributes<'a> {
             expand_text: self.optional(names.expand_text, self.boolean())?,
             extension_element_prefixes: self
                 .optional(names.extension_element_prefixes, self.prefixes())?,
-            use_when: self.optional(names.use_when, self.xpath())?,
+            use_when,
             version: self.optional(names.version, Self::_decimal)?,
-            xpath_default_namespace: self.optional(names.xpath_default_namespace, self.uri())?,
+            xpath_default_namespace,
         })
     }
 
