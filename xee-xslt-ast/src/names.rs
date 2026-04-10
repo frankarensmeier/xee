@@ -548,7 +548,7 @@ impl Names {
             input_type_annotations: xot.add_name("input-type-annotations"),
             item_separator: xot.add_name("item-separator"),
             json_node_output_method: xot.add_name("json-node-output-method"),
-            lang: xot.add_name("language"),
+            lang: xot.add_name("lang"),
             letter_value: xot.add_name("letter-value"),
             level: xot.add_name("level"),
             key: xot.add_name("key"),

@@ -466,6 +466,50 @@ fn test_builtin_xs_namespace_available_without_declaration() {
 }
 
 #[test]
+fn test_xsl_text_treats_curly_braces_as_literal_text() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:text> {</xsl:text>
+      <xsl:text>}</xsl:text>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out> {}</out>");
+}
+
+#[test]
+fn test_literal_result_attribute_value_template_allows_trailing_whitespace_before_closing_curly()
+{
+  let mut xot = Xot::new();
+  let output = evaluate(
+    &mut xot,
+    "<doc/>",
+    r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+  <out class="footnote-number{
+        if (true())
+        then ' table-footnote'
+        else ()
+        }"/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+  )
+  .unwrap();
+
+  assert_eq!(xml(&xot, output), "<out class=\"footnote-number table-footnote\"/>");
+}
+
+#[test]
 fn test_template_param_default_as_converts_runtime_value_for_tunnel_param() {
     let mut xot = Xot::new();
     let output = evaluate(
@@ -2377,6 +2421,28 @@ fn test_disallowed_with_param_attribute_reports_xtse0090() {
             error: error::Error::XTSE0090,
             span: _
         })
+    ));
+}
+
+#[test]
+fn test_sort_lang_attribute_is_parsed_before_compile_support_check() {
+    let error = parse(
+        StaticContext::default(),
+        r#"
+  <xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+    <xsl:template match="/">
+      <xsl:for-each select="(3, 1, 2)">
+        <xsl:sort select="." lang="en"/>
+        <xsl:sequence select="."/>
+      </xsl:for-each>
+    </xsl:template>
+  </xsl:transform>"#,
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error.value(),
+        error::Error::Unsupported(ref reason) if reason.contains("xsl:sort lang is not supported yet")
     ));
 }
 

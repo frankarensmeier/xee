@@ -7,6 +7,38 @@ This note summarizes the discussion after checkpoint commit `9da441b5`
 restart document for a future chat that needs to choose the next XSLT work
 item.
 
+## Update since `8339327c`
+
+Three more DocBook-driven reductions after the built-in-namespace checkpoint
+turned into generic parser fixes:
+
+- `modules/index.xsl` exposed that `lang` was mapped internally as
+  `language`; fixing that cleared the reduced `XTSE0090` on
+  `xsl:sort lang="{$lang}"`.
+- `modules/programming.xsl` exposed that `xsl:text` content was incorrectly
+  routed through AVT parsing; literal `{` and `}` in `xsl:text` are now kept
+  as text.
+- `modules/footnotes.xsl` exposed that multiline AVTs on literal result
+  element attributes failed when indentation appeared before the closing `}`;
+  the AVT tokenizer now consumes trailing whitespace before that brace.
+
+The practical outcome is that these direct DocBook module runs all moved
+forward:
+
+- `modules/index.xsl` now reaches `XPST0017` instead of `XTSE0090`.
+- `modules/programming.xsl` now reaches `XPST0017` instead of a value-template
+  parse failure.
+- `modules/footnotes.xsl` now reaches an unsupported `xsl:number` path instead
+  of `ValueTemplate(UnescapedCurly { c: '}' ... })`.
+
+The new real frontier is now later in the top-level preprocessing layer:
+
+- `docbook.xsl` and `print.xsl` now fail with `XPST0003`.
+- That `XPST0003` should be the next reduction target.
+- The working assumption is that it is still a generic XPath/XSLT parser gap,
+  not a DocBook-specific requirement, but it has not yet been isolated to a
+  smallest reproducer.
+
 ## Update since `9da441b5`
 
 A follow-up reduction against a real DocBook NG stylesheet found and fixed a
@@ -29,16 +61,23 @@ frontier advanced, and the next reduction target should be the specific
 
 - Repository: `/Users/brillo/Repositories/xee`
 - Branch: `feature/xslt-match-rooted-patterns`
-- Checkpoint commit: `9da441b5`
+- Latest committed checkpoint before this note's current worktree: `8339327c`
 - Recent checkpoint scope:
-  - refreshed `vendor/xslt-tests/filters`
-  - fixed boolean XSLT dependency parsing in the testrunner
-  - fixed circular include/import handling to report `XTSE0180`
-  - added focused regressions for those fixes
-- Validation at the checkpoint:
-  - `python3 update.py` completed successfully
-  - `cargo run --release --bin xee-testrunner -- -v check vendor/xslt-tests`
-    finished clean with `Failed: 0 Error: 0 WrongE: 0`
+  - preserve built-in static namespaces in the XSLT parser context
+  - fix `lang` name mapping for `xsl:sort`
+  - treat `xsl:text` braces as literal text
+  - fix multiline literal-result-element AVTs with indentation before `}`
+  - add focused regressions for each of those generic parser fixes
+- Validation in the current worktree:
+  - `cargo test -p xee-xslt-compiler test_sort_lang_attribute_is_parsed_before_compile_support_check -- --nocapture`
+  - `cargo test -p xee-xslt-compiler test_xsl_text_treats_curly_braces_as_literal_text -- --nocapture`
+  - `cargo test -p xee-xslt-ast test_string_with_multiline_value_and_trailing_whitespace_before_closing_curly -- --nocapture`
+  - `cargo test -p xee-xslt-compiler test_literal_result_attribute_value_template_allows_trailing_whitespace_before_closing_curly -- --nocapture`
+  - `cargo run --bin xee -- xslt .../modules/index.xsl /tmp/xee-docbook-min.xml`
+  - `cargo run --bin xee -- xslt .../modules/programming.xsl /tmp/xee-docbook-min.xml`
+  - `cargo run --bin xee -- xslt .../modules/footnotes.xsl /tmp/xee-docbook-min.xml`
+  - `cargo run --bin xee -- xslt .../docbook.xsl /tmp/xee-docbook-min.xml`
+  - `cargo run --bin xee -- xslt .../print.xsl /tmp/xee-docbook-min.xml`
 
 ## Important interpretation of the vendor summary
 
@@ -79,93 +118,42 @@ Practical rule:
 
 In short: DocBook should steer priority, but not semantics.
 
-## Current candidate next tranches
+## Current candidate next tranche
 
-After the filter refresh, several small filtered buckets remain. The most
-plausible near-term candidates that were examined are:
+The next checkpoint-sized tranche should not go back to the earlier vendor-only
+ranking. The real DocBook frontier is now more informative:
 
-### `use-when`
+1. Reduce the `docbook.xsl` / `print.xsl` `XPST0003` to a smallest generic
+   reproducer.
+2. Confirm whether the culprit is one specific XPath/XSLT syntax family in the
+   preprocessing layer, such as map-related syntax or another parser boundary.
+3. Add a focused regression and fix that generic gap.
 
-- Remaining filtered case: `use-when-0136`
-- Current direct result:
-  - `COMPILATION ERROR Unsupported("Parse error: DTD is not supported")`
-- Assessment:
-  - This is a single-case follow-up.
-  - It is generic, but it is fundamentally a DTD/parser-capability tranche.
-  - It only makes sense next if DTD support is believed to matter for the real
-    stylesheet path, including DocBook-related execution.
-
-### `current`
-
-- Remaining filtered case: `current-001`
-- Current direct result:
-  - `COMPILATION ERROR XPST0017 XPST0017`
-- Assessment:
-  - Very small and likely generic.
-  - Potentially relevant to real stylesheet behavior because `current()` often
-    matters in nontrivial match/pattern logic.
-  - This is a good candidate if the goal is a tight semantic tranche with low
-    blast radius.
-
-### `include`
-
-- Remaining filtered cases: `include-0102`, `include-0103`
-- Current direct result:
-  - both report `XTSE0165`
-- Assessment:
-  - This bucket is already very small.
-  - The remaining cases probably concern fine-grained include semantics rather
-    than basic loading.
-  - Worth considering if the actual fixtures show generic module-processing
-    gaps that large stylesheets may hit.
-
-### `import`
-
-- Remaining filtered case: `import-1301`
-- Current direct result:
-  - `COMPILATION ERROR XPST0017 XPST0017`
-- Assessment:
-  - Also very small.
-  - Potentially valuable if it points to a real module or import-precedence
-    semantic gap.
-
-### Buckets not recommended as the immediate next tranche
-
-- `docbook`
-  - Too narrow as a named bucket; it risks steering fixes around one stylesheet
-    family rather than the underlying generic features.
-- very large buckets such as `error`, `number`, `key`, `match`, `package`,
-  `override`, `accumulator`
-  - too broad for the next checkpoint-sized step unless one specific subcluster
-    is first isolated.
+The earlier small vendor candidates like `current-001`, `import-1301`, or
+`include-0102` remain valid side quests, but they are no longer the best next
+priority if the goal is to keep pushing real stylesheet execution forward with
+checkpoint-sized generic fixes.
 
 ## Honest recommendation
 
-If the goal is to stay disciplined while still moving toward DocBook NG, the
-best next tranche should satisfy all three of these:
+The current recommendation is simpler now:
 
-1. likely to matter for real stylesheet execution
-2. generic enough to justify on spec grounds
-3. small enough to close cleanly in one checkpoint
+1. stay on the real DocBook frontier
+2. reduce `docbook.xsl` `XPST0003` to a generic reproducer
+3. fix only that generic parser/compiler gap
 
-Based on the discussion so far, the best current order is:
-
-1. `current-001`
-   - best balance of small scope and likely semantic relevance
-2. `import-1301`
-   - small and probably tied to real stylesheet modularity semantics
-3. `include-0102` / `include-0103`
-   - also small, but slightly less clearly impactful without reading the exact fixtures
-4. `use-when-0136`
-   - worth doing only if parser/DTD support is intentionally the next tranche
+This keeps the prioritization signal honest: the current blockers being exposed
+by real stylesheet execution are still yielding generic parser fixes with a
+small enough blast radius for checkpoint work.
 
 ## Suggested restart prompt
 
 ```text
 Please read NEXT_XSLT_TRANCHE_2026-04-10.md and xslt-progress.md first.
 We are in /Users/brillo/Repositories/xee on branch feature/xslt-match-rooted-patterns.
-Checkpoint commit is 9da441b5 (Checkpoint XSLT filter refresh tranche).
+The latest committed checkpoint before the current worktree is 8339327c
+(Checkpoint built-in XSLT namespace fix).
 Use DocBook NG as a prioritization signal, but keep fixes spec-generic.
-Start by evaluating whether current-001, import-1301, or include-0102/include-0103
-is the best next checkpoint-sized tranche.
+Start by reducing the current docbook.xsl / print.xsl XPST0003 failure to a
+smallest generic reproducer before choosing any broader tranche.
 ```

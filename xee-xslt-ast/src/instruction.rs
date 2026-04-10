@@ -1946,11 +1946,12 @@ impl InstructionParser for ast::Template {
 impl InstructionParser for ast::Text {
     fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
         let names = &content.state.names;
+        let span = content.span()?;
 
         let children = content.state.xot.children(content.node).collect::<Vec<_>>();
         if children.len() > 1 {
             return Err(Error::Unexpected {
-                span: content.span()?,
+                span,
             });
         }
         let text = if !children.is_empty() {
@@ -1961,19 +1962,25 @@ impl InstructionParser for ast::Text {
                 // this wasn't text content, and it wasn't because it was
                 // empty either
                 return Err(Error::Unexpected {
-                    span: content.span()?,
+                    span,
                 });
             }
         } else {
             ""
         };
-        let text_content = attributes.value_template(attributes.string())(text, content.span()?)?;
+        let text_content = ast::ValueTemplate {
+            template: vec![ast::ValueTemplateItem::String {
+                text: text.to_string(),
+                span,
+            }],
+            phantom: std::marker::PhantomData,
+        };
 
         Ok(ast::Text {
             disable_output_escaping: attributes
                 .boolean_with_default(names.disable_output_escaping, false)?,
 
-            span: content.span()?,
+            span,
 
             content: text_content,
         })

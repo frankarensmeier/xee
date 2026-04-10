@@ -102,6 +102,26 @@ impl<'a> ValueTemplateTokenizer<'a> {
     fn end_curly_item(&self) -> Result<ValueTemplateItem<'a>, Error> {
         Ok(ValueTemplateItem::Curly { c: '}' })
     }
+
+    fn consume_until(&mut self, end: usize) {
+        while let Some((i, c)) = self.char_indices.peek() {
+            if *i >= end {
+                break;
+            }
+            self.start = *i + c.len_utf8();
+            self.char_indices.next();
+        }
+    }
+
+    fn consume_trailing_whitespace(&mut self) {
+        while let Some((i, c)) = self.char_indices.peek() {
+            if !c.is_whitespace() {
+                break;
+            }
+            self.start = *i + c.len_utf8();
+            self.char_indices.next();
+        }
+    }
 }
 
 impl<'a> Iterator for ValueTemplateTokenizer<'a> {
@@ -157,13 +177,15 @@ impl<'a> Iterator for ValueTemplateTokenizer<'a> {
                 match xpath {
                     Ok(xpath) => {
                         let span = xpath.0.span;
-                        // slurp up from the char iterator, including }
-                        for _ in 0..span.end + 1 {
-                            self.char_indices.next();
-                        }
                         // construct span of value
                         let new_span = self.span(start, self.start + span.end);
-                        self.start = self.start + span.end + 1;
+                        let value_end = self.start + span.end;
+                        self.consume_until(value_end);
+                        self.consume_trailing_whitespace();
+                        if let Some((i, c)) = self.char_indices.next() {
+                            debug_assert_eq!(c, '}');
+                            self.start = i + c.len_utf8();
+                        }
                         self.mode = Mode::String;
 
                         // we successfully parsed an xpath expression, with
@@ -330,5 +352,21 @@ mod tests {
     fn test_broken_xpath() {
         let parser_context = XPathParserContext::default();
         assert_ron_snapshot!(parse("hello {a +}!", &parser_context));
+    }
+
+    #[test]
+    fn test_string_with_multiline_value_and_trailing_whitespace_before_closing_curly() {
+        let parser_context = XPathParserContext::default();
+        let result = parse("hello {\n  a\n  }!", &parser_context).unwrap();
+
+        assert!(matches!(
+            &result[0],
+            ValueTemplateItem::String { text, .. } if *text == "hello "
+        ));
+        assert!(matches!(&result[1], ValueTemplateItem::Value { .. }));
+        assert!(matches!(
+            &result[2],
+            ValueTemplateItem::String { text, .. } if *text == "!"
+        ));
     }
 }

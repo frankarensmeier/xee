@@ -4,6 +4,63 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 17:46 CEST
+
+### Status snapshot
+
+- Checkpoint focus: continue the real DocBook NG reduction after the built-in namespace fix and clear the next parser-level blockers that still looked DocBook-specific at first glance.
+- `xsl:sort lang="..."` now parses correctly instead of leaking `XTSE0090` through a bad internal name mapping.
+- `xsl:text` now treats literal `{` and `}` as text content when `expand-text` is not in play.
+- Multiline AVTs on literal result element attributes now allow trailing indentation before the closing `}`.
+- The direct `footnotes.xsl` reproducer moved past the AVT parser failure and now reaches an ordinary unsupported `xsl:number` path.
+- The top-level DocBook NG `print.xsl` run moved further again and now fails later with `XPST0003` from `docbook.xsl`, which is the next reduction target.
+
+### Progress made
+
+- Fixed the XSLT name table so `lang` is recognized as `lang` rather than the nonexistent lexical name `language`; this cleared the reduced `XTSE0090` on `xsl:sort lang="{$lang}"` in `modules/index.xsl`.
+- Added a focused compiler regression proving that `xsl:sort lang="en"` is parsed first and then rejected only for the intended unsupported-feature reason.
+- Changed `xsl:text` parsing to keep element text as a literal string template instead of routing it through the general AVT tokenizer.
+- Added a focused compiler regression proving that literal braces inside `xsl:text` are preserved as text output.
+- Reduced the next real DocBook blocker in `modules/footnotes.xsl` to a generic multiline literal-result-element AVT case with indentation before the closing `}`.
+- Fixed the AVT tokenizer to consume trailing whitespace before the closing brace after a successful XPath parse.
+- Added both a tokenizer regression and an end-to-end compiler regression for the reduced multiline AVT case.
+- Re-ran the real DocBook entry points and confirmed the frontier moved from parser failures in `index.xsl`, `programming.xsl`, and `footnotes.xsl` to later unsupported or parse-level gaps.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_sort_lang_attribute_is_parsed_before_compile_support_check -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_xsl_text_treats_curly_braces_as_literal_text -- --nocapture`
+- `cargo test -p xee-xslt-ast test_string_with_multiline_value_and_trailing_whitespace_before_closing_curly -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_literal_result_attribute_value_template_allows_trailing_whitespace_before_closing_curly -- --nocapture`
+- `cargo run --bin xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/modules/index.xsl /tmp/xee-docbook-min.xml`
+- `cargo run --bin xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/modules/programming.xsl /tmp/xee-docbook-min.xml`
+- `cargo run --bin xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/modules/footnotes.xsl /tmp/xee-docbook-min.xml`
+- `cargo run --bin xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/docbook.xsl /tmp/xee-docbook-min.xml`
+- `cargo run --bin xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/print.xsl /tmp/xee-docbook-min.xml`
+
+### Obstacles seen
+
+#### Three separate DocBook reductions all turned out to be generic parser issues
+
+- Symptoms:
+  - `modules/index.xsl` failed with `XTSE0090` on `lang="{$lang}"`.
+  - `modules/programming.xsl` failed when literal braces inside `xsl:text` were tokenized as AVTs.
+  - `modules/footnotes.xsl` failed with `ValueTemplate(UnescapedCurly { c: '}' ... })` on a multiline AVT with indentation before the closing brace.
+- Root cause:
+  - the parser had three unrelated generic gaps: a bad lexical name mapping for `lang`, incorrect `xsl:text` handling, and an AVT tokenizer that stopped at the parsed XPath expression but not at the trailing whitespace before `}`.
+- Resolution:
+  - fix the name mapping, keep `xsl:text` content literal, and consume trailing whitespace before the closing brace in the AVT tokenizer.
+
+#### The next real frontier is no longer in those modules
+
+- Symptoms:
+  - `modules/index.xsl` and `modules/programming.xsl` now reach ordinary `XPST0017` unsupported function-call paths.
+  - `modules/footnotes.xsl` now reaches an unsupported `xsl:number` path rather than a parser failure.
+  - the top-level `docbook.xsl` / `print.xsl` path now fails later with `XPST0003`.
+- Assessment:
+  - that is meaningful forward motion: the current real parser frontier has moved into a later DocBook preprocessing layer rather than remaining stuck on the earlier syntax bugs.
+  - the next checkpoint-sized reduction should target the exact `XPST0003` source in `docbook.xsl`.
+
 ## 2026-04-10 16:52 CEST
 
 ### Status snapshot
