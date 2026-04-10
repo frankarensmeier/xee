@@ -5851,4 +5851,59 @@ fn test_xsl_evaluate_uses_namespace_context() {
     assert_eq!(xml(&xot, output), "<out>db:item</out>");
 }
 
+#[test]
+fn test_xsl_number_value_supports_docbook_picture_set() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:number value="12" format="1"/>
+      <xsl:text>|</xsl:text>
+      <xsl:number value="3" format="a"/>
+      <xsl:text>|</xsl:text>
+      <xsl:number value="3" format="A"/>
+      <xsl:text>|</xsl:text>
+      <xsl:number value="4" format="i"/>
+      <xsl:text>|</xsl:text>
+      <xsl:number value="4" format="I"/>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>12|c|C|iv|IV</out>");
+}
+
+#[test]
+fn test_xsl_number_value_accepts_dynamic_format_value_template() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:xs="http://www.w3.org/2001/XMLSchema"
+               version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:variable name="number" as="xs:integer" select="3"/>
+      <xsl:variable name="marks" as="xs:string+" select="('1', 'a')"/>
+      <xsl:number value="$number" format="{$marks[count($marks)]}"/>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">c</out>"
+    );
+}
+
 

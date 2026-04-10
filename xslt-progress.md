@@ -4,6 +4,27 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 23:45 CEST
+
+### Status snapshot
+
+- Checkpoint focus: minimal value-form `xsl:number` so the DocBook NG stylesheet can move past footnote numbering and ordered-list formatting.
+- `xsl:number` with `value=` now lowers through a hidden helper that supports the five DocBook-relevant picture characters: `1`, `a`, `A`, `i`, `I`.
+- Dynamic `format` AVTs are supported (e.g. `format="{$marks[count($marks)]}"` from DocBook footnotes).
+- The live DocBook frontier has moved from unsupported `xsl:number` to `XPST0017` (missing `key()` function).
+
+### Progress made
+
+- Added `xslt-number-value` hidden helper in the XSLT support library with alphabetic (bijective base-26) and Roman numeral formatting.
+- Added XSLT-compiler lowering for `Number(number)` — value-only guard, compiles value expression and optional format AVT, emits hidden function call wrapped in `XmlText`.
+- Added two focused tests: static picture set (`1|a|A|i|I`) and dynamic format AVT.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_xsl_number -- --nocapture`
+- `cargo run -q -p xee -- xslt` standalone runs for static and dynamic format shapes
+- `cargo run -q -p xee -- xslt main.xsl /tmp/xee-docbook-min.xml` confirmed frontier moved past Number(...)
+
 ## 2026-04-10 22:14 CEST
 
 ### Status snapshot

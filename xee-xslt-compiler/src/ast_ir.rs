@@ -2099,6 +2099,7 @@ impl<'a> IrConverter<'a> {
             Text(text) => self.text(text),
             Try(try_) => self.try_(try_),
             Evaluate(evaluate) => self.evaluate(evaluate),
+            Number(number) => self.number(number),
             Map(map) => self.map(map),
             Attribute(attribute) => self.attribute(attribute),
             Namespace(namespace) => self.namespace(namespace),
@@ -2232,6 +2233,59 @@ impl<'a> IrConverter<'a> {
         Ok(Bindings::empty()
             .bind_expr_no_span(&mut self.variables, empty_sequence.value)
             .atom_bindings())
+    }
+
+    fn number(&mut self, number: &ast::Number) -> error::SpannedResult<Bindings> {
+        if number.value.is_none()
+            || number.select.is_some()
+            || number.level.is_some()
+            || number.count.is_some()
+            || number.from.is_some()
+            || number.lang.is_some()
+            || number.letter_value.is_some()
+            || number.ordinal.is_some()
+            || number.start_at.is_some()
+            || number.grouping_separator.is_some()
+            || number.grouping_size.is_some()
+        {
+            return Err(error::Error::Unsupported(format!(
+                "Instruction not supported: {:?}",
+                number
+            ))
+            .into());
+        }
+
+        let (value_atom, value_bindings) = self
+            .expression(number.value.as_ref().unwrap())?
+            .atom_bindings();
+        let (format_atom, format_bindings) = if let Some(format) = &number.format {
+            self.attribute_value_template(format)?.atom_bindings()
+        } else {
+            let bindings = Bindings::empty();
+            let format_expr = ir::Expr::Atom(Spanned::new(
+                ir::Atom::Const(ir::Const::String("1".to_string())),
+                (0..0).into(),
+            ));
+            bindings
+                .bind_expr_no_span(&mut self.variables, format_expr)
+                .atom_bindings()
+        };
+
+        let string_expr = self.static_function_call_expr(
+            "xslt-number-value",
+            FN_NAMESPACE,
+            2,
+            vec![value_atom, format_atom],
+        );
+        let (text_atom, bindings) = value_bindings
+            .concat(format_bindings)
+            .bind_expr_no_span(&mut self.variables, string_expr)
+            .atom_bindings();
+
+        Ok(bindings.bind_expr_no_span(
+            &mut self.variables,
+            ir::Expr::XmlText(ir::XmlText { value: text_atom }),
+        ))
     }
 
     fn message(&mut self, message: &ast::Message) -> error::SpannedResult<Bindings> {

@@ -241,6 +241,101 @@ fn format_number_lexical3(
     numeric::format_number_from_lexical(context, value, picture, Some(decimal_format_name))
 }
 
+#[xpath_fn("fn:xslt-number-value($value as item()*, $format as xs:string?) as xs:string")]
+fn xslt_number_value(
+    interpreter: &Interpreter,
+    value: &sequence::Sequence,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let atomic = sequence::one(value.atomized(interpreter.xot()))??;
+    let number = atomic
+        .cast_to_integer_value::<i64>()
+        .map_err(|_| error::Error::XPTY0004)?;
+    if number < 0 {
+        return Err(error::Error::Unsupported(
+            "xsl:number value must be non-negative".to_string(),
+        ));
+    }
+
+    format_xslt_number_value(number, format.unwrap_or("1"))
+}
+
+fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String> {
+    let mut chars = picture.chars();
+    let Some(format_char) = chars.next() else {
+        return Err(error::Error::FODF1310);
+    };
+    if chars.next().is_some() {
+        return Err(error::Error::Unsupported(format!(
+            "xsl:number value formatting picture not supported yet: {picture}"
+        )));
+    }
+
+    match format_char {
+        '1' => Ok(number.to_string()),
+        'a' => format_alphabetic_number(number, false),
+        'A' => format_alphabetic_number(number, true),
+        'i' => format_roman_number(number, false),
+        'I' => format_roman_number(number, true),
+        _ => Err(error::Error::Unsupported(format!(
+            "xsl:number value formatting picture not supported yet: {picture}"
+        ))),
+    }
+}
+
+fn format_alphabetic_number(number: i64, uppercase: bool) -> error::Result<String> {
+    if number == 0 {
+        return Ok("0".to_string());
+    }
+
+    let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004)?;
+    let mut result = String::new();
+    while value > 0 {
+        value -= 1;
+        let base = if uppercase { b'A' } else { b'a' };
+        result.push((base + (value % 26) as u8) as char);
+        value /= 26;
+    }
+    Ok(result.chars().rev().collect())
+}
+
+fn format_roman_number(number: i64, uppercase: bool) -> error::Result<String> {
+    if number == 0 {
+        return Ok("0".to_string());
+    }
+
+    let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004)?;
+    let numerals = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+
+    let mut result = String::new();
+    for (magnitude, numeral) in numerals {
+        while value >= magnitude {
+            result.push_str(numeral);
+            value -= magnitude;
+        }
+    }
+
+    if uppercase {
+        Ok(result)
+    } else {
+        Ok(result.to_ascii_lowercase())
+    }
+}
+
 #[xpath_fn(
     "fn:store-result-document($href as xs:string, $content as item()*) as item()*",
     context_first
@@ -536,6 +631,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(format_number_lexical2),
         wrap_xpath_fn!(format_number_lexical3),
+        wrap_xpath_fn!(xslt_number_value),
         wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),
