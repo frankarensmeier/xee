@@ -1,11 +1,16 @@
 use ahash::{HashSet, HashSetExt};
 use xee_xpath_macros::xpath_fn;
 use xot::{Node, Xot};
+use xot::xmlname::OwnedName;
 
+use crate::atomic;
 use crate::context::DynamicContext;
 use crate::error::Error;
+use crate::function;
 use crate::function::StaticFunctionDescription;
 use crate::interpreter::Interpreter;
+use crate::pattern::PredicateMatcher;
+use crate::sequence;
 use crate::{wrap_xpath_fn, xml};
 
 #[xpath_fn(
@@ -98,10 +103,111 @@ fn generate_id(
     }
 }
 
+// key($key-name, $key-value) - 2-arg form searches the context node's document
+#[xpath_fn(
+    "fn:key($key_name as xs:string, $key_value as xs:anyAtomicType*, $top as node()) as node()*",
+    context_last
+)]
+fn key(
+    context: &DynamicContext,
+    interpreter: &mut Interpreter,
+    key_name: &str,
+    key_value: &sequence::Sequence,
+    top: Node,
+) -> Result<Vec<Node>, Error> {
+    key_helper(context, interpreter, key_name, key_value, top)
+}
+
+fn key_helper(
+    context: &DynamicContext,
+    interpreter: &mut Interpreter,
+    key_name: &str,
+    key_value: &sequence::Sequence,
+    top: Node,
+) -> Result<Vec<Node>, Error> {
+    // Resolve the key name as a QName (no namespace for now, matching DocBook usage)
+    let key_owned_name = OwnedName::new(
+        key_name.to_string(),
+        "".to_string(),
+        "".to_string(),
+    );
+
+    // Find all key declarations with this name
+    let key_decls: Vec<_> = interpreter
+        .runnable()
+        .program()
+        .declarations
+        .keys_by_name(&key_owned_name)
+        .into_iter()
+        .cloned()
+        .collect();
+
+    if key_decls.is_empty() {
+        return Err(Error::Unsupported(format!(
+            "No xsl:key declaration found for '{key_name}'"
+        )));
+    }
+
+    // Collect the search values as strings for comparison
+    let search_values: Vec<String> = key_value
+        .atomized(interpreter.xot())
+        .map(|a| a.map(|a| a.into_canonical()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Collect all nodes under `top` (including `top` itself)
+    let nodes: Vec<Node> = std::iter::once(top)
+        .chain(interpreter.xot().descendants(top))
+        .collect();
+
+    // Walk nodes, check each against the key's match pattern, evaluate the use
+    // expression for matches, and collect nodes whose key value matches.
+    let mut result: Vec<Node> = Vec::new();
+
+    for node in nodes {
+        let item = sequence::Item::from(node);
+
+        for key_decl in &key_decls {
+            // Test if this node matches the key's pattern
+            if !interpreter.matches(&key_decl.pattern, &item) {
+                continue;
+            }
+
+            // Evaluate the use expression with this node as context
+            let use_function =
+                function::InlineFunctionData::new(key_decl.use_function_id, Vec::new()).into();
+            let arguments = [
+                item.clone().into(),
+                sequence::Sequence::from(atomic::Atomic::from(1u64)),
+                sequence::Sequence::from(atomic::Atomic::from(1u64)),
+            ];
+            let key_values = interpreter.call_function_with_arguments(&use_function, &arguments)?;
+
+            // Compare each produced key value against the search values
+            for atom in key_values.atomized(interpreter.xot()) {
+                let atom = atom?;
+                let canonical = atom.into_canonical();
+                if search_values.contains(&canonical) {
+                    result.push(node);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Sort by document order and deduplicate
+    let documents = context.documents();
+    let documents = documents.borrow();
+    let annotations = documents.document_order_access(interpreter.xot());
+    result.sort_by_key(|n| annotations.get(*n));
+    result.dedup();
+    Ok(result)
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(id),
         wrap_xpath_fn!(element_with_id),
         wrap_xpath_fn!(generate_id),
+        wrap_xpath_fn!(key),
     ]
 }

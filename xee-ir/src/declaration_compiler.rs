@@ -96,6 +96,7 @@ impl<'a> DeclarationCompiler<'a> {
         // by name from call-template instructions
         self.compile_templates(declarations)?;
         self.compile_global_variables(declarations)?;
+        self.compile_keys(declarations)?;
 
         for rule in &declarations.rules {
             self.compile_rule(rule)?;
@@ -371,6 +372,41 @@ impl<'a> DeclarationCompiler<'a> {
                 original_name: global_variable.original_name.clone(),
                 external: global_variable.external,
                 required: global_variable.required,
+            },
+        );
+        Ok(())
+    }
+
+    fn compile_keys(
+        &mut self,
+        declarations: &ir::Declarations,
+    ) -> error::SpannedResult<()> {
+        for key in &declarations.keys {
+            self.compile_key(key)?;
+        }
+        Ok(())
+    }
+
+    fn compile_key(
+        &mut self,
+        key: &ir::KeyDefinition,
+    ) -> error::SpannedResult<()> {
+        let mut function_compiler = self.function_compiler();
+
+        // Compile the use-expression function
+        let use_function_id =
+            function_compiler.compile_function_id(&key.use_function, (0..0).into())?;
+
+        // Compile the match pattern (transform function definitions into function ids)
+        let pattern = transform_pattern(&key.pattern, |function_definition| {
+            function_compiler.compile_function_id(function_definition, (0..0).into())
+        })?;
+
+        self.program.declarations.add_key(
+            xee_interpreter::declaration::KeyDeclaration {
+                name: key.name.clone(),
+                pattern,
+                use_function_id,
             },
         );
         Ok(())

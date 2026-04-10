@@ -220,16 +220,12 @@ assert-008
 assert-009
 assert-010
 = attribute
-attribute-0001
 attribute-0002
-attribute-0003
 attribute-0004
-attribute-0005
 attribute-0601
 attribute-0803
 attribute-0804
 attribute-0805
-attribute-0901
 attribute-1302
 = attribute-set
 = available-system-properties
@@ -370,11 +366,9 @@ catalog-002
 catalog-003
 catalog-006b
 catalog-007
-catalog-008
 = character-map
 = choose
 choose-0104
-choose-0105
 choose-0106
 choose-0107
 choose-1204
@@ -410,9 +404,6 @@ collations-0127
 collations-0128
 collations-0201
 collations-0301
-collations-0401
-collations-0402
-collations-0403
 collations-0503
 collations-0601
 collations-1006
@@ -490,8 +481,6 @@ copy-1218
 copy-1219
 copy-1220
 copy-1221
-copy-2201
-copy-2202
 copy-2301
 copy-2601
 copy-3002
@@ -654,7 +643,6 @@ element-0001
 element-0002
 element-0003
 element-0004
-element-0005
 element-0006
 element-0104
 element-0105
@@ -792,7 +780,6 @@ error-0630b
 error-0630c
 error-0640a
 error-0640e-2
-error-0640f
 error-0640g
 error-0640i
 error-0640j
@@ -988,7 +975,6 @@ error-3360c
 error-3362a
 error-3362b
 error-3365a
-error-3368a
 error-3370a
 error-3375a
 error-3380a
@@ -1015,11 +1001,7 @@ error-XPTY0020a
 error-XPTY0020b
 = evaluate
 = expand-text
-cvt-011
-cvt-012
 cvt-013
-cvt-015
-cvt-020
 cvt-029
 cvt-030
 cvt-033
@@ -1069,10 +1051,6 @@ expose-927
 = expression
 expression-0932
 expression-0933
-expression-1101
-expression-3101
-expression-3201
-expression-3901
 expression-4301
 = extension-functions
 extension-functions-0103
@@ -1445,29 +1423,10 @@ json-to-xml-typed-010
 = key
 key-001
 key-002
-key-003
-key-004
-key-007
-key-008
-key-009
 key-010
-key-011
-key-012
 key-013
-key-014
-key-015
-key-016
-key-017
-key-018
-key-019
-key-020
-key-021
-key-022
-key-023
-key-024
 key-027
 key-028
-key-029
 key-030
 key-031
 key-032
@@ -1480,36 +1439,17 @@ key-038
 key-039
 key-040
 key-041
-key-043
-key-045
-key-046
 key-047
-key-048
 key-049
-key-050
-key-051
-key-052
-key-053
-key-054
 key-055
 key-056
-key-059
-key-060
-key-061
-key-062
-key-063
 key-064
 key-065
-key-066
-key-067
-key-068
 key-069
 key-070
 key-071
-key-072
 key-073
 key-074
-key-075
 key-077
 key-078
 key-079
@@ -1517,10 +1457,8 @@ key-080
 key-081
 key-082
 key-083
-key-084
 key-085a
 key-085b
-key-086
 key-088
 key-089
 key-092
@@ -1530,7 +1468,6 @@ key-095
 key-096
 key-097
 key-098
-key-099
 = load-xquery-module
 = lre
 lre-011
@@ -1550,10 +1487,8 @@ maps-002
 maps-003
 maps-004
 maps-005
-maps-006
 maps-007
 maps-008
-maps-009
 maps-012
 maps-017
 maps-901a
@@ -1620,12 +1555,10 @@ match-082b
 match-082c
 match-088
 match-089
-match-090
 match-091
 match-098
 match-099
 match-105
-match-106
 match-119
 match-120
 match-121
@@ -1658,7 +1591,6 @@ match-269
 match-273
 match-274
 match-275
-match-276
 match-279
 match-282
 match-284
@@ -1982,7 +1914,6 @@ number-0602
 number-0603
 number-0604
 number-0701
-number-0801
 number-0802
 number-0803
 number-0804
@@ -2517,34 +2448,8 @@ package-version-911
 = path
 = position
 position-0103
-position-0401
-position-1301
-position-1302
-position-1303
-position-1304
-position-1305
-position-1306
-position-1307
-position-1308
-position-1309
-position-1310
-position-1311
-position-1312
-position-1313
-position-1314
-position-1315
-position-1316
-position-1317
-position-1318
-position-1319
-position-1320
-position-1502
-position-1503
-position-1507
-position-1508
 position-1801
 position-2201
-position-3501
 position-3901
 position-4001
 position-4104
@@ -2556,7 +2461,6 @@ position-7101
 position-8201
 position-8202
 = predicate
-predicate-055
 predicate-056
 = regex
 regex-017
@@ -3714,10 +3618,6 @@ select-1401
 select-1402
 select-2006
 select-2305
-select-4501
-select-4601
-select-5001
-select-5401
 = seqtor
 seqtor-001
 seqtor-002
@@ -3754,7 +3654,6 @@ seqtor-040a
 seqtor-040d
 seqtor-101
 = sequence
-sequence-0112
 sequence-0122
 sequence-0125
 sequence-0133

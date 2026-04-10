@@ -4,6 +4,31 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-11 00:30 CEST
+
+### Status snapshot
+
+- Checkpoint focus: full `key()` function support so the DocBook NG stylesheet can move past the `XPST0017` blocker on `key('id', @linkend)`.
+- `xsl:key` declarations now compile through the full pipeline: AST → IR `KeyDefinition` → runtime `KeyDeclaration` with compiled pattern + use-expression function.
+- `key()` implemented as a standard XPath function (2-arg and 3-arg forms) that walks the subtree, matches nodes against the key pattern, evaluates the use expression, and returns matching nodes in document order.
+- The live DocBook frontier has moved from `XPST0017` (missing `key()`) to `Unsupported` (`xsl:map` with non-map-entry children).
+- The filtered XSLT sweep remains clean (3318 passed, 0 failed, 0 error).
+
+### Progress made
+
+- Added `KeyDefinition` to `ir::Declarations` (name, pattern, use-function).
+- Added `KeyDeclaration` to runtime `Declarations` with compiled pattern and use-function id.
+- Added AST→IR compilation for `Key` declarations — compiles match pattern and use expression into an IR function.
+- Added `compile_keys` step in `DeclarationCompiler` to transform IR key definitions into runtime key declarations.
+- Implemented `fn:key($name, $value, $top)` XPath function in `id.rs` using existing `PredicateMatcher::matches` for pattern testing and `call_function_with_arguments` for use-expression evaluation.
+- Added two focused tests: basic key lookup and 3-arg subtree-scoped lookup.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_key -- --nocapture`
+- `cargo run -q -p xee -- xslt main.xsl /tmp/xee-docbook-min.xml` confirmed frontier moved past XPST0017
+- `cargo run -q -p xee-testrunner -- check vendor/xslt-tests/` — 3318 passed, 0 failed
+
 ## 2026-04-10 23:45 CEST
 
 ### Status snapshot

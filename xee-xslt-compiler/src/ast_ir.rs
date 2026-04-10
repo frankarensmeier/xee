@@ -1265,9 +1265,10 @@ impl<'a> IrConverter<'a> {
             Output(output) => self.output(declarations, output),
             // Import/Include already handled during pre-processing in parse_with_base_dir
             Import(_) | Include(_) => Ok(()),
+            Key(key) => self.key(declarations, key),
             // These declarations are parsed but not yet compiled - skip gracefully
             // to allow stylesheets containing them to still process templates
-            Function(_) | Variable(_) | Param(_) | Key(_) | StripSpace(_) | PreserveSpace(_)
+            Function(_) | Variable(_) | Param(_) | StripSpace(_) | PreserveSpace(_)
             | DecimalFormat(_) | CharacterMap(_) | NamespaceAlias(_) | ImportSchema(_)
             | UsePackage(_) | GlobalContextItem(_) | Accumulator(_) => Ok(()),
         }
@@ -1561,6 +1562,70 @@ impl<'a> IrConverter<'a> {
                 tunnel: false,
             },
         ]
+    }
+
+    fn key(
+        &mut self,
+        declarations: &mut ir::Declarations,
+        key: &ast::Key,
+    ) -> error::SpannedResult<()> {
+        // Compile the use expression (or sequence constructor) into a function
+        // that takes a context node and returns the key value(s).
+        let use_function = if let Some(use_expr) = &key.use_ {
+            // use= attribute: compile as an expression evaluated with context node
+            let context_names = self.variables.push_context();
+            let bindings = self.expression(use_expr)?;
+            self.variables.pop_context();
+            ir::FunctionDefinition {
+                params: vec![
+                    ir::Param {
+                        name: context_names.item,
+                        type_: None,
+                        default: None,
+                        required: false,
+                        original_name: None,
+                        tunnel: false,
+                    },
+                    ir::Param {
+                        name: context_names.position,
+                        type_: None,
+                        default: None,
+                        required: false,
+                        original_name: None,
+                        tunnel: false,
+                    },
+                    ir::Param {
+                        name: context_names.last,
+                        type_: None,
+                        default: None,
+                        required: false,
+                        original_name: None,
+                        tunnel: false,
+                    },
+                ],
+                return_type: None,
+                body: Box::new(bindings.expr()),
+            }
+        } else {
+            return Err(error::Error::Unsupported(
+                "xsl:key without use= attribute is not yet supported".to_string(),
+            )
+            .into());
+        };
+
+        // Compile the match pattern
+        let pattern = transform_pattern(&key.match_.pattern, |expr| {
+            self.pattern_predicate(expr)
+        })?;
+
+        let name = key.name.clone();
+        declarations.keys.push(ir::KeyDefinition {
+            name,
+            pattern,
+            use_function,
+        });
+
+        Ok(())
     }
 
     fn template(

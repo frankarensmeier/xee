@@ -1,5 +1,6 @@
 use ahash::{HashMap, HashMapExt};
 use rust_decimal::Decimal;
+use xee_xpath_ast::Pattern;
 
 use crate::{function, pattern::ModeId, pattern::ModeLookup};
 use crate::sequence::SerializationParameters;
@@ -24,6 +25,13 @@ pub struct NamedTemplateDeclaration {
 pub struct TemplateParamDeclaration {
     pub name: String,
     pub tunnel: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyDeclaration {
+    pub name: OwnedName,
+    pub pattern: Pattern<function::InlineFunctionId>,
+    pub use_function_id: function::InlineFunctionId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +91,7 @@ pub struct Declarations {
     modes: HashMap<ModeId, ModeDeclaration>,
     pub global_variables: Vec<GlobalVariableDeclaration>,
     pub named_templates: Vec<NamedTemplateDeclaration>,
+    pub keys: Vec<KeyDeclaration>,
     pub serialization_params: SerializationParameters,
     template_params: HashMap<function::InlineFunctionId, Vec<TemplateParamDeclaration>>,
     template_import_precedence: HashMap<function::InlineFunctionId, i64>,
@@ -96,6 +105,7 @@ impl Declarations {
             modes: HashMap::new(),
             global_variables: Vec::new(),
             named_templates: Vec::new(),
+            keys: Vec::new(),
             serialization_params: SerializationParameters::new(),
             template_params: HashMap::new(),
             template_import_precedence: HashMap::new(),
@@ -187,5 +197,13 @@ impl Declarations {
         &self,
     ) -> &HashMap<function::InlineFunctionId, Vec<usize>> {
         &self.template_module_path
+    }
+
+    pub fn add_key(&mut self, key: KeyDeclaration) {
+        self.keys.push(key);
+    }
+
+    pub fn keys_by_name(&self, name: &OwnedName) -> Vec<&KeyDeclaration> {
+        self.keys.iter().filter(|k| &k.name == name).collect()
     }
 }

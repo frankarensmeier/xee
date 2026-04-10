@@ -463,6 +463,7 @@ pub struct Declarations {
     pub modes: HashMap<Option<xmlname::OwnedName>, Mode>,
     pub functions: Vec<FunctionBinding>,
     pub global_variables: Vec<GlobalVariable>,
+    pub keys: Vec<KeyDefinition>,
     pub main: FunctionDefinition,
     pub serialization_params: SerializationParameters,
 }
@@ -474,10 +475,18 @@ impl Declarations {
             modes: HashMap::new(),
             functions: Vec::new(),
             global_variables: Vec::new(),
+            keys: Vec::new(),
             main,
             serialization_params: SerializationParameters::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyDefinition {
+    pub name: xmlname::OwnedName,
+    pub pattern: Pattern<FunctionDefinition>,
+    pub use_function: FunctionDefinition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

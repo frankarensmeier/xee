@@ -5,7 +5,7 @@ mod decl;
 mod globalvar;
 
 pub use decl::{
-    Declarations, GlobalVariableDeclaration, ModeDeclaration, ModeOnNoMatch,
+    Declarations, GlobalVariableDeclaration, KeyDeclaration, ModeDeclaration, ModeOnNoMatch,
     ModeTyped, NamedTemplateDeclaration, OnMultipleMatch, TemplateParamDeclaration,
     TemplateRule,
 };
