@@ -20,6 +20,8 @@ use xot::{NameId, Node, Xot};
 
 use xee_xpath_ast::ast as xpath_ast;
 use xee_xpath_compiler::{compile, context::Variables, sequence::Sequence};
+use xee_xpath_compiler::context::StaticContext;
+use xee_xpath_ast::FN_NAMESPACE;
 
 use crate::attributes::Attributes;
 use crate::content::Content;
@@ -27,6 +29,27 @@ use crate::context::Context;
 use crate::error::ElementError;
 use crate::state::State;
 use crate::whitespace::strip_whitespace;
+
+fn disable_use_when_restricted_functions(
+    static_context: &mut StaticContext,
+    xslt_version: u8,
+) {
+    for local_name in ["current", "key", "unparsed-entity-uri", "unparsed-entity-public-id"] {
+        static_context.disable_function(xot::xmlname::OwnedName::new(
+            local_name.to_string(),
+            FN_NAMESPACE.to_string(),
+            String::new(),
+        ));
+    }
+
+    if xslt_version < 3 {
+        static_context.disable_function(xot::xmlname::OwnedName::new(
+            "generate-id".to_string(),
+            FN_NAMESPACE.to_string(),
+            String::new(),
+        ));
+    }
+}
 
 struct StaticEvaluator {
     static_global_variables: Variables,
@@ -59,14 +82,14 @@ impl StaticEvaluator {
 
         let top_content = Content::new(top_node, state, top_context);
         let top_attributes = top_content.attributes(state.xot.element(top_node).unwrap());
-        let top_attributes = top_attributes.with_static_standard()?;
+        let top_attributes = top_attributes.with_standard()?.with_static_standard()?;
         let mut context = top_attributes.content.context.clone();
 
         while let Some(current) = node {
             if let Some(element) = state.xot.element(current) {
                 let current_content = Content::new(current, state, context);
                 let attributes = current_content.attributes(element);
-                let attributes = attributes.with_static_standard()?;
+                let attributes = attributes.with_standard()?.with_static_standard()?;
                 if !self.evaluate_use_when(&top_attributes, xot)?
                     || !self.evaluate_use_when(&attributes, xot)?
                 {
@@ -164,7 +187,7 @@ impl StaticEvaluator {
     }
 
     fn evaluate_node(&mut self, attributes: Attributes, xot: &mut Xot) -> Result<(), ElementError> {
-        let attributes = attributes.with_static_standard()?;
+        let attributes = attributes.with_standard()?.with_static_standard()?;
         if self.evaluate_use_when(&attributes, xot)? {
             self.evaluate_children(attributes, xot)?;
         } else {
@@ -226,7 +249,12 @@ impl StaticEvaluator {
         xot: &mut Xot,
     ) -> Result<Sequence, xee_xpath_compiler::error::SpannedError> {
         let parser_context = content.parser_context();
-        let static_context = parser_context.into();
+        let mut static_context: StaticContext = parser_context.into();
+        static_context.set_stylesheet_xslt_version(Some(content.context.xslt_version_major()));
+        disable_use_when_restricted_functions(
+            &mut static_context,
+            content.context.xslt_version_major(),
+        );
         let program = compile(static_context, xpath)?;
         let mut dynamic_context_builder = program.dynamic_context_builder();
         // TODO doing the clone here of the global variables isn't ideal

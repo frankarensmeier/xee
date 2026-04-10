@@ -287,6 +287,21 @@ impl StaticContext {
         self.functions.get_by_name(name, arity)
     }
 
+    pub fn has_function_name(&self, name: &xot::xmlname::OwnedName) -> bool {
+        if self.disabled_functions.contains(name) {
+            return false;
+        }
+        self.functions.has_by_name(name)
+    }
+
+    pub fn disable_function(&mut self, name: xot::xmlname::OwnedName) {
+        self.disabled_functions.insert(name);
+    }
+
+    pub fn is_function_disabled(&self, name: &xot::xmlname::OwnedName) -> bool {
+        self.disabled_functions.contains(name)
+    }
+
     /// Get an internal static function by name and arity
     pub fn function_id_by_internal_name(
         &self,

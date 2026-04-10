@@ -2492,6 +2492,76 @@ fn test_format_number_invalid_picture_uses_xtde1310_in_xslt20_processor_mode() {
 }
 
 #[test]
+fn test_use_when_supports_function_available_and_element_available() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:fn="http://www.w3.org/2005/xpath-functions" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:element name="E1" use-when="element-available('xsl:value-of')">
+        <xsl:text>Element defined</xsl:text>
+      </xsl:element>
+      <E2 xsl:use-when="function-available('fn:doc')">
+        <xsl:text>Function defined</xsl:text>
+      </E2>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><E1>Element defined</E1><E2>Function defined</E2></out>"
+    );
+}
+
+#[test]
+fn test_use_when_generate_id_is_disabled_in_xslt20() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="function-available('generate-id')"/>
+      <flag xsl:use-when="function-available('generate-id')">static</flag>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true</out>");
+}
+
+#[test]
+fn test_use_when_generate_id_is_enabled_in_xslt30() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="function-available('generate-id')"/>
+      <flag xsl:use-when="function-available('generate-id')">static</flag>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true<flag>static</flag></out>");
+}
+
+#[test]
 fn test_imported_decimal_format_merges_across_import_precedence() {
     let temp_dir = unique_temp_dir("format-number-import-precedence");
     let stylesheet_path = temp_dir.join("main.xsl");

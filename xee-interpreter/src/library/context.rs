@@ -1,5 +1,6 @@
 // https://www.w3.org/TR/2017/REC-xpath-functions-31-20170321/#context
 
+use ibig::IBig;
 use xee_name::{Name, Namespaces, FN_NAMESPACE};
 use xee_xpath_ast::parse_name;
 use xee_xpath_ast::ast;
@@ -18,6 +19,89 @@ use crate::sequence;
 use crate::wrap_xpath_fn;
 
 use super::datetime::offset_to_duration;
+
+const XSLT_NAMESPACE: &str = "http://www.w3.org/1999/XSL/Transform";
+
+const XSLT_ELEMENT_NAMES: &[&str] = &[
+    "accept",
+    "accumulator",
+    "accumulator-rule",
+    "analyze-string",
+    "apply-imports",
+    "apply-templates",
+    "assert",
+    "attribute",
+    "attribute-set",
+    "break",
+    "call-template",
+    "catch",
+    "character-map",
+    "choose",
+    "comment",
+    "context-item",
+    "copy",
+    "copy-of",
+    "decimal-format",
+    "document",
+    "element",
+    "evaluate",
+    "expose",
+    "fallback",
+    "for-each",
+    "for-each-group",
+    "fork",
+    "function",
+    "global-context-item",
+    "if",
+    "import",
+    "import-schema",
+    "include",
+    "iterate",
+    "key",
+    "map",
+    "map-entry",
+    "matching-substring",
+    "merge",
+    "merge-action",
+    "merge-key",
+    "merge-source",
+    "message",
+    "mode",
+    "namespace",
+    "namespace-alias",
+    "next-iteration",
+    "next-match",
+    "non-matching-substring",
+    "number",
+    "on-completion",
+    "on-empty",
+    "on-non-empty",
+    "otherwise",
+    "output",
+    "output-character",
+    "override",
+    "package",
+    "param",
+    "perform-sort",
+    "preserve-space",
+    "processing-instruction",
+    "result-document",
+    "sequence",
+    "sort",
+    "source-document",
+    "strip-space",
+    "stylesheet",
+    "template",
+    "text",
+    "transform",
+    "try",
+    "use-package",
+    "value-of",
+    "variable",
+    "when",
+    "where-populated",
+    "with-param",
+];
 
 fn bound_position(
     _context: &DynamicContext,
@@ -81,6 +165,117 @@ fn system_property(context: &DynamicContext, property_name: &str) -> String {
     resolve_system_property(context, property_name).unwrap_or_default()
 }
 
+#[xpath_fn("fn:function-available($function_name as xs:string) as xs:boolean")]
+fn function_available(context: &DynamicContext, function_name: &str) -> bool {
+    let Some(name) = resolve_function_name(context, function_name) else {
+        return false;
+    };
+    is_function_available(context, &name, None)
+}
+
+#[xpath_fn("fn:function-available($function_name as xs:string, $arity as xs:integer) as xs:boolean")]
+fn function_available_with_arity(
+    context: &DynamicContext,
+    function_name: &str,
+    arity: IBig,
+) -> bool {
+    let Ok(arity) = u8::try_from(arity) else {
+        return false;
+    };
+    let Some(name) = resolve_function_name(context, function_name) else {
+        return false;
+    };
+    is_function_available(context, &name, Some(arity))
+}
+
+#[xpath_fn("fn:element-available($element_name as xs:string) as xs:boolean")]
+fn element_available(context: &DynamicContext, element_name: &str) -> bool {
+    let Some(name) = resolve_element_name(context, element_name) else {
+        return false;
+    };
+    name.namespace() == XSLT_NAMESPACE && XSLT_ELEMENT_NAMES.contains(&name.local_name())
+}
+
+fn resolve_function_name(context: &DynamicContext, lexical_name: &str) -> Option<Name> {
+    if lexical_name.is_empty() {
+        return None;
+    }
+
+    if lexical_name.contains(':') || lexical_name.starts_with("Q{") {
+        parse_name(lexical_name, context.static_context().namespaces())
+            .ok()
+            .map(|name| {
+                Name::new(
+                    name.value.local_name().to_string(),
+                    name.value.namespace().to_string(),
+                    String::new(),
+                )
+            })
+    } else {
+        Some(Name::new(
+            lexical_name.to_string(),
+            context
+                .static_context()
+                .namespaces()
+                .default_function_namespace
+                .to_string(),
+            String::new(),
+        ))
+    }
+}
+
+fn resolve_element_name(context: &DynamicContext, lexical_name: &str) -> Option<Name> {
+    if lexical_name.is_empty() {
+        return None;
+    }
+
+    parse_name(lexical_name, context.static_context().namespaces())
+        .ok()
+        .map(|name| {
+            Name::new(
+                name.value.local_name().to_string(),
+                name.value.namespace().to_string(),
+                String::new(),
+            )
+        })
+}
+
+fn is_function_available(
+    context: &DynamicContext,
+    name: &Name,
+    arity: Option<u8>,
+) -> bool {
+    if context.static_context().is_function_disabled(name) {
+        return false;
+    }
+
+    match arity {
+        Some(arity) => {
+            context.static_context().function_id_by_name(name, arity).is_some()
+                || is_manual_xslt_function_available(name, arity)
+        }
+        None => {
+            context.static_context().has_function_name(name)
+                || [0_u8, 1, 2, 3]
+                    .into_iter()
+                    .any(|arity| is_manual_xslt_function_available(name, arity))
+        }
+    }
+}
+
+fn is_manual_xslt_function_available(name: &Name, arity: u8) -> bool {
+    if name.namespace() != FN_NAMESPACE {
+        return false;
+    }
+
+    match name.local_name() {
+        "current" => arity == 0,
+        "key" => matches!(arity, 2 | 3),
+        "unparsed-entity-uri" | "unparsed-entity-public-id" => arity == 1,
+        _ => false,
+    }
+}
+
 fn resolve_system_property(context: &DynamicContext, property_name: &str) -> Option<String> {
     if !property_name.contains(':') && !property_name.starts_with("Q{") {
         return None;
@@ -90,7 +285,6 @@ fn resolve_system_property(context: &DynamicContext, property_name: &str) -> Opt
         .ok()?
         .value;
 
-    const XSLT_NAMESPACE: &str = "http://www.w3.org/1999/XSL/Transform";
     if name.namespace() != XSLT_NAMESPACE {
         return None;
     }
@@ -157,5 +351,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(default_collation),
         wrap_xpath_fn!(static_base_uri),
         wrap_xpath_fn!(system_property),
+        wrap_xpath_fn!(function_available),
+        wrap_xpath_fn!(function_available_with_arity),
+        wrap_xpath_fn!(element_available),
     ]
 }

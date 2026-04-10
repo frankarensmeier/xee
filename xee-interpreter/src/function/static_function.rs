@@ -273,6 +273,14 @@ pub struct StaticFunctions {
     by_index: Vec<StaticFunction>,
 }
 
+fn normalized_name(name: &Name) -> Name {
+    Name::new(
+        name.local_name().to_string(),
+        name.namespace().to_string(),
+        String::new(),
+    )
+}
+
 impl StaticFunctions {
     pub(crate) fn new() -> Self {
         let mut by_name = HashMap::new();
@@ -288,8 +296,9 @@ impl StaticFunctions {
                 Some(FunctionRule::AnonymousClosure) => &mut by_internal_name,
                 _ => &mut by_name,
             };
+            let normalized = normalized_name(&static_function.name);
             map.insert(
-                (static_function.name.clone(), static_function.arity as u8),
+                (normalized, static_function.arity as u8),
                 function::StaticFunctionId(i),
             );
         }
@@ -301,8 +310,14 @@ impl StaticFunctions {
     }
 
     pub fn get_by_name(&self, name: &Name, arity: u8) -> Option<function::StaticFunctionId> {
-        // TODO annoying clone
-        self.by_name.get(&(name.clone(), arity)).copied()
+        self.by_name.get(&(normalized_name(name), arity)).copied()
+    }
+
+    pub fn has_by_name(&self, name: &Name) -> bool {
+        let normalized = normalized_name(name);
+        self.by_name
+            .keys()
+            .any(|(candidate, _)| candidate == &normalized)
     }
 
     pub fn get_by_internal_name(
@@ -310,8 +325,9 @@ impl StaticFunctions {
         name: &Name,
         arity: u8,
     ) -> Option<function::StaticFunctionId> {
-        // TODO annoying clone
-        self.by_internal_name.get(&(name.clone(), arity)).copied()
+        self.by_internal_name
+            .get(&(normalized_name(name), arity))
+            .copied()
     }
 
     pub fn get_by_index(&self, static_function_id: function::StaticFunctionId) -> &StaticFunction {

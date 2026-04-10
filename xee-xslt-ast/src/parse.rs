@@ -32,8 +32,7 @@ pub fn parse_transform_with_static_variables(
         initial_static_variables,
         Variables::new(),
         &mut xot,
-    )
-    .map_err(|_e| Error::Unsupported(format!("Static evaluate error: {:?}", _e)))?;
+    )?;
     let parser = XsltParser::new(&state);
     parser
         .parse_transform(node)

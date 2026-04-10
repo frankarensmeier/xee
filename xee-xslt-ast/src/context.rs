@@ -220,6 +220,16 @@ impl Context {
         self.version >= Decimal::from_str("3.0").unwrap()
     }
 
+    pub(crate) fn xslt_version_major(&self) -> u8 {
+        if self.version >= Decimal::from_str("3.0").unwrap() {
+            3
+        } else if self.version >= Decimal::from_str("2.0").unwrap() {
+            2
+        } else {
+            1
+        }
+    }
+
     pub(crate) fn parser_context(&self, state: &State) -> XPathParserContext {
         let namespaces = self.namespaces(state);
         XPathParserContext::new(namespaces, self.variable_names.clone())

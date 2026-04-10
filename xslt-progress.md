@@ -4,6 +4,55 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 08:34 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the first `use-when` availability-function tranche by implementing `function-available()` / `element-available()` for static evaluation, normalizing QName-based built-in lookup, and preserving real static-evaluation error codes instead of flattening them into `Unsupported(...)`.
+- Full `use-when` bucket moved from `57 passed / 6 failed / 24 error / 15 wrongE` to `83 passed / 5 failed / 12 error / 2 wrongE`.
+- Filtered `check` run still reports `56 passed / 1 error / 45 filtered`; that did not regress, but the filter baseline has not been refreshed yet so the newly fixed cases remain masked there.
+- Current highest-value remaining `use-when` blockers after this checkpoint:
+  - typed-expression cases around unqualified `string` type names (`0118`, `0120`, `0121`)
+  - `generate-id()` availability in the specific `0127b` static-evaluation path
+  - static-variable precedence / error-code issues around `0137` and `0138`
+  - unsupported `xsl:fallback` handling in `0420` and `0430`
+
+### Progress made
+
+- Added runtime support for `fn:function-available()` (one- and two-argument forms) and `fn:element-available()` in the interpreter function library used by static evaluation.
+- Normalized static function registration and lookup to compare by expanded name instead of lexical prefix, so calls such as `fn:doc` and equivalent in-scope bindings resolve to the same built-in function.
+- Taught static `use-when` evaluation to propagate stylesheet standard attributes before static-only processing, so version-sensitive availability rules see the actual stylesheet XSLT version.
+- Disabled the XSLT functions that are not allowed inside `use-when` in the static context, including version-sensitive handling for `generate-id()`.
+- Stopped wrapping static-evaluation parser/runtime failures as generic `Unsupported(...)`, and mapped XPath parser/runtime errors through the normal compiler path so `XPST0051`, `XPST0017`, `XPST0008`, `XPDY0002`, and similar codes now surface correctly.
+- Added focused regressions for `function-available()` / `element-available()` in `use-when`, and for the XSLT 2.0 versus 3.0 `generate-id()` visibility split.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_use_when_ -- --nocapture`
+- `cargo run -q -p xee-testrunner -- check vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+- `cargo run -q -p xee-testrunner -- all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+
+### Obstacles seen
+
+#### Availability checks needed expanded-name semantics, not prefix-sensitive lookup
+
+- Symptoms:
+  - `function-available('fn:doc')` and similar prefixed forms still behaved as unavailable even after the built-in availability functions existed.
+- Root cause:
+  - static function registration and lookup compared `OwnedName` values including lexical prefix, while parsed names coming from different namespace bindings should match by namespace URI plus local name only.
+- Resolution:
+  - normalize function-table keys and availability lookups to expanded names before comparison.
+
+#### Static-evaluation failures were being downgraded to generic unsupported errors
+
+- Symptoms:
+  - many `use-when` vendor cases surfaced as `Unsupported(...)` instead of the real XPath/XSLT codes, obscuring what was actually fixed and what remained.
+- Root cause:
+  - the AST parser wrapped static-evaluation failures into `Unsupported`, and the XSLT compiler mapper treated parser/runtime errors asymmetrically.
+- Resolution:
+  - let static-evaluation errors propagate as structured parser/runtime failures and preserve those codes in `map_parse_error`.
+
 ## 2026-04-10 07:59 CEST
 
 ### Status snapshot

@@ -443,6 +443,7 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
                     span: Some((span.start..span.end).into()),
                 }
             }
+            AttributeError::XPathParser(parser_error) => parser_error.into(),
             AttributeError::StaticError { code, span } => error::SpannedError {
                 error: match code {
                     "XTSE0340" => error::Error::XTSE0340,
@@ -462,6 +463,7 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
             ))
             .into()
         }
+        ElementError::XPathRunTime(spanned_error) => spanned_error,
         other => error::Error::Unsupported(format!("Failed parsing XSLT: {:?}", other)).into(),
     }
 }
