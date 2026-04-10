@@ -302,6 +302,14 @@ fn test_template_default_mode_explicit_fallback_to_unnamed() {
 }
 
 #[test]
+fn test_transform_prefixed_default_mode_is_accepted() {
+    assert!(parse_transform(
+        r#"<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:m="urn:test" version="3" default-mode="m:docbook"><xsl:template match="*">a</xsl:template></xsl:transform>"#
+    )
+    .is_ok());
+}
+
+#[test]
 fn test_apply_templates_implicit_default_mode_is_unnamed() {
     assert_ron_snapshot!(parse_sequence_constructor_item(
         r#"<xsl:apply-templates xmlns:xsl="http://www.w3.org/1999/XSL/Transform" />"#

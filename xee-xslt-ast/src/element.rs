@@ -73,7 +73,9 @@ impl<'a> Content<'a> {
     }
 
     pub(crate) fn parser_context(&self) -> XPathParserContext {
-        self.context.parser_context(self.state)
+        self.context
+            .with_prefixes(&self.state.xot.prefixes(self.node))
+            .parser_context(self.state)
     }
 
     pub(crate) fn sequence_constructor(&self) -> Result<ast::SequenceConstructor, ElementError> {

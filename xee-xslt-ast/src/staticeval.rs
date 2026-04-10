@@ -36,9 +36,9 @@ struct StaticEvaluator {
 }
 
 impl StaticEvaluator {
-    fn new(static_parameters: Variables) -> Self {
+    fn new(initial_static_variables: Variables, static_parameters: Variables) -> Self {
         Self {
-            static_global_variables: Variables::new(),
+            static_global_variables: initial_static_variables,
             static_parameters,
             to_remove: Vec::new(),
             to_remove_attribute: Vec::new(),
@@ -245,10 +245,24 @@ pub(crate) fn static_evaluate(
     static_parameters: Variables,
     xot: &mut Xot,
 ) -> Result<Variables, ElementError> {
-    strip_whitespace(&mut state.xot, &state.names, node);
-    let mut evaluator = StaticEvaluator::new(static_parameters);
+    static_evaluate_with_initial_variables(state, node, Variables::new(), static_parameters, xot)
+}
 
-    evaluator.evaluate_top_level(node, state, Context::empty(), xot)?;
+pub(crate) fn static_evaluate_with_initial_variables(
+    state: &mut State,
+    node: Node,
+    initial_static_variables: Variables,
+    static_parameters: Variables,
+    xot: &mut Xot,
+) -> Result<Variables, ElementError> {
+    strip_whitespace(&mut state.xot, &state.names, node);
+    let mut top_context = Context::empty();
+    for name in initial_static_variables.keys() {
+        top_context = top_context.with_variable_name(name);
+    }
+    let mut evaluator = StaticEvaluator::new(initial_static_variables, static_parameters);
+
+    evaluator.evaluate_top_level(node, state, top_context, xot)?;
     evaluator.update_tree(state)?;
 
     Ok(evaluator.static_global_variables)
@@ -470,6 +484,36 @@ mod tests {
         assert_eq!(
             state.xot.to_string(document_element).unwrap(),
             r#"<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"><xsl:variable name="x" static="yes" select="false()"/></xsl:stylesheet>"#
+        );
+    }
+
+    #[test]
+    fn test_use_when_depends_on_initial_static_variable() {
+        let xml = r#"
+        <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+            <foo xsl:use-when="$x"/>
+        </xsl:stylesheet>
+        "#;
+        let mut xot = Xot::new();
+        let (root, span_info) = xot.parse_with_span_info(xml).unwrap();
+        let names = Names::new(&mut xot);
+        let document_element = xot.document_element(root).unwrap();
+
+        let mut state = State::new(xot, span_info, names);
+        let initial_static_variables = Variables::from([(xpath_ast::Name::name("x"), Item::from(false).into())]);
+
+        let mut xot = Xot::new();
+        static_evaluate_with_initial_variables(
+            &mut state,
+            document_element,
+            initial_static_variables,
+            Variables::new(),
+            &mut xot,
+        )
+        .unwrap();
+        assert_eq!(
+            state.xot.to_string(document_element).unwrap(),
+            r#"<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"/>"#
         );
     }
 

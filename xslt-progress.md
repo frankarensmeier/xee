@@ -4,6 +4,55 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 07:59 CEST
+
+### Status snapshot
+
+- Checkpoint focus: unblock the first real DocBook NG parser/loader tranche by fixing static-global visibility across sequential includes and prefixed QName parsing on stylesheet-level standard attributes.
+- Verified that the earlier DocBook front-edge failures moved forward: the minimal prefixed `default-mode` repro now parses and runs, and the `main.xsl` path no longer stops on that `XTSE0020` parse bug.
+- Current DocBook state after this checkpoint:
+  - the original `variable.xsl` static-scope failure is fixed in the real include chain
+  - the next remaining DocBook blocker is later in the load/compile path and still surfaces as `XTSE0165` from `main.xsl` / `print.xsl`
+
+### Progress made
+
+- Extended XSLT static evaluation so a stylesheet module can be parsed with already-known static globals in scope, and return the static globals it establishes.
+- Changed stylesheet loading and include/import preprocessing to thread static globals forward in declaration order, so later included modules can use earlier static params and variables during `use-when` and other static evaluation.
+- Fixed AST parser context construction so attribute parsing always sees the current element's in-scope namespace prefixes, including on root stylesheet attributes parsed before standard-context propagation.
+- Added focused regressions for `use-when` depending on externally supplied static globals, for sequential includes carrying static globals forward, and for prefixed `default-mode` parsing on the stylesheet element.
+- Confirmed the DocBook diagnosis moved past two concrete front-edge bugs and narrowed the next work to later global-declaration / load behavior instead of the original parser issues.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-ast test_use_when_depends_on_initial_static_variable -- --nocapture`
+- `cargo test -p xee-xslt-ast test_transform_prefixed_default_mode_is_accepted -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_static_globals_flow_across_sequential_includes -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_vendor_format_number_x43import_parses -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_missing_initial_template_uses_xtde0040 -- --nocapture`
+- `cargo build -p xee`
+- `target/debug/xee xslt /tmp/xee-default-mode-prefixed/test.xsl /tmp/xee-default-mode-prefixed/input.xml`
+- `target/debug/xee xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/main.xsl /tmp/xee-docbook-min.xml`
+
+### Obstacles seen
+
+#### Included DocBook modules needed static globals from earlier declarations during parse-time evaluation
+
+- Symptoms:
+  - `modules/variable.xsl` failed under the real DocBook chain because `use-when` and static expressions could not see static params established earlier in `param.xsl`.
+- Root cause:
+  - stylesheet modules were parsed and statically evaluated in isolation, so later included modules did not inherit already-established static globals from earlier declarations.
+- Resolution:
+  - thread static globals through stylesheet loading and include processing in declaration order, and seed static-evaluation context with those names and values.
+
+#### Prefixed QName values on stylesheet-level standard attributes were parsed without current element prefixes
+
+- Symptoms:
+  - a minimal stylesheet using `default-mode="m:docbook"` failed with `XTSE0020`, and the same parser bug blocked DocBook `main.xsl` early.
+- Root cause:
+  - the parser context used while decoding attribute values did not include the current element's in-scope prefixes yet.
+- Resolution:
+  - build parser context with the current node's prefixes for attribute parsing, which fixes prefixed `default-mode` and the same class of root-attribute QName issues.
+
 ## 2026-04-10 07:26 CEST
 
 ### Status snapshot

@@ -6,24 +6,24 @@ use xee_name::{Name, Namespaces, FN_NAMESPACE};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use xee_interpreter::{
-    context::{DecimalFormatSymbols, StaticContext},
+    context::{DecimalFormatSymbols, StaticContext, Variables as StaticVariables},
     error,
     interpreter::{self, instruction::RaisedError},
     sequence::QNameOrString,
 };
-use xee_ir::{compile_xslt, ir, Bindings, Variables};
+use xee_ir::{compile_xslt, ir, Bindings, Variables as IrVariables};
 use xee_xpath_ast::{ast as xpath_ast, pattern::transform_pattern, span::Spanned};
 use xee_xslt_ast::{
     ast,
     error::{AttributeError, ElementError},
-    parse_transform,
+    parse_transform_with_static_variables,
 };
 use xot::{xmlname::{NameStrInfo, OwnedName}, Xot};
 
 use crate::priority::default_priority;
 
 struct IrConverter<'a> {
-    variables: Variables,
+    variables: IrVariables,
     static_context: &'a StaticContext,
     overridden_static_context: Option<StaticContext>,
     initial_mode: ast::ApplyTemplatesModeValue,
@@ -336,9 +336,9 @@ pub fn parse_with_base_dir_and_initial_mode(
     if static_context.processor_xpath_version().is_none() {
         static_context.set_processor_xpath_version(Some(31));
     }
-    let transform = parse_transform(xslt);
+    let transform = parse_transform_with_static_variables(xslt, StaticVariables::new());
     // TODO: better error handling
-    let transform = match transform {
+    let (transform, static_variables) = match transform {
         Ok(transform) => transform,
         Err(e) => {
             return Err(map_parse_error(xslt, e));
@@ -346,7 +346,12 @@ pub fn parse_with_base_dir_and_initial_mode(
     };
 
     // Process xsl:import and xsl:include directives
-    let declarations = process_imports_and_includes(transform.declarations, base_dir, stylesheet_version)?;
+    let declarations = process_imports_and_includes(
+        transform.declarations,
+        base_dir,
+        stylesheet_version,
+        static_variables,
+    )?;
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
     compile_preprocessed_declarations(declarations, static_context, initial_mode)
@@ -465,13 +470,16 @@ fn process_imports_and_includes(
     declarations: ast::Declarations,
     base_dir: Option<std::path::PathBuf>,
     stylesheet_version: Option<u8>,
+    module_static_variables: StaticVariables,
 ) -> error::SpannedResult<Vec<PreprocessedDeclaration>> {
-    let modules = process_stylesheet_module(
+    let (modules, _) = process_stylesheet_module(
         declarations,
         base_dir,
         &mut Vec::new(),
         Vec::new(),
         stylesheet_version,
+        StaticVariables::new(),
+        &module_static_variables,
     )?;
     let mut result = Vec::new();
     for (import_precedence, module) in modules.into_iter().enumerate() {
@@ -492,17 +500,29 @@ fn process_stylesheet_module(
     active_paths: &mut Vec<PathBuf>,
     module_path: Vec<usize>,
     _stylesheet_version: Option<u8>,
-) -> error::SpannedResult<Vec<PreprocessedModule>> {
+    initial_static_variables: StaticVariables,
+    module_static_variables: &StaticVariables,
+) -> error::SpannedResult<(Vec<PreprocessedModule>, StaticVariables)> {
     let mut local_declarations = Vec::new();
     let mut imports = Vec::new();
     let mut import_index = 0usize;
+    let mut in_scope_static_variables = initial_static_variables;
 
     for decl in declarations {
         match &decl {
             ast::Declaration::Import(import) => {
                 // Load and parse the imported stylesheet
-                let (imported_decls, resolved_path, imported_base_dir, imported_version) =
-                    load_stylesheet(&import.href.to_string(), base_dir.as_ref())?;
+                let (
+                    imported_decls,
+                    resolved_path,
+                    imported_base_dir,
+                    imported_version,
+                    imported_module_static_variables,
+                ) = load_stylesheet(
+                    &import.href.to_string(),
+                    base_dir.as_ref(),
+                    StaticVariables::new(),
+                )?;
                 if active_paths.contains(&resolved_path) {
                     return Err(error::Error::Unsupported(format!(
                         "Circular import detected: '{}'",
@@ -514,20 +534,32 @@ fn process_stylesheet_module(
                 let mut imported_module_path = module_path.clone();
                 imported_module_path.push(import_index);
                 import_index += 1;
-                let processed = process_stylesheet_module(
+                let (processed, imported_static_variables) = process_stylesheet_module(
                     imported_decls,
                     imported_base_dir,
                     active_paths,
                     imported_module_path,
                     imported_version,
+                    StaticVariables::new(),
+                    &imported_module_static_variables,
                 )?;
                 active_paths.pop();
+                merge_static_variables(&mut in_scope_static_variables, &imported_static_variables);
                 imports.extend(processed);
             }
             ast::Declaration::Include(include) => {
                 // Load and parse the included stylesheet
-                let (included_decls, resolved_path, included_base_dir, included_version) =
-                    load_stylesheet(&include.href.to_string(), base_dir.as_ref())?;
+                let (
+                    included_decls,
+                    resolved_path,
+                    included_base_dir,
+                    included_version,
+                    included_module_static_variables,
+                ) = load_stylesheet(
+                    &include.href.to_string(),
+                    base_dir.as_ref(),
+                    in_scope_static_variables.clone(),
+                )?;
                 if active_paths.contains(&resolved_path) {
                     return Err(error::Error::Unsupported(format!(
                         "Circular include detected: '{}'",
@@ -536,20 +568,28 @@ fn process_stylesheet_module(
                     .into());
                 }
                 active_paths.push(resolved_path);
-                let mut processed = process_stylesheet_module(
+                let (mut processed, included_static_variables) = process_stylesheet_module(
                     included_decls,
                     included_base_dir,
                     active_paths,
                     module_path.clone(),
                     included_version,
+                    in_scope_static_variables.clone(),
+                    &included_module_static_variables,
                 )?;
                 active_paths.pop();
+                in_scope_static_variables = included_static_variables;
                 if let Some(included_local_module) = processed.pop() {
                     local_declarations.extend(included_local_module.declarations);
                 }
                 imports.extend(processed);
             }
             _ => {
+                remember_static_global(
+                    &decl,
+                    module_static_variables,
+                    &mut in_scope_static_variables,
+                );
                 local_declarations.push(decl);
             }
         }
@@ -560,13 +600,20 @@ fn process_stylesheet_module(
         declarations: local_declarations,
         module_path,
     });
-    Ok(result)
+    Ok((result, in_scope_static_variables))
 }
 
 fn load_stylesheet(
     href: &str,
     base_dir: Option<&std::path::PathBuf>,
-) -> error::SpannedResult<(ast::Declarations, PathBuf, Option<PathBuf>, Option<u8>)> {
+    initial_static_variables: StaticVariables,
+) -> error::SpannedResult<(
+    ast::Declarations,
+    PathBuf,
+    Option<PathBuf>,
+    Option<u8>,
+    StaticVariables,
+)> {
     // Resolve the file path
     let path = if let Some(base_dir) = base_dir {
         base_dir.join(href)
@@ -585,7 +632,11 @@ fn load_stylesheet(
     let stylesheet_version = detect_stylesheet_version(&content);
 
     // Parse the stylesheet
-    let transform = parse_transform(&content).map_err(|e| {
+    let (transform, static_variables) = parse_transform_with_static_variables(
+        &content,
+        initial_static_variables,
+    )
+    .map_err(|e| {
         let mapped = map_parse_error(&content, e);
         match mapped.error {
             error::Error::Unsupported(_) => error::Error::XTSE0165.into(),
@@ -593,13 +644,45 @@ fn load_stylesheet(
         }
     })?;
 
-    Ok((transform.declarations, canonical, next_base_dir, stylesheet_version))
+    Ok((
+        transform.declarations,
+        canonical,
+        next_base_dir,
+        stylesheet_version,
+        static_variables,
+    ))
+}
+
+fn merge_static_variables(target: &mut StaticVariables, source: &StaticVariables) {
+    for (name, value) in source {
+        target.insert(name.clone(), value.clone());
+    }
+}
+
+fn remember_static_global(
+    declaration: &ast::Declaration,
+    module_static_variables: &StaticVariables,
+    in_scope_static_variables: &mut StaticVariables,
+) {
+    let static_name = match declaration {
+        ast::Declaration::Param(param) if param.static_ => Some(&param.name),
+        ast::Declaration::Variable(variable) if variable.static_ => Some(&variable.name),
+        _ => None,
+    };
+
+    let Some(static_name) = static_name else {
+        return;
+    };
+    let Some(value) = module_static_variables.get(static_name) else {
+        return;
+    };
+    in_scope_static_variables.insert(static_name.clone(), value.clone());
 }
 
 impl<'a> IrConverter<'a> {
     fn new(static_context: &'a StaticContext, initial_mode: ast::ApplyTemplatesModeValue) -> Self {
         IrConverter {
-            variables: Variables::new(),
+            variables: IrVariables::new(),
             static_context,
             overridden_static_context: None,
             initial_mode,

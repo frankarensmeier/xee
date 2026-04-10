@@ -4,12 +4,19 @@ use xot::Xot;
 use crate::ast_core as ast;
 use crate::error::ElementError as Error;
 use crate::instruction::SequenceConstructorParser;
-use crate::staticeval::static_evaluate;
+use crate::staticeval::static_evaluate_with_initial_variables;
 use crate::{content::Content, context::Context, element::XsltParser, names::Names, state::State};
 
 type Result<V> = std::result::Result<V, Error>;
 
 pub fn parse_transform(s: &str) -> Result<ast::Transform> {
+    parse_transform_with_static_variables(s, Variables::new()).map(|(transform, _)| transform)
+}
+
+pub fn parse_transform_with_static_variables(
+    s: &str,
+    initial_static_variables: Variables,
+) -> Result<(ast::Transform, Variables)> {
     let mut xot = Xot::new();
     let names = Names::new(&mut xot);
     let (node, span_info) = xot
@@ -19,10 +26,18 @@ pub fn parse_transform(s: &str) -> Result<ast::Transform> {
     let mut state = State::new(xot, span_info, names);
 
     let mut xot = Xot::new();
-    static_evaluate(&mut state, node, Variables::new(), &mut xot)
-        .map_err(|_e| Error::Unsupported(format!("Static evaluate error: {:?}", _e)))?;
+    let static_variables = static_evaluate_with_initial_variables(
+        &mut state,
+        node,
+        initial_static_variables,
+        Variables::new(),
+        &mut xot,
+    )
+    .map_err(|_e| Error::Unsupported(format!("Static evaluate error: {:?}", _e)))?;
     let parser = XsltParser::new(&state);
-    parser.parse_transform(node)
+    parser
+        .parse_transform(node)
+        .map(|transform| (transform, static_variables))
 }
 
 pub fn parse_sequence_constructor_item(s: &str) -> Result<ast::SequenceConstructorItem> {

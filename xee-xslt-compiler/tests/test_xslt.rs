@@ -2892,6 +2892,60 @@ fn test_vendor_format_number_x43import_parses() {
 }
 
 #[test]
+fn test_static_globals_flow_across_sequential_includes() {
+    let temp_dir = unique_temp_dir("static-include-scope");
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let main_path = temp_dir.join("main.xsl");
+    fs::write(
+        temp_dir.join("param.xsl"),
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:param name="debug" static="yes" as="xs:string" xmlns:xs="http://www.w3.org/2001/XMLSchema" select="'keep'"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("variable.xsl"),
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:v="urn:test:variables"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    version="3.0">
+  <xsl:variable name="v:debug" static="yes" as="xs:string*"
+      select="tokenize($debug, '[,\s]+') ! normalize-space(.)"/>
+
+  <xsl:template match="/">
+    <out>
+      <xsl:message use-when="'drop' = $v:debug">drop</xsl:message>
+      <ok/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+    fs::write(
+        &main_path,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:include href="param.xsl"/>
+  <xsl:include href="variable.xsl"/>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let xslt = fs::read_to_string(&main_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &main_path).unwrap();
+    let rendered = xml(&xot, output);
+
+    assert!(rendered.starts_with("<out"));
+    assert!(rendered.contains("<ok/>"));
+
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
 fn test_missing_initial_template_uses_xtde0040() {
   let mut xot = Xot::new();
   let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
