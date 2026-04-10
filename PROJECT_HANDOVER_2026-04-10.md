@@ -2,16 +2,16 @@
 
 ## Scope of this handover
 
-This handover is for the current uncommitted `xsl:try` tranche in the `xee`
-workspace. The chat got long, so this document is intended to let a fresh chat
-resume without having to reconstruct the state from history.
+This handover is for the `xsl:try` tranche that was checkpointed on 2026-04-10
+in the `xee` workspace. The chat got long, so this document is intended to let
+a fresh chat resume without having to reconstruct the state from history.
 
 ## Repo state
 
 - Repository: `/Users/brillo/Repositories/xee`
 - Branch: `feature/xslt-match-rooted-patterns`
-- HEAD: `531fd35f Checkpoint simplified stylesheet fixes`
-- Current state: dirty working tree with uncommitted `xsl:try`-related changes
+- HEAD: `c9eef917 Checkpoint xsl:try conformance tranche`
+- Current state: clean working tree after checkpointing the `xsl:try` tranche
 
 Modified files:
 
@@ -36,7 +36,7 @@ Modified files:
 
 The supported vendor `xsl:try` bucket was driven to green.
 
-Implemented or fixed in the dirty tree:
+Implemented or fixed in the checkpointed tree:
 
 - parsing and lowering support for `xsl:try` and `xsl:catch`
 - catch error-pattern normalization and QName matching
@@ -80,9 +80,7 @@ cargo test -p xee-testrunner dependency::tests:: -- --nocapture
 
 ## Important context for the next chat
 
-- The existing `xslt-progress.md` currently reflects older checkpoints and does
-  not describe this `xsl:try` tranche yet.
-- No checkpoint commit was created for this work yet.
+- `xslt-progress.md` now includes a `2026-04-10 14:57 CEST` entry for this checkpoint.
 - The user explicitly wants generic, spec-oriented fixes, not DocBook-specific
   hacks.
 - For XSLT work in this repo, the user prefers:
@@ -90,36 +88,27 @@ cargo test -p xee-testrunner dependency::tests:: -- --nocapture
   - a filtered vendor regression sweep before checkpoint-quality changes
   - updating `xslt-progress.md` with local time when making a checkpoint entry
 
-## Caution / open question
+## Resolved checkpoint note
 
-There is one thing worth re-checking before committing: the dirty tree still
-contains a direct `fn:current()` special-case in
-`xee-xpath-compiler/src/ast_ir.rs`, while the intended semantic fix for this
-chat was primarily the XSLT-layer expression-entry capture in
-`xee-xslt-compiler/src/ast_ir.rs`. A fresh chat should verify whether the XPath
-compiler change is still desirable or whether it should be removed before the
-checkpoint commit.
+The generic XPath-compiler `fn:current()` special case that was still under
+review during the long chat was removed before the checkpoint commit. The final
+checkpoint keeps `current()` handling at the XSLT expression boundary, which is
+the intended semantic layer.
 
 ## Recommended next steps
 
-1. Re-run the three key validations to confirm the dirty tree is still green:
+1. Re-run the three key validations if a new chat needs to reconfirm the checkpoint state:
    - `cargo test -p xee-xslt-compiler --test test_xslt test_try_ -- --nocapture`
    - `cargo test -p xee-testrunner dependency::tests:: -- --nocapture`
    - `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/try/_try-test-set.xml`
-2. Review the `fn:current()` change in `xee-xpath-compiler/src/ast_ir.rs` and
-   decide whether it is redundant or semantically wrong given the XSLT-layer
-   rewrite.
-3. Update `xslt-progress.md` with a new dated entry including local time for
-   this `xsl:try` checkpoint.
-4. Create the checkpoint commit once the validations and the `current()` review
-   are complete.
+2. Continue with the next XSLT conformance cluster or a broader regression sweep, depending on appetite for risk.
 
 ## Suggested restart prompt for the next chat
 
 ```text
 Please read PROJECT_HANDOVER_2026-04-10.md and continue from there.
 We are in /Users/brillo/Repositories/xee on branch feature/xslt-match-rooted-patterns.
-The dirty worktree is the xsl:try tranche. First verify the current green state,
-then inspect whether xee-xpath-compiler/src/ast_ir.rs still needs its fn:current()
-special case before updating xslt-progress.md and making a checkpoint commit.
+Read PROJECT_HANDOVER_2026-04-10.md and xslt-progress.md first.
+The xsl:try tranche has already been checkpointed at c9eef917.
+Start by deciding whether to run a broader regression sweep or move to the next XSLT conformance cluster.
 ```
