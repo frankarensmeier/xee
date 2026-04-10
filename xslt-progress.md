@@ -4,6 +4,44 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 20:59 CEST
+
+### Status snapshot
+
+- Checkpoint focus: repair the regression introduced in `xsl:text` content parsing before continuing further down the DocBook path.
+- `xsl:text` now honors `expand-text` again when the surrounding context enables it, while still treating `{` and `}` as literal text when `expand-text` is not in play.
+- The filtered XSLT regression sweep is back to clean after the fix.
+- With the regression removed, the next substantive DocBook frontier remains `xsl:evaluate`.
+
+### Progress made
+
+- Narrowed the 21-suite-regression burst to a shared root cause in `xsl:text`: instruction-body content was always being flattened into a single literal string item, which suppressed value-template tokenization.
+- Fixed `xsl:text` AST parsing so it tokenizes through `ValueTemplateTokenizer` only when the current parse context has `expand-text` enabled.
+- Preserved the recent non-`expand-text` behavior by keeping the literal-string path when `expand-text` is disabled.
+- Confirmed that the same parser fix clears the reduced failures in `expand-text`, `seqtor`, `available-system-properties`, and `try`.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_xsl_text_value_template -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_xsl_text_treats_curly_braces_as_literal_text -- --nocapture`
+- `cargo run -q -p xee-testrunner -- -v check vendor/xslt-tests/tests/attr/expand-text/_expand-text-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v check vendor/xslt-tests/tests/misc/seqtor/_seqtor-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v check vendor/xslt-tests/tests/fn/available-system-properties/_available-system-properties-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v check vendor/xslt-tests/tests/insn/try/_try-test-set.xml`
+- `cargo run -q -p xee-testrunner -- check vendor/xslt-tests/`
+
+### Obstacles seen
+
+#### `xsl:text` had regressed into always-literal content parsing
+
+- Symptoms:
+  - `xsl:text` bodies like `Content: {"foo"}` serialized literally instead of evaluating the embedded expression.
+  - the filtered suite showed 21 failures across apparently separate buckets, but they all traced back to `xsl:text` content appearing verbatim where expanded text was expected.
+- Root cause:
+  - `ast::Text::parse()` always built a single `ValueTemplateItem::String`, ignoring the active `expand-text` context.
+- Resolution:
+  - tokenize `xsl:text` content with `ValueTemplateTokenizer` when `content.context.expand_text` is true; otherwise keep the literal-string fallback.
+
 ## 2026-04-10 20:40 CEST
 
 ### Status snapshot

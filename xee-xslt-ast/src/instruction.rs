@@ -16,6 +16,7 @@ use crate::element::{
 };
 use crate::error::ElementError as Error;
 use crate::state::State;
+use crate::value_template::ValueTemplateTokenizer;
 
 type Result<V> = std::result::Result<V, Error>;
 
@@ -1968,12 +1969,24 @@ impl InstructionParser for ast::Text {
         } else {
             ""
         };
-        let text_content = ast::ValueTemplate {
-            template: vec![ast::ValueTemplateItem::String {
-                text: text.to_string(),
-                span,
-            }],
-            phantom: std::marker::PhantomData,
+        let text_content = if content.context.expand_text {
+            let parser_context = content.parser_context();
+            let mut template = Vec::new();
+            for token in ValueTemplateTokenizer::new(text, span, &parser_context) {
+                template.push(token?.into());
+            }
+            ast::ValueTemplate {
+                template,
+                phantom: std::marker::PhantomData,
+            }
+        } else {
+            ast::ValueTemplate {
+                template: vec![ast::ValueTemplateItem::String {
+                    text: text.to_string(),
+                    span,
+                }],
+                phantom: std::marker::PhantomData,
+            }
         };
 
         Ok(ast::Text {
