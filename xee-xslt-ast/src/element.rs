@@ -9,7 +9,7 @@ use crate::attributes::Attributes;
 use crate::combinator::{multi, one, NodeParser, OneParser};
 use crate::content::Content;
 use crate::context::Context;
-use crate::error::ElementError;
+use crate::error::{AttributeError, ElementError};
 use crate::instruction::{DeclarationParser, InstructionParser, SequenceConstructorParser};
 use crate::state::State;
 use crate::value_template::{ValueTemplateItem, ValueTemplateTokenizer};
@@ -36,9 +36,21 @@ impl<'a> XsltParser<'a> {
     }
 
     pub(crate) fn parse_transform(&self, node: Node) -> Result<ast::Transform, ElementError> {
-        let parser = instruction(self.state.names.xsl_transform)
-            .or(instruction(self.state.names.xsl_stylesheet));
-        let (transform, mut next) = parser.parse_next(Some(node), self.state, &Context::empty())?;
+        let element = self.state.xot.element(node).ok_or(ElementError::Internal)?;
+        let content = Content::new(node, self.state, Context::empty());
+        let attributes = content.attributes(element).with_standard()?;
+        let name = element.name();
+        let namespace = self.state.xot.namespace_for_name(name);
+
+        let transform = if namespace == self.state.names.xsl_ns
+            && (name == self.state.names.xsl_transform || name == self.state.names.xsl_stylesheet)
+        {
+            ast::Transform::parse_and_validate(&attributes)?
+        } else {
+            self.parse_simplified_stylesheet_module(&attributes)?
+        };
+
+        let mut next = self.state.next(node);
         while let Some(node) = next {
             match self.state.xot.value(node) {
                 Value::Comment(_) | Value::ProcessingInstruction(_) => {
@@ -55,6 +67,43 @@ impl<'a> XsltParser<'a> {
             }
         }
         Ok(transform)
+    }
+
+    fn parse_simplified_stylesheet_module(
+        &self,
+        attributes: &Attributes,
+    ) -> Result<ast::Transform, ElementError> {
+        let span = attributes.content.span()?;
+        if attributes.standard()?.version.is_none() {
+            return Err(AttributeError::StaticError {
+                code: "XTSE0150",
+                span,
+            }
+            .into());
+        }
+
+        let match_ = attributes.pattern()("/", span)?;
+        let root = ast::ElementNode::parse_and_validate(attributes)?;
+        let template = ast::Template {
+            match_: Some(match_),
+            name: None,
+            priority: None,
+            mode: vec![ast::ModeValue::Unnamed],
+            as_: None,
+            visibility: None,
+            context_item: None,
+            params: Vec::new(),
+            sequence_constructor: vec![root.into()],
+            span,
+        };
+
+        Ok(ast::Transform {
+            id: None,
+            input_type_annotations: None,
+            extension_element_prefixes: None,
+            declarations: vec![template.into()],
+            span,
+        })
     }
 }
 

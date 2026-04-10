@@ -473,6 +473,7 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
             AttributeError::XPathParser(parser_error) => parser_error.into(),
             AttributeError::StaticError { code, span } => error::SpannedError {
                 error: match code {
+                    "XTSE0150" => error::Error::XTSE0150,
                     "XTSE0110" => error::Error::XTSE0110,
                     "XTSE0340" => error::Error::XTSE0340,
                     "XTSE0805" => error::Error::XTSE0805,

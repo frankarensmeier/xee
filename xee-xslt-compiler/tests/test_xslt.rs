@@ -3266,6 +3266,56 @@ fn test_evaluate_with_stylesheet_path_reports_xtse0165_for_missing_include() {
 }
 
 #[test]
+fn test_evaluate_with_stylesheet_path_supports_simplified_stylesheet_module() {
+  let temp_dir = unique_temp_dir("simplified-stylesheet-module");
+  let stylesheet_path = temp_dir.join("main.xsl");
+  fs::write(
+    &stylesheet_path,
+    r#"<?xml version="1.0"?>
+<out xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xsl:version="2.0">
+  <in><xsl:value-of select="'Hi there!'"/></in>
+</out>"#,
+  )
+  .unwrap();
+
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_path(
+    &mut xot,
+    "<doc/>",
+    &fs::read_to_string(&stylesheet_path).unwrap(),
+    &stylesheet_path,
+  )
+  .unwrap();
+
+  assert_eq!(xml(&xot, output), "<out><in>Hi there!</in></out>");
+}
+
+#[test]
+fn test_evaluate_with_stylesheet_path_reports_xtse0150_for_missing_simplified_version() {
+  let temp_dir = unique_temp_dir("simplified-stylesheet-missing-version");
+  let stylesheet_path = temp_dir.join("main.xsl");
+  fs::write(
+    &stylesheet_path,
+    r#"<?xml version="1.0"?>
+<out xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <in/>
+</out>"#,
+  )
+  .unwrap();
+
+  let mut xot = Xot::new();
+  let error = evaluate_with_stylesheet_path(
+    &mut xot,
+    "<doc/>",
+    &fs::read_to_string(&stylesheet_path).unwrap(),
+    &stylesheet_path,
+  )
+  .unwrap_err();
+
+  assert_eq!(error.value(), error::Error::XTSE0150);
+}
+
+#[test]
 fn test_imported_decimal_format_merges_across_import_precedence() {
     let temp_dir = unique_temp_dir("format-number-import-precedence");
     let stylesheet_path = temp_dir.join("main.xsl");

@@ -4,6 +4,49 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 12:42 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the remaining `XTSE0150` parser gap around simplified stylesheet modules after the `XTSE0165` cleanup.
+- Full filtered vendor sweep is now completely clean: `3666 passed / 0 failed / 0 error / 0 wrongE / 10929 filtered`.
+- The previously open `error-0150` tail is fully resolved:
+  - `error-0150a`
+  - `error-0150b`
+  - `error-0150c`
+  - `error-0150d`
+  - `error-0150e`
+- A real vendor include case using a valid simplified stylesheet module now passes:
+  - `include-0401`
+
+### Progress made
+
+- Added explicit XSLT error-code support for `XTSE0150`.
+- Taught the AST root parser to recognize valid simplified stylesheet modules, parse the outermost literal result element using the existing literal-result-element machinery, and wrap it in the implicit unnamed template rule matching `/`.
+- Added the missing `XTSE0150` static error when the outermost literal result element is used as a stylesheet module without an `xsl:version` attribute.
+- Preserved the earlier `XTSE0165` mapping for unresolved stylesheet references, so import/include failures now distinguish correctly between "resource could not be read" and "resource was parsed as a non-conforming simplified stylesheet".
+- Added focused compiler regressions for both a valid standalone simplified stylesheet module and the missing-`xsl:version` `XTSE0150` case.
+
+### Validation used for the checkpoint
+
+- `cargo test -q -p xee-xslt-compiler --test test_xslt test_evaluate_with_stylesheet_path_supports_simplified_stylesheet_module -- --nocapture`
+- `cargo test -q -p xee-xslt-compiler --test test_xslt test_evaluate_with_stylesheet_path_reports_xtse0150_for_missing_simplified_version -- --nocapture`
+- `cargo run -q --release -p xee-testrunner -- -v all vendor/xslt-tests/tests/misc/error/_error-test-set.xml error-0150`
+- `cargo run -q --release -p xee-testrunner -- -v all vendor/xslt-tests/tests/decl/include/_include-test-set.xml include-0401`
+- `cargo run -q --release -p xee-testrunner -- -v check vendor/xslt-tests | tail -n 20`
+
+### Obstacles seen
+
+#### Simplified stylesheet modules were not represented at the AST root at all
+
+- Symptoms:
+  - the remaining vendor failures all surfaced as `Unsupported` when the stylesheet document element was a literal result element, either directly or via import/include.
+  - valid simplified stylesheet modules were not executing either, because the root parser only accepted `xsl:transform` and `xsl:stylesheet`.
+- Root cause:
+  - the parser had no root-level path that converted a literal result element with `xsl:version` into the equivalent implicit stylesheet/template structure, and no dedicated `XTSE0150` mapping when that required attribute was absent.
+- Resolution:
+  - add explicit simplified-stylesheet root handling in the AST parser, build the implicit unnamed template matching `/`, and raise `XTSE0150` when the outermost literal result element lacks `xsl:version`.
+
 ## 2026-04-10 12:30 CEST
 
 ### Status snapshot
