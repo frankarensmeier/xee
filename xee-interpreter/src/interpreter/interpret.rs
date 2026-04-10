@@ -1453,7 +1453,7 @@ impl<'a> Interpreter<'a> {
         self.state.xot()
     }
 
-    pub(crate) fn xot_mut(&mut self) -> &mut Xot {
+    pub fn xot_mut(&mut self) -> &mut Xot {
         self.state.xot_mut()
     }
 

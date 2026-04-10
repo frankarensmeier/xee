@@ -1,4 +1,5 @@
 mod ast_ir;
+mod dynamic_xpath;
 mod priority;
 mod run;
 

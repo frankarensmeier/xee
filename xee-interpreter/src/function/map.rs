@@ -99,7 +99,7 @@ impl Map {
             Map::Many(map) => Box::new(map.keys()),
         }
     }
-    pub(crate) fn entries(
+    pub fn entries(
         &self,
     ) -> Box<dyn Iterator<Item = (&atomic::Atomic, &sequence::Sequence)> + '_> {
         match self {

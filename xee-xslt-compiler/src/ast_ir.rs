@@ -21,6 +21,7 @@ use xee_xslt_ast::{
 };
 use xot::{xmlname::{NameStrInfo, OwnedName}, Xot};
 
+use crate::dynamic_xpath::XsltDynamicXPathEvaluator;
 use crate::priority::default_priority;
 
 struct IrConverter<'a> {
@@ -306,6 +307,7 @@ fn compile_preprocessed_declarations(
     let mut ir_converter = IrConverter::new(&static_context, initial_mode);
     let declarations = ir_converter.transform(&declarations)?;
     let mut program = compile_xslt(declarations, static_context)?;
+    program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
     program.set_source(xslt.to_string());
     Ok(program)
 }
@@ -2096,6 +2098,7 @@ impl<'a> IrConverter<'a> {
             Element(element) => self.element(element),
             Text(text) => self.text(text),
             Try(try_) => self.try_(try_),
+            Evaluate(evaluate) => self.evaluate(evaluate),
             Map(map) => self.map(map),
             Attribute(attribute) => self.attribute(attribute),
             Namespace(namespace) => self.namespace(namespace),
@@ -2167,6 +2170,68 @@ impl<'a> IrConverter<'a> {
                 (map.span.start..map.span.end).into(),
             ),
         ))
+    }
+
+    fn evaluate(&mut self, evaluate: &ast::Evaluate) -> error::SpannedResult<Bindings> {
+        if evaluate.base_uri.is_some() || evaluate.schema_aware.is_some() {
+            return Err(error::Error::Unsupported(format!(
+                "Instruction not supported: {:?}",
+                evaluate
+            ))
+            .into());
+        }
+        if evaluate
+            .content
+            .iter()
+            .any(|item| matches!(item, ast::EvaluateContent::WithParam(_)))
+        {
+            return Err(error::Error::Unsupported(
+                "xsl:evaluate with child xsl:with-param is not supported yet".to_string(),
+            )
+            .into());
+        }
+
+        let (xpath_value_atom, xpath_value_bindings) = self.expression(&evaluate.xpath)?.atom_bindings();
+        let xpath_expr = self.simple_content_expr(xpath_value_atom, self.space_separator_atom());
+        let (xpath_atom, xpath_bindings) = xpath_value_bindings
+            .bind_expr_no_span(&mut self.variables, xpath_expr)
+            .atom_bindings();
+
+        let (context_item_atom, context_item_bindings) = self
+            .optional_evaluate_argument(evaluate.context_item.as_ref())?;
+        let (namespace_context_atom, namespace_context_bindings) = self
+            .optional_evaluate_argument(evaluate.namespace_context.as_ref())?;
+        let (with_params_atom, with_params_bindings) = self
+            .optional_evaluate_argument(evaluate.with_params.as_ref())?;
+
+        let expr = self.static_function_call_expr(
+            "xslt-evaluate",
+            FN_NAMESPACE,
+            4,
+            vec![xpath_atom, context_item_atom, namespace_context_atom, with_params_atom],
+        );
+        Ok(xpath_bindings
+            .concat(context_item_bindings)
+            .concat(namespace_context_bindings)
+            .concat(with_params_bindings)
+            .bind_expr(
+                &mut self.variables,
+                Spanned::new(expr, (evaluate.span.start..evaluate.span.end).into()),
+            ))
+    }
+
+    fn optional_evaluate_argument(
+        &mut self,
+        expression: Option<&ast::Expression>,
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        if let Some(expression) = expression {
+            return Ok(self.expression(expression)?.atom_bindings());
+        }
+
+        let empty_sequence = self.empty_sequence();
+        Ok(Bindings::empty()
+            .bind_expr_no_span(&mut self.variables, empty_sequence.value)
+            .atom_bindings())
     }
 
     fn message(&mut self, message: &ast::Message) -> error::SpannedResult<Bindings> {

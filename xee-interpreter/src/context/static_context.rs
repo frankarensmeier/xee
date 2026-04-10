@@ -150,6 +150,25 @@ impl StaticContext {
         }
     }
 
+    pub fn clone_with_namespaces_and_variables(
+        &self,
+        namespaces: Namespaces,
+        variable_names: VariableNames,
+    ) -> Self {
+        Self {
+            parser_context: XPathParserContext::new(namespaces, variable_names),
+            functions: self.functions,
+            disabled_functions: self.disabled_functions.clone(),
+            collations: RefCell::new(Collations::new()),
+            static_base_uri: self.static_base_uri.clone(),
+            default_decimal_format: self.default_decimal_format.clone(),
+            decimal_formats: self.decimal_formats.clone(),
+            stylesheet_xslt_version: self.stylesheet_xslt_version,
+            processor_xslt_version: self.processor_xslt_version,
+            processor_xpath_version: self.processor_xpath_version,
+        }
+    }
+
     pub fn clone_with_static_base_uri(&self, static_base_uri: Option<IriAbsoluteString>) -> Self {
         Self {
             parser_context: XPathParserContext::new(

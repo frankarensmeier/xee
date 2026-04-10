@@ -5770,4 +5770,85 @@ fn test_vendor_mode_0007_direct_attribute_text_only_copy() {
     assert_eq!(result, expected, "mode-0007: Output mismatch");
 }
 
+#[test]
+fn test_xsl_evaluate_uses_dynamic_xpath_string() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item/></doc>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:variable name="expr" select="'self::item'"/>
+      <xsl:variable name="result" as="element()*">
+        <xsl:evaluate xpath="$expr" context-item="/doc/item"/>
+      </xsl:variable>
+      <xsl:value-of select="name($result[1])"/>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>item</out>");
+}
+
+#[test]
+fn test_xsl_evaluate_uses_with_params_map() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:xs="http://www.w3.org/2001/XMLSchema"
+               version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:variable name="result" as="item()*">
+        <xsl:evaluate xpath="'$needle'"
+                      with-params="map{xs:QName('needle'): 'ok'}"/>
+      </xsl:variable>
+      <xsl:value-of select="$result"/>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">ok</out>"
+    );
+}
+
+#[test]
+fn test_xsl_evaluate_uses_namespace_context() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<db:doc xmlns:db=\"http://example.com/db\"><db:item/></db:doc>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:variable name="ns" as="element()">
+        <ns xmlns:db="http://example.com/db"/>
+      </xsl:variable>
+      <xsl:variable name="result" as="element()*">
+        <xsl:evaluate xpath="'self::db:item'"
+                      context-item="/*/*"
+                      namespace-context="$ns"/>
+      </xsl:variable>
+      <xsl:value-of select="name($result[1])"/>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>db:item</out>");
+}
+
 

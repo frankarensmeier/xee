@@ -340,6 +340,40 @@ fn store_principal_result_document(
     Ok(sequence::Sequence::default())
 }
 
+#[xpath_fn(
+    "fn:xslt-evaluate($xpath as xs:string?, $context_item as item()*, $namespace_context as item()*, $with_params as item()*) as item()*"
+)]
+fn xslt_evaluate(
+    context: &crate::context::DynamicContext,
+    interpreter: &mut Interpreter,
+    xpath: Option<&str>,
+    context_item: &sequence::Sequence,
+    namespace_context: &sequence::Sequence,
+    with_params: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    let evaluator = context.dynamic_xpath_evaluator().ok_or_else(|| {
+        error::Error::Unsupported("xsl:evaluate is not configured for this program".to_string())
+    })?;
+
+    let namespace_context = namespace_context.clone().option()?;
+    let with_params = match with_params.clone().option()? {
+        None => None,
+        Some(sequence::Item::Function(function::Function::Map(map))) => Some(map),
+        Some(_) => return Err(error::Error::XPTY0004),
+    };
+
+    let request = crate::interpreter::DynamicXPathRequest {
+        xpath: xpath.ok_or(error::Error::XPTY0004)?.to_string(),
+        context_item: context_item.clone().option()?,
+        namespace_context,
+        with_params,
+    };
+
+    evaluator
+        .evaluate(&request, context, interpreter)
+        .map_err(|error| error.error)
+}
+
 fn absolute_result_document_uri(
     context: &crate::context::DynamicContext,
     href: &str,
@@ -502,6 +536,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(format_number_lexical2),
         wrap_xpath_fn!(format_number_lexical3),
+        wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),
     ]

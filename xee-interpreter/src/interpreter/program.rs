@@ -1,11 +1,30 @@
 use crate::context;
 use crate::declaration::Declarations;
+use crate::error;
 use crate::function;
+use crate::sequence;
 use crate::span::SourceSpan;
 use xee_name::Name;
 use xee_xpath_ast::ast::Span;
 
 use super::Runnable;
+
+#[derive(Debug, Clone)]
+pub struct DynamicXPathRequest {
+    pub xpath: String,
+    pub context_item: Option<sequence::Item>,
+    pub namespace_context: Option<sequence::Item>,
+    pub with_params: Option<function::Map>,
+}
+
+pub trait DynamicXPathEvaluator: std::fmt::Debug {
+    fn evaluate(
+        &self,
+        request: &DynamicXPathRequest,
+        context: &context::DynamicContext,
+        interpreter: &mut super::Interpreter<'_>,
+    ) -> error::SpannedResult<sequence::Sequence>;
+}
 
 #[derive(Debug)]
 pub struct Program {
@@ -14,6 +33,7 @@ pub struct Program {
     pub functions: Vec<function::InlineFunction>,
     pub declarations: Declarations,
     static_context: context::StaticContext,
+    dynamic_xpath_evaluator: Option<Box<dyn DynamicXPathEvaluator>>,
     map_signature: function::Signature,
     array_signature: function::Signature,
 }
@@ -26,6 +46,7 @@ impl Program {
             functions: Vec::new(),
             declarations: Declarations::new(),
             static_context,
+            dynamic_xpath_evaluator: None,
             map_signature: function::Signature::map_signature(),
             array_signature: function::Signature::array_signature(),
         }
@@ -33,6 +54,17 @@ impl Program {
 
     pub fn static_context(&self) -> &context::StaticContext {
         &self.static_context
+    }
+
+    pub fn set_dynamic_xpath_evaluator(
+        &mut self,
+        evaluator: Box<dyn DynamicXPathEvaluator>,
+    ) {
+        self.dynamic_xpath_evaluator = Some(evaluator);
+    }
+
+    pub fn dynamic_xpath_evaluator(&self) -> Option<&dyn DynamicXPathEvaluator> {
+        self.dynamic_xpath_evaluator.as_deref()
     }
 
     pub fn dynamic_context_builder(&self) -> context::DynamicContextBuilder<'_> {

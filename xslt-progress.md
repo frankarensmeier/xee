@@ -4,6 +4,50 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 22:14 CEST
+
+### Status snapshot
+
+- Checkpoint focus: add a minimal but real runtime-backed `xsl:evaluate` path so the DocBook NG entry stylesheet can move past the next dynamic XPath blocker.
+- `xsl:evaluate` now lowers through a hidden helper into runtime XPath compilation and execution instead of falling through the generic unsupported-instruction path.
+- Focused `xsl:evaluate` coverage is green for dynamic XPath strings, `with-params`, and `namespace-context`.
+- The live DocBook frontier has moved from unsupported `xsl:evaluate` to unsupported `xsl:number`.
+- The filtered XSLT sweep remains clean after the new lowering and runtime plumbing.
+
+### Progress made
+
+- Added program-level dynamic XPath evaluator plumbing in the interpreter so compiled XSLT programs can carry a runtime hook without introducing a compiler dependency cycle.
+- Added a hidden `xslt-evaluate(...)` helper in the XSLT support library that gathers the runtime request and delegates into the configured evaluator.
+- Added XSLT-compiler lowering for `xsl:evaluate`, including outer-expression stringification of `@xpath` and optional handling for `context-item`, `namespace-context`, and `with-params`.
+- Added compiler-side dynamic XPath execution support that rebuilds static namespaces and variable names from the runtime request, compiles the requested XPath, and executes it against a cloned dynamic context.
+- Added focused end-to-end regressions for the three currently supported `xsl:evaluate` shapes.
+- Re-ran the real DocBook stylesheet and confirmed the frontier moved again, this time from `Evaluate(...)` to `Number(...)`.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_xsl_evaluate_uses_ -- --nocapture`
+- `cargo run -q -p xee -- xslt /Users/brillo/Repositories/fargate/microservice-contentoutput/docbook-xslt/docbook/xslt/main.xsl /tmp/xee-docbook-min.xml`
+- `cargo run -q -p xee-testrunner -- check vendor/xslt-tests/`
+
+### Obstacles seen
+
+#### `xsl:evaluate` needed runtime compiler plumbing without breaking crate boundaries
+
+- Symptoms:
+  - the real DocBook path stopped on `Instruction not supported: Evaluate(...)` after the earlier `xsl:map` tranche.
+- Root cause:
+  - supporting `xsl:evaluate` requires compiling XPath dynamically at runtime, but the interpreter cannot depend directly on the XSLT/XPath compiler crates without creating a cycle.
+- Resolution:
+  - keep the runtime hook in the interpreter program object, lower `xsl:evaluate` to a hidden helper, and install the concrete dynamic evaluator from the XSLT compiler layer.
+
+#### The next real blocker is now `xsl:number`
+
+- Symptoms:
+  - after the new `xsl:evaluate` support, the real DocBook run now stops on `Instruction not supported: Number(...)` instead.
+- Assessment:
+  - this is genuine forward motion: the current frontier is no longer dynamic XPath compilation, but ordinary XSLT numbering support.
+  - the next tranche should reduce the exact live `xsl:number` shapes before deciding how much of the instruction to implement.
+
 ## 2026-04-10 20:59 CEST
 
 ### Status snapshot

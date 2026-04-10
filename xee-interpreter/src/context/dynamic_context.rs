@@ -1,4 +1,4 @@
-use ahash::{AHashMap, HashMap};
+use ahash::{AHashMap, HashMap, HashMapExt};
 use iri_string::types::{IriStr, IriString};
 use std::{cell::RefCell, fmt::Debug};
 
@@ -174,6 +174,36 @@ impl<'a> DynamicContext<'a> {
 
     pub fn on_multiple_match(&self) -> OnMultipleMatch {
         self.on_multiple_match
+    }
+
+    pub fn clone_for_program<'b>(
+        &self,
+        program: &'b Program,
+        context_item: Option<sequence::Item>,
+        variables: Variables,
+    ) -> DynamicContext<'b> {
+        DynamicContext::new(
+            program,
+            context_item,
+            self.documents.clone(),
+            variables,
+            self.current_datetime,
+            self.default_collection.clone(),
+            self.collections.clone(),
+            self.default_uri_collection.clone(),
+            self.uri_collections.clone(),
+            self.environment_variables.clone(),
+            HashMap::new(),
+            Vec::new(),
+            Vec::new(),
+            self.on_multiple_match,
+        )
+    }
+
+    pub fn dynamic_xpath_evaluator(
+        &self,
+    ) -> Option<&dyn interpreter::DynamicXPathEvaluator> {
+        self.program.dynamic_xpath_evaluator()
     }
 
     pub(crate) fn arguments(&self) -> Result<Vec<sequence::Sequence>, Error> {
