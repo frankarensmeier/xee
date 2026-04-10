@@ -4,6 +4,44 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 16:01 CEST
+
+### Status snapshot
+
+- Checkpoint focus: refresh the XSLT vendor filter baseline safely and clear the testrunner/compiler blockers that prevented `update.py` from completing.
+- `python3 update.py` now completes across all `262` XSLT test-set files.
+- The filtered vendor regression sweep is clean after the refresh: `Total: 14595 Supported: 8793 Passed: 3318 Failed: 0 Error: 0 WrongE: 0 Filtered: 5475 Unsupported: 5802`.
+- The refreshed baseline removes a large number of now-passing historical filters while keeping the remaining unsupported or failing slices classified cleanly.
+
+### Progress made
+
+- Fixed XSLT-style boolean dependency parsing in the testrunner so dependency elements without a `value` attribute, such as `recognize_id_as_uri_fragment`, no longer abort catalog loading with a top-level `XPTY0004`.
+- Added a dependency-loader regression test covering boolean dependency elements under `<dependencies>`.
+- Added explicit `XTSE0180` support and fixed circular stylesheet include/import handling so self-referential and mutually recursive include cases now raise the spec error instead of overflowing the stack during static evaluation.
+- Added a focused compiler regression proving that evaluating a stylesheet by path reports `XTSE0180` for a self-include.
+- Re-ran the full XSLT filter refresh successfully after the two blockers were removed.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-testrunner dependency::tests:: -- --nocapture`
+- `cargo test -p xee-xslt-compiler --test test_xslt test_evaluate_with_stylesheet_path_reports_xtse0180_for_self_include -- --nocapture`
+- `cargo run --release --bin xee-testrunner -- -v all vendor/xslt-tests/tests/misc/error/_error-test-set.xml error-0180`
+- `python3 update.py`
+- `cargo run --release --bin xee-testrunner -- -v check vendor/xslt-tests`
+
+### Obstacles seen
+
+#### Filter refresh exposed two infrastructure-level blockers before any broader XSLT tranche work
+
+- Symptoms:
+  - `update.py` first aborted in `fn/id` with a top-level `XPTY0004` before the test set could even run.
+  - after fixing that, the refresh advanced into `misc/error` and then aborted with a stack overflow in the `error-0180*` circular-include cluster.
+- Root cause:
+  - the testrunner dependency loader assumed every dependency had a `value` attribute, which is false for schema-defined boolean dependency elements.
+  - circular stylesheet references were guarded too late in the compiler pipeline; AST static evaluation could recurse into includes/imports before the later compiler-side cycle check ran.
+- Resolution:
+  - parse value-less dependency elements as boolean-style dependencies and track active stylesheet paths during static evaluation so circular includes/imports fail fast as `XTSE0180`.
+
 ## 2026-04-10 14:57 CEST
 
 ### Status snapshot

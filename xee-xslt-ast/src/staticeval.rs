@@ -30,7 +30,7 @@ use crate::attributes::Attributes;
 use crate::content::Content;
 use crate::context::Context;
 use crate::error::ElementError;
-use crate::parse::parse_transform_with_static_variables_and_location;
+use crate::parse::parse_transform_with_static_variables_and_location_and_active_paths;
 use crate::state::State;
 use crate::whitespace::strip_whitespace;
 
@@ -140,6 +140,7 @@ struct StaticEvaluator {
     processor_xpath_version: Option<u8>,
     base_dir: Option<PathBuf>,
     document_base_uri: Option<IriAbsoluteString>,
+    active_stylesheet_paths: Vec<PathBuf>,
     module_precedence: Vec<usize>,
     honor_document_use_when: bool,
     to_remove: Vec<Node>,
@@ -153,10 +154,21 @@ impl StaticEvaluator {
         processor_xslt_version: Option<u8>,
         processor_xpath_version: Option<u8>,
         base_dir: Option<PathBuf>,
+        active_stylesheet_paths: Vec<PathBuf>,
         module_precedence: Vec<usize>,
         static_base_uri: Option<String>,
         honor_document_use_when: bool,
     ) -> Self {
+        let mut active_stylesheet_paths = active_stylesheet_paths;
+        if let Some(current_path) = static_base_uri
+            .as_deref()
+            .and_then(Self::file_uri_to_path)
+            .map(|path| path.canonicalize().unwrap_or(path))
+        {
+            if !active_stylesheet_paths.contains(&current_path) {
+                active_stylesheet_paths.push(current_path);
+            }
+        }
         let static_global_variable_entries = initial_static_variables
             .iter()
             .map(|(name, value)| {
@@ -178,6 +190,7 @@ impl StaticEvaluator {
             processor_xpath_version,
             base_dir,
             document_base_uri: static_base_uri.and_then(|uri| uri.try_into().ok()),
+            active_stylesheet_paths,
             module_precedence,
             honor_document_use_when,
             to_remove: Vec::new(),
@@ -187,6 +200,11 @@ impl StaticEvaluator {
 
     fn path_to_file_uri(path: &Path) -> String {
         format!("file://{}", path.display()).replace(' ', "%20")
+    }
+
+    fn file_uri_to_path(uri: &str) -> Option<PathBuf> {
+        let path = uri.strip_prefix("file://")?;
+        Some(PathBuf::from(path.replace("%20", " ")))
     }
 
     fn remember_static_variable(
@@ -285,10 +303,22 @@ impl StaticEvaluator {
     ) -> Result<(), ElementError> {
         let (path, base_dir) = self.resolve_stylesheet_href(href);
         let resolved_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+        let span = attributes
+            .content
+            .state
+            .span(attributes.content.node)
+            .ok_or(ElementError::Internal)?;
+        if self.active_stylesheet_paths.contains(&resolved_path) {
+            return Err(ElementError::XPathRunTime(
+                error::Error::XTSE0180.with_ast_span((span.start..span.end).into()),
+            ));
+        }
         let content = std::fs::read_to_string(&path).map_err(|_| {
             ElementError::Unsupported(format!("Could not read stylesheet: {href}"))
         })?;
-        let (_, imported_static_variables) = parse_transform_with_static_variables_and_location(
+        let mut active_stylesheet_paths = self.active_stylesheet_paths.clone();
+        active_stylesheet_paths.push(resolved_path.clone());
+        let (_, imported_static_variables) = parse_transform_with_static_variables_and_location_and_active_paths(
             &content,
             self.static_global_variables.clone(),
             self.processor_xslt_version,
@@ -296,12 +326,8 @@ impl StaticEvaluator {
             base_dir,
             Some(Self::path_to_file_uri(&resolved_path)),
             true,
+            active_stylesheet_paths,
         )?;
-        let span = attributes
-            .content
-            .state
-            .span(attributes.content.node)
-            .ok_or(ElementError::Internal)?;
 
         for (name, value) in imported_static_variables {
             self.merge_imported_static_variable(name, value, precedence.clone(), false, span)?;
@@ -676,6 +702,34 @@ pub(crate) fn static_evaluate_with_initial_variables_and_location(
     honor_document_use_when: bool,
     xot: &mut Xot,
 ) -> Result<Variables, ElementError> {
+    static_evaluate_with_initial_variables_and_location_and_active_paths(
+        state,
+        node,
+        initial_static_variables,
+        static_parameters,
+        processor_xslt_version,
+        processor_xpath_version,
+        base_dir,
+        static_base_uri,
+        honor_document_use_when,
+        Vec::new(),
+        xot,
+    )
+}
+
+pub(crate) fn static_evaluate_with_initial_variables_and_location_and_active_paths(
+    state: &mut State,
+    node: Node,
+    initial_static_variables: Variables,
+    static_parameters: Variables,
+    processor_xslt_version: Option<u8>,
+    processor_xpath_version: Option<u8>,
+    base_dir: Option<PathBuf>,
+    static_base_uri: Option<String>,
+    honor_document_use_when: bool,
+    active_stylesheet_paths: Vec<PathBuf>,
+    xot: &mut Xot,
+) -> Result<Variables, ElementError> {
     strip_whitespace(&mut state.xot, &state.names, node);
     let mut top_context = Context::empty();
     for name in initial_static_variables.keys() {
@@ -687,6 +741,7 @@ pub(crate) fn static_evaluate_with_initial_variables_and_location(
         processor_xslt_version,
         processor_xpath_version,
         base_dir,
+        active_stylesheet_paths,
         Vec::new(),
         static_base_uri,
         honor_document_use_when,

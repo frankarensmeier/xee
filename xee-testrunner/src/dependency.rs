@@ -53,7 +53,7 @@ impl Dependency {
         let name_query = queries.one("local-name()", convert_string)?;
         let satisfied_query = queries.option("@satisfied/string()", convert_string)?;
         let type_query = queries.option("@type/string()", convert_string)?;
-        let value_query = queries.one("@value/string()", convert_string)?;
+        let value_query = queries.option("@value/string()", convert_string)?;
 
         let dependency_query = queries.many("dependency | dependencies/*", move |session, item| {
             let satisfied = satisfied_query.execute(session, item)?;
@@ -68,10 +68,11 @@ impl Dependency {
             } else {
                 true
             };
-            let type_ = type_query
+            let local_name = name_query.execute(session, item)?;
+            let type_ = type_query.execute(session, item)?.unwrap_or(local_name.clone());
+            let value = value_query
                 .execute(session, item)?
-                .unwrap_or_else(|| name_query.execute(session, item).unwrap());
-            let value = value_query.execute(session, item)?;
+                .unwrap_or_else(|| "true".to_string());
             let values = value.split(' ');
             Ok(values
                 .map(|value| Dependency {
@@ -266,6 +267,34 @@ mod tests {
                         satisfied: true,
                     },
                 ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_load_xslt_boolean_dependency_without_value() {
+        let xml = format!(
+            r#"
+<doc xmlns="{}">
+  <dependencies>
+    <recognize_id_as_uri_fragment/>
+  </dependencies>
+</doc>"#,
+            XSLT_TEST_NS
+        );
+        let context = LoadContext::new::<XsltLanguage>(PathBuf::new());
+        let dependencies = Dependencies::load_from_xml_with_context(&xml, &context).unwrap();
+
+        assert_eq!(
+            dependencies,
+            Dependencies {
+                dependencies: vec![Dependency {
+                    spec: DependencySpec {
+                        type_: "recognize_id_as_uri_fragment".to_string(),
+                        value: "true".to_string(),
+                    },
+                    satisfied: true,
+                }],
             }
         );
     }

@@ -586,6 +586,8 @@ pub enum Error {
     XTSE0110,
     /// Imported or included stylesheet module cannot be located or processed.
     XTSE0165,
+    /// Stylesheet module directly or indirectly includes or imports itself.
+    XTSE0180,
     /// Simplified stylesheet module is missing xsl:version on the outermost literal result element.
     XTSE0150,
     /// Pattern is not allowed in this XSLT version.

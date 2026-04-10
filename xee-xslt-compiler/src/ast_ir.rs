@@ -559,11 +559,8 @@ fn process_stylesheet_module(
                     StaticVariables::new(),
                 )?;
                 if active_paths.contains(&resolved_path) {
-                    return Err(error::Error::Unsupported(format!(
-                        "Circular import detected: '{}'",
-                        resolved_path.display()
-                    ))
-                    .into());
+                    return Err(error::Error::XTSE0180
+                        .with_ast_span((import.span.start..import.span.end).into()));
                 }
                 active_paths.push(resolved_path);
                 let mut imported_module_path = module_path.clone();
@@ -596,11 +593,8 @@ fn process_stylesheet_module(
                     in_scope_static_variables.clone(),
                 )?;
                 if active_paths.contains(&resolved_path) {
-                    return Err(error::Error::Unsupported(format!(
-                        "Circular include detected: '{}'",
-                        resolved_path.display()
-                    ))
-                    .into());
+                    return Err(error::Error::XTSE0180
+                        .with_ast_span((include.span.start..include.span.end).into()));
                 }
                 active_paths.push(resolved_path);
                 let (mut processed, included_static_variables) = process_stylesheet_module(

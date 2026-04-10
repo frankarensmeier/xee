@@ -3316,6 +3316,38 @@ fn test_evaluate_with_stylesheet_path_reports_xtse0150_for_missing_simplified_ve
 }
 
 #[test]
+fn test_evaluate_with_stylesheet_path_reports_xtse0180_for_self_include() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "xee-self-include-{}-{}",
+        std::process::id(),
+        unique
+    ));
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let stylesheet = r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:include href="self-include.xsl"/>
+  <xsl:template match="/">
+    <out/>
+  </xsl:template>
+</xsl:stylesheet>"#;
+    let stylesheet_path = temp_dir.join("self-include.xsl");
+    fs::write(&stylesheet_path, stylesheet).unwrap();
+
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_path(&mut xot, "<doc/>", stylesheet, &stylesheet_path)
+        .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XTSE0180);
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
 fn test_try_catches_dynamic_error() {
     let mut xot = Xot::new();
     let output = evaluate(
