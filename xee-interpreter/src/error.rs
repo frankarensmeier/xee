@@ -571,6 +571,12 @@ pub enum Error {
     /// It is a dynamic error if the picture string supplied to
     /// format-number is invalid.
     XTDE1310,
+    /// Duplicate result-document URI.
+    ///
+    /// It is a dynamic error if two result documents are written to the same URI.
+    XTDE1490,
+    /// Recovery not possible when rollback-output is disabled.
+    XTDE3530,
     /// Attribute not permitted on an XSLT element.
     ///
     /// It is a static error if an XSLT element has an attribute that is not
@@ -876,7 +882,7 @@ impl Error {
             _ => xot::xmlname::OwnedName::new(
                 self.code(),
                 "http://www.w3.org/2005/xqt-errors".to_string(),
-                "".to_string(),
+                "err".to_string(),
             ),
         }
     }

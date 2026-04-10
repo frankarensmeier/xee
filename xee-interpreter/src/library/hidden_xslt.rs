@@ -12,11 +12,13 @@ use xot::Xot;
 
 use crate::atomic;
 use crate::error;
+use crate::function;
 use crate::function::StaticFunctionDescription;
 use crate::interpreter::Interpreter;
 use crate::library::numeric;
 use crate::sequence;
 use crate::wrap_xpath_fn;
+use crate::xml::DocumentsError;
 
 // TODO: Things should really be hidden from XPath, and not be in the fn prefix
 
@@ -66,6 +68,127 @@ fn group_by_first(
     }
 
     Ok(result.into())
+}
+
+#[xpath_fn("fn:xslt-try($body as function(*), $catch_patterns as array(*), $catch_handlers as array(*), $rollback_output as xs:string, $nonrecoverable_on_error as xs:string) as item()*")]
+fn xslt_try(
+    interpreter: &mut Interpreter,
+    body: sequence::Item,
+    catch_patterns: function::Array,
+    catch_handlers: function::Array,
+    rollback_output: &str,
+    nonrecoverable_on_error: &str,
+) -> error::Result<sequence::Sequence> {
+    if catch_patterns.len() != catch_handlers.len() {
+        return Err(error::Error::Unsupported(
+            "Internal bug: xsl:try catch metadata mismatch".to_string(),
+        ));
+    }
+
+    let body = body.to_function()?;
+    let rollback_output = matches!(rollback_output, "yes" | "true" | "1");
+    let nonrecoverable_on_error = matches!(nonrecoverable_on_error, "yes" | "true" | "1");
+    match interpreter.call_function_with_arguments_catching_spanned_with_rollback(
+        &body,
+        &[],
+        rollback_output,
+    ) {
+        Ok(result) => Ok(result),
+        Err(caught_error) => {
+            if interpreter.has_resolving_global_variable() {
+                return Err(caught_error.error);
+            }
+            if nonrecoverable_on_error {
+                return Err(error::Error::XTDE3530);
+            }
+
+            let (module_uri, line_number, column_number) =
+                xslt_try_error_location(interpreter, &caught_error);
+
+            let handler_arguments = vec![
+                sequence::Sequence::from(vec![sequence::Item::Atomic(
+                    caught_error.error.code_qname().into(),
+                )]),
+                sequence::Sequence::from(caught_error.error.message().to_string()),
+                sequence::Sequence::default(),
+                sequence::Sequence::from(module_uri),
+                sequence::Sequence::from(line_number),
+                sequence::Sequence::from(column_number),
+            ];
+
+            for (pattern_sequence, handler_sequence) in
+                catch_patterns.iter().zip(catch_handlers.iter())
+            {
+                let pattern = pattern_sequence
+                    .clone()
+                    .one()?
+                    .to_atomic()?
+                    .cast_to_string()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                if !xslt_try_matches(&pattern, &caught_error.error) {
+                    continue;
+                }
+
+                let handler = handler_sequence.clone().one()?.to_function()?;
+                return interpreter
+                    .call_function_with_arguments_catching_spanned(&handler, &handler_arguments)
+                    .map_err(|error| error.error);
+            }
+
+            Err(caught_error.error)
+        }
+    }
+}
+
+fn xslt_try_error_location(
+    interpreter: &Interpreter,
+    caught_error: &error::SpannedError,
+) -> (String, i64, i64) {
+    let program = interpreter.runnable().program();
+    let module_uri = program
+        .static_context()
+        .static_base_uri()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    let (line_number, column_number) = caught_error
+        .span
+        .and_then(|span| program.source_location(span))
+        .map(|(line, column)| (line as i64, column as i64))
+        .unwrap_or((0, 0));
+
+    (module_uri, line_number, column_number)
+}
+
+fn xslt_try_matches(pattern: &str, caught_error: &error::Error) -> bool {
+    let error_qname = caught_error.code_qname();
+    pattern
+        .split_ascii_whitespace()
+        .any(|token| xslt_try_token_matches(token, &error_qname))
+}
+
+fn xslt_try_token_matches(token: &str, error_qname: &OwnedName) -> bool {
+    if token == "*" {
+        return true;
+    }
+
+    if let Some(rest) = token.strip_prefix("Q{") {
+        let Some((namespace, local_name)) = rest.split_once('}') else {
+            return false;
+        };
+        return error_qname.namespace() == namespace && error_qname.local_name() == local_name;
+    }
+
+    if let Some((prefix, local_name)) = token.rsplit_once(':') {
+        if prefix == "*" {
+            return error_qname.local_name() == local_name;
+        }
+
+        return false;
+    }
+
+    error_qname.namespace().is_empty() && error_qname.local_name() == token
 }
 
 #[xpath_fn(
@@ -141,7 +264,10 @@ fn store_result_document(
         let mut documents = documents.borrow_mut();
         documents
             .add_root(Some(uri.as_ref()), document)
-            .map_err(|_| error::Error::FOXT0002)?;
+            .map_err(|error| match error {
+                DocumentsError::DuplicateUri(_) => error::Error::XTDE1490,
+                DocumentsError::Parse(_) => error::Error::FOXT0002,
+            })?;
     }
 
     context.store_secondary_result_document(
@@ -372,6 +498,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
         wrap_xpath_fn!(group_by_first),
+        wrap_xpath_fn!(xslt_try),
         wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(format_number_lexical2),
         wrap_xpath_fn!(format_number_lexical3),

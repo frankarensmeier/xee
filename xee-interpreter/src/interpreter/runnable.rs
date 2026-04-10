@@ -106,9 +106,18 @@ impl<'a> Runnable<'a> {
         let function: Function =
             InlineFunctionData::new(named_template.function_id, Vec::new()).into();
         let mut interpreter = Interpreter::new(self, xot);
-        let arguments = vec![None; self.program.function_info(&function).arity()];
+        let empty_params = crate::function::Map::new(Vec::new()).unwrap();
+        let context_arguments = if let Some(context_item) = self.dynamic_context.context_item() {
+            [
+                Some(sequence::Sequence::from(context_item.clone())),
+                Some(sequence::Sequence::from(1_i64)),
+                Some(sequence::Sequence::from(1_i64)),
+            ]
+        } else {
+            [None, None, None]
+        };
         interpreter
-            .call_function_with_optional_arguments(&function, &arguments)
+            .call_template_with_params(&function, context_arguments, &empty_params, &empty_params)
             .map_err(|error| SpannedError {
                 error,
                 span: Some(self.program.span().into()),

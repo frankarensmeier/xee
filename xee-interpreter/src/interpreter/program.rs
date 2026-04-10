@@ -1,6 +1,7 @@
 use crate::context;
 use crate::declaration::Declarations;
 use crate::function;
+use crate::span::SourceSpan;
 use xee_name::Name;
 use xee_xpath_ast::ast::Span;
 
@@ -9,6 +10,7 @@ use super::Runnable;
 #[derive(Debug)]
 pub struct Program {
     span: Span,
+    source: Option<String>,
     pub functions: Vec<function::InlineFunction>,
     pub declarations: Declarations,
     static_context: context::StaticContext,
@@ -20,6 +22,7 @@ impl Program {
     pub fn new(static_context: context::StaticContext, span: Span) -> Self {
         Program {
             span,
+            source: None,
             functions: Vec::new(),
             declarations: Declarations::new(),
             static_context,
@@ -38,6 +41,34 @@ impl Program {
 
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn set_source(&mut self, source: String) {
+        self.source = Some(source);
+    }
+
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+
+    pub fn source_location(&self, span: SourceSpan) -> Option<(usize, usize)> {
+        let source = self.source()?;
+        let offset = span.range().start.min(source.len());
+        let mut line = 1usize;
+        let mut line_start = 0usize;
+
+        for (index, ch) in source.char_indices() {
+            if index >= offset {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                line_start = index + ch.len_utf8();
+            }
+        }
+
+        let column = source[line_start..offset].chars().count() + 1;
+        Some((line, column))
     }
 
     pub(crate) fn inline_function(

@@ -3316,6 +3316,348 @@ fn test_evaluate_with_stylesheet_path_reports_xtse0150_for_missing_simplified_ve
 }
 
 #[test]
+fn test_try_catches_dynamic_error() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:try select="1 div 0">
+        <xsl:catch select="'Infinity'"/>
+      </xsl:try>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>Infinity</out>");
+}
+
+#[test]
+fn test_try_matches_specific_error_code() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:err="http://www.w3.org/2005/xqt-errors"
+                exclude-result-prefixes="err">
+  <xsl:template match="/">
+    <out>
+      <xsl:try select="1 div 0">
+        <xsl:catch errors="err:FOAR9876" select="'nope'"/>
+        <xsl:catch errors="err:FOAR0001" select="'Infinity'"/>
+        <xsl:catch errors="*" select="'wrong-catch'"/>
+      </xsl:try>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>Infinity</out>");
+}
+
+#[test]
+fn test_try_does_not_apply_xpath_default_namespace_to_error_qnames() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:err="http://www.w3.org/2005/xqt-errors"
+                exclude-result-prefixes="err">
+  <xsl:template match="/" xpath-default-namespace="http://www.w3.org/2005/xqt-errors">
+    <out>
+      <xsl:try select="1 div 0">
+        <xsl:catch errors="FOAR0001" select="'wrong-catch'"/>
+        <xsl:catch errors="*" select="'OK'"/>
+      </xsl:try>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>OK</out>");
+}
+
+#[test]
+fn test_try_exposes_error_variables_in_catch() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:err="http://www.w3.org/2005/xqt-errors"
+                exclude-result-prefixes="err">
+  <xsl:template match="/">
+    <xsl:try select="1 div 0">
+      <xsl:catch>
+        <out code="{local-name-from-QName($err:code)}"
+             described="{contains(lower-case($err:description), 'zero')}"
+             line="{$err:line-number}"
+             column="{$err:column-number}"/>
+      </xsl:catch>
+    </xsl:try>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+      "<out code=\"FOAR0001\" described=\"true\" line=\"6\" column=\"22\"/>"
+    );
+}
+
+#[test]
+fn test_try_element_available_respects_processor_xslt_version() {
+    let mut xot = Xot::new();
+    let output = evaluate_with_processor_xslt_version(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <out try="{element-available('xsl:try')}" catch="{element-available('xsl:catch')}"/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        2,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out try=\"false\" catch=\"false\"/>");
+}
+
+#[test]
+fn test_try_uses_fallback_in_xslt20_processor_forward_compatibility_mode() {
+    let mut xot = Xot::new();
+    let output = evaluate_with_processor_xslt_version(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:try>
+        <xsl:sequence select="2+2"/>
+        <xsl:catch errors="*"/>
+        <xsl:fallback>
+          <xsl:sequence select="2+3"/>
+        </xsl:fallback>
+      </xsl:try>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        2,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>5</out>");
+}
+
+#[test]
+fn test_try_uses_fallback_when_instruction_version_exceeds_processor_version() {
+    let mut xot = Xot::new();
+    let output = evaluate_with_processor_xslt_version(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:try version="3.0">
+        <xsl:sequence select="2+2"/>
+        <xsl:catch errors="*"/>
+        <xsl:fallback>
+          <xsl:sequence select="2+3"/>
+        </xsl:fallback>
+      </xsl:try>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+        2,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>5</out>");
+}
+
+#[test]
+fn test_try_does_not_catch_global_variable_errors() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:param name="p" select="0"/>
+  <xsl:variable name="q" select="22 div $p"/>
+
+  <xsl:template match="/">
+    <output>
+      <xsl:try>
+        <out><xsl:value-of select="$q"/></out>
+        <xsl:catch>
+          <caught/>
+        </xsl:catch>
+      </xsl:try>
+    </output>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::FOAR0001);
+}
+
+  #[test]
+  fn test_try_vendor_002_exposes_module_and_line_information() {
+    let mut xot = Xot::new();
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/try/try-002.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "main",
+    )
+    .unwrap();
+    let actual = xml(&xot, output);
+
+    assert!(actual.contains("code=\"err:FOAR0001\""), "{actual}");
+    assert!(actual.contains("module=\"try-002.xsl\""), "{actual}");
+    assert!(actual.contains("line=\"17\""), "{actual}");
+    assert!(actual.to_lowercase().contains("zero"), "{actual}");
+  }
+
+  #[test]
+  fn test_try_vendor_018_exposes_module_line_and_column_information() {
+    let mut xot = Xot::new();
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/try/try-018.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "main",
+    )
+    .unwrap();
+    let actual = xml(&xot, output);
+
+    assert!(actual.contains("local=\"FODC0002\""), "{actual}");
+    assert!(actual.contains("try-018-rubbish.xml"), "{actual}");
+    assert!(actual.contains("<module>file://"), "{actual}");
+    assert!(actual.contains("try-018.xsl</module>"), "{actual}");
+    assert!(actual.contains("<line>11</line>"), "{actual}");
+  }
+
+  #[test]
+  fn test_try_vendor_031_local_variable_error_is_not_caught() {
+    let mut xot = Xot::new();
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/try/try-031.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let error = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      r#"<root><n/><n/><n/></root>"#,
+      &xslt,
+      &stylesheet_path,
+      "main",
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::FOAR0001);
+  }
+
+  #[test]
+  fn test_try_vendor_021_allows_result_document_validation_strip() {
+    let mut xot = Xot::new();
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/try/try-021.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "main",
+    )
+    .unwrap();
+    let actual = xml(&xot, output);
+
+    assert!(actual.contains("code=\"err:XTDE1490\""), "{actual}");
+    assert!(actual.contains("module=\"try-021.xsl\""), "{actual}");
+  }
+
+#[test]
+fn test_try_catches_sequence_constructor_error() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:err="http://www.w3.org/2005/xqt-errors"
+                exclude-result-prefixes="err">
+  <xsl:template match="/">
+    <out>
+      <xsl:try>
+        <xsl:value-of select="1 div 0"/>
+        <xsl:catch errors="err:FOAR0001">
+          <xsl:text>Infinity</xsl:text>
+        </xsl:catch>
+      </xsl:try>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>Infinity</out>");
+}
+
+#[test]
+fn test_try_variables_are_not_visible_in_catch() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:err="http://www.w3.org/2005/xqt-errors"
+                exclude-result-prefixes="err">
+  <xsl:template match="/">
+    <out>
+      <xsl:try>
+        <xsl:variable name="pi" select="3.14159"/>
+        <xsl:attribute name="value" select="1 div 0"/>
+        <xsl:catch errors="err:FOAR0001">
+          <xsl:attribute name="value" select="$pi"/>
+        </xsl:catch>
+      </xsl:try>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.value(), error::Error::XPST0008);
+}
+
+#[test]
 fn test_imported_decimal_format_merges_across_import_precedence() {
     let temp_dir = unique_temp_dir("format-number-import-precedence");
     let stylesheet_path = temp_dir.join("main.xsl");

@@ -162,35 +162,39 @@ impl<'a> Content<'a> {
 }
 
 pub(crate) fn sequence_constructor() -> impl NodeParser<ast::SequenceConstructor> {
-    multi(|content| {
-        let node = content.node;
-        let state = &content.state;
-        let context = &content.context;
-        match state.xot.value(node) {
-            Value::Text(text) => {
-                let span = state.span(node).ok_or(ElementError::Internal)?;
-                let parser_context = content.parser_context();
-                if context.expand_text {
-                    let namespaces = context.literal_namespaces(state);
-                    text_value_template(text.get(), span, &parser_context, namespaces)
-                } else {
-                    Ok(vec![ast::SequenceConstructorItem::Content(
-                        ast::Content::Text(text.get().to_string()),
-                    )])
-                }
-            }
-            Value::Element(element) => content.parse_element(element, |attributes| {
-                Ok(vec![
-                    ast::SequenceConstructorItem::parse_sequence_constructor_item(attributes)?,
-                ])
-            }),
-            _ => Err(ElementError::Unexpected {
-                // TODO: get span right
-                span: Span::new(0, 0),
-            }),
-        }
-    })
+    multi(parse_sequence_constructor_node)
     .flatten()
+}
+
+pub(crate) fn parse_sequence_constructor_node(
+    content: Content,
+) -> Result<Vec<ast::SequenceConstructorItem>, ElementError> {
+    let node = content.node;
+    let state = &content.state;
+    let context = &content.context;
+    match state.xot.value(node) {
+        Value::Text(text) => {
+            let span = state.span(node).ok_or(ElementError::Internal)?;
+            let parser_context = content.parser_context();
+            if context.expand_text {
+                let namespaces = context.literal_namespaces(state);
+                text_value_template(text.get(), span, &parser_context, namespaces)
+            } else {
+                Ok(vec![ast::SequenceConstructorItem::Content(
+                    ast::Content::Text(text.get().to_string()),
+                )])
+            }
+        }
+        Value::Element(element) => content.parse_element(element, |attributes| {
+            Ok(vec![
+                ast::SequenceConstructorItem::parse_sequence_constructor_item(attributes)?,
+            ])
+        }),
+        _ => Err(ElementError::Unexpected {
+            // TODO: get span right
+            span: Span::new(0, 0),
+        }),
+    }
 }
 
 fn declarations() -> impl NodeParser<ast::Declarations> {

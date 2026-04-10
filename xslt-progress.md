@@ -4,6 +4,45 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 14:57 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the supported `xsl:try` conformance slice and leave the worktree in checkpointable shape.
+- Focused `xsl:try` compiler regressions are green at `14 passed / 0 failed`.
+- The vendor `try` bucket is green for the supported slice: `Total: 42 Supported: 34 Passed: 34 Failed: 0 Error: 0 WrongE: 0 Unsupported: 8`.
+- The remaining `8` cases in the vendor bucket are classified as unsupported rather than failing, because they depend on out-of-scope features.
+
+### Progress made
+
+- Added parsing and lowering support for `xsl:try` / `xsl:catch`, including catch-pattern normalization and catch-handler closure generation.
+- Added `err:*` catch-variable support with real module, line, and column reporting from stylesheet source spans.
+- Implemented the `xsl:try` forward-compatibility slice needed by the vendor tests, including version-aware `element-available()` and `xsl:fallback` behavior.
+- Ensured global-variable evaluation failures are not intercepted by `xsl:catch`.
+- Fixed named-template execution to inherit dynamic context, which was required for the remaining `current()`-adjacent vendor case.
+- Implemented XSLT-layer expression-entry rewriting for `current()` so it captures the entry focus instead of drifting with nested evaluation context.
+- Allowed `xsl:result-document validation="strip"` in the supported slice, mapped duplicate result-document URIs to `XTDE1490`, and preserved instruction spans for correct error location reporting.
+- Added support in the testrunner for XSLT-style dependency metadata under `<dependencies>`, which reclassified schema-aware `try` cases as unsupported instead of active failures.
+- Added minimal `xsl:source-document` lowering for the supported `try` cases and rollback-output handling sufficient for `try-033` and `try-034`.
+- Removed the generic XPath-compiler `fn:current()` shortcut before checkpointing so the final semantics stay XSLT-specific rather than leaking a nonstandard XPath behavior into the shared compiler.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_try_ -- --nocapture`
+- `cargo test -p xee-testrunner dependency::tests:: -- --nocapture`
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/try/_try-test-set.xml`
+
+### Obstacles seen
+
+#### `current()` looked fixed twice, but only one layer was semantically correct
+
+- Symptoms:
+  - the remaining `try-031` failure initially looked like an `xsl:try` bug, but the actual problem was XSLT `current()` behavior under named-template execution and nested expression evaluation.
+- Root cause:
+  - a generic XPath-level `fn:current()` shortcut was attractive as a quick fix, but it encoded the wrong semantics. In XSLT, `current()` must bind to the expression-entry focus, not simply whatever the generic XPath compiler sees as the ambient context item.
+- Resolution:
+  - capture `current()` at the XSLT expression boundary, fix named-template context inheritance, and drop the redundant generic XPath special case before committing.
+
 ## 2026-04-10 12:42 CEST
 
 ### Status snapshot

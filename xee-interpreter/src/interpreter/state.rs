@@ -13,10 +13,12 @@ use crate::stack;
 
 const FRAMES_MAX: usize = 64;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct StateCheckpoint {
     stack_len: usize,
     build_stack_len: usize,
+    build_item_lens: Vec<usize>,
+    mutation_count: usize,
     frames_len: usize,
 }
 
@@ -46,6 +48,7 @@ struct RegexKey {
 pub struct State<'a> {
     stack: Vec<stack::Value>,
     build_stack: Vec<BuildStackEntry>,
+    mutation_count: usize,
     frames: ArrayVec<Frame, FRAMES_MAX>,
     regex_cache: RefCell<HashMap<RegexKey, Rc<regexml::Regex>>>,
     pub(crate) xot: &'a mut Xot,
@@ -93,6 +96,7 @@ impl<'a> State<'a> {
         Self {
             stack: vec![],
             build_stack: vec![],
+            mutation_count: 0,
             frames: ArrayVec::new(),
             regex_cache: RefCell::new(HashMap::new()),
             xot,
@@ -187,16 +191,49 @@ impl<'a> State<'a> {
         StateCheckpoint {
             stack_len: self.stack.len(),
             build_stack_len: self.build_stack.len(),
+            build_item_lens: self
+                .build_stack
+                .iter()
+                .map(|entry| entry.item.build_stack.len())
+                .collect(),
+            mutation_count: self.mutation_count,
             frames_len: self.frames.len(),
         }
     }
 
     pub(crate) fn restore(&mut self, checkpoint: StateCheckpoint) {
+        for (entry, len) in self
+            .build_stack
+            .iter_mut()
+            .zip(checkpoint.build_item_lens.iter().copied())
+        {
+            entry.item.build_stack.truncate(len);
+        }
         self.stack.truncate(checkpoint.stack_len);
         self.build_stack.truncate(checkpoint.build_stack_len);
+        self.mutation_count = checkpoint.mutation_count;
         while self.frames.len() > checkpoint.frames_len {
             self.frames.pop();
         }
+    }
+
+    pub(crate) fn output_changed_since(&self, checkpoint: &StateCheckpoint) -> bool {
+        if self.mutation_count != checkpoint.mutation_count {
+            return true;
+        }
+
+        if self.build_stack.len() != checkpoint.build_stack_len {
+            return true;
+        }
+
+        self.build_stack
+            .iter()
+            .zip(checkpoint.build_item_lens.iter())
+            .any(|(entry, saved_len)| entry.item.build_stack.len() != *saved_len)
+    }
+
+    pub(crate) fn record_output_mutation(&mut self) {
+        self.mutation_count += 1;
     }
 
     pub(crate) fn push_frame(

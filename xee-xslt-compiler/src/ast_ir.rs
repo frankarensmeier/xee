@@ -297,6 +297,7 @@ fn augment_static_context_with_decimal_formats(
 }
 
 fn compile_preprocessed_declarations(
+    xslt: &str,
     declarations: Vec<PreprocessedDeclaration>,
     mut static_context: StaticContext,
     initial_mode: ast::ApplyTemplatesModeValue,
@@ -304,7 +305,9 @@ fn compile_preprocessed_declarations(
     augment_static_context_with_decimal_formats(&declarations, &mut static_context)?;
     let mut ir_converter = IrConverter::new(&static_context, initial_mode);
     let declarations = ir_converter.transform(&declarations)?;
-    compile_xslt(declarations, static_context)
+    let mut program = compile_xslt(declarations, static_context)?;
+    program.set_source(xslt.to_string());
+    Ok(program)
 }
 
 pub fn parse(
@@ -373,7 +376,7 @@ pub fn parse_with_base_dir_and_initial_mode(
     )?;
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
-    compile_preprocessed_declarations(declarations, static_context, initial_mode)
+    compile_preprocessed_declarations(xslt, declarations, static_context, initial_mode)
 }
 
 fn augment_static_context_with_stylesheet_namespaces(
@@ -2094,9 +2097,11 @@ impl<'a> IrConverter<'a> {
             Message(message) => self.message(message),
             ResultDocument(result_document) => self.result_document(result_document),
             Sequence(sequence) => self.sequence(sequence),
+            SourceDocument(source_document) => self.source_document(source_document),
             Document(document) => self.document(document),
             Element(element) => self.element(element),
             Text(text) => self.text(text),
+            Try(try_) => self.try_(try_),
             Attribute(attribute) => self.attribute(attribute),
             Namespace(namespace) => self.namespace(namespace),
             Comment(comment) => self.comment(comment),
@@ -2142,7 +2147,10 @@ impl<'a> IrConverter<'a> {
         &mut self,
         result_document: &ast::ResultDocument,
     ) -> error::SpannedResult<Bindings> {
-        if result_document.validation.is_some()
+        if matches!(
+            result_document.validation,
+            Some(ast::Validation::Strict | ast::Validation::Lax | ast::Validation::Preserve)
+        )
             || result_document.type_.is_some()
             || result_document.allow_duplicate_names.is_some()
             || result_document.build_tree.is_some()
@@ -2437,7 +2445,10 @@ impl<'a> IrConverter<'a> {
                 2,
                 vec![href_atom, content_atom],
             );
-            return Ok(bindings.bind_expr_no_span(&mut self.variables, expr));
+            return Ok(bindings.bind_expr(
+                &mut self.variables,
+                Spanned::new(expr, (result_document.span.start..result_document.span.end).into()),
+            ));
         }
 
         let expr = self.static_function_call_expr(
@@ -2460,9 +2471,10 @@ impl<'a> IrConverter<'a> {
                 version_atom,
             ],
         );
-        Ok(content_bindings
-            .concat(html_version_bindings)
-            .bind_expr_no_span(&mut self.variables, expr))
+        Ok(content_bindings.concat(html_version_bindings).bind_expr(
+            &mut self.variables,
+            Spanned::new(expr, (result_document.span.start..result_document.span.end).into()),
+        ))
     }
 
     fn sequence_constructor_content(
@@ -3041,6 +3053,204 @@ impl<'a> IrConverter<'a> {
         });
 
         Ok(param_bindings.bind_expr_no_span(&mut self.variables, call_template_expr))
+    }
+
+    fn zero_arg_closure(&mut self, body: Bindings) -> (ir::AtomS, Bindings) {
+        self.closure(Vec::new(), body)
+    }
+
+    fn closure(&mut self, params: Vec<ir::Param>, body: Bindings) -> (ir::AtomS, Bindings) {
+        let function_definition = ir::FunctionDefinition {
+            params,
+            return_type: None,
+            body: Box::new(body.expr()),
+        };
+        let function_expr = Bindings::empty().bind_expr_no_span(
+            &mut self.variables,
+            ir::Expr::FunctionDefinition(function_definition),
+        );
+        function_expr.atom_bindings()
+    }
+
+    fn catch_error_params() -> Vec<ir::Param> {
+        [
+            "code",
+            "description",
+            "value",
+            "module",
+            "line-number",
+            "column-number",
+        ]
+        .into_iter()
+        .map(|name| ir::Param {
+            name: ir::Name::new(name.to_string()),
+            type_: None,
+            default: None,
+            required: false,
+            original_name: None,
+            tunnel: false,
+        })
+        .collect()
+    }
+
+    fn catch_error_variable_names() -> Vec<Name> {
+        [
+            "code",
+            "description",
+            "value",
+            "module",
+            "line-number",
+            "column-number",
+        ]
+        .into_iter()
+        .map(|name| {
+            Name::new(
+                name.to_string(),
+                "http://www.w3.org/2005/xqt-errors".to_string(),
+                "err".to_string(),
+            )
+        })
+        .collect()
+    }
+
+    fn catch_handler_closure(
+        &mut self,
+        catch: &ast::Catch,
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        let params = Self::catch_error_params();
+        let variable_names = Self::catch_error_variable_names();
+
+        self.variables.push_scope();
+        for (variable_name, param) in variable_names.into_iter().zip(params.iter()) {
+            self.variables
+                .insert_var_name_in_current_scope(variable_name, param.name.clone());
+        }
+        let body = self.select_or_sequence_constructor(catch);
+        self.variables.pop_scope();
+
+        Ok(self.closure(params, body?))
+    }
+
+    fn square_array_atom(&mut self, atoms: Vec<ir::AtomS>) -> (ir::AtomS, Bindings) {
+        let array_expr = Bindings::empty().bind_expr_no_span(
+            &mut self.variables,
+            ir::Expr::ArrayConstructor(ir::ArrayConstructor::Square(atoms)),
+        );
+        array_expr.atom_bindings()
+    }
+
+    fn try_fallback_bindings(&mut self, try_: &ast::Try) -> error::SpannedResult<Bindings> {
+        let fallbacks = try_
+            .catches
+            .iter()
+            .filter_map(|catch_or_fallback| match catch_or_fallback {
+                ast::TryCatchOrFallback::Fallback(fallback) => Some(fallback),
+                ast::TryCatchOrFallback::Catch(_) => None,
+            })
+            .flat_map(|fallback| fallback.sequence_constructor.iter().cloned())
+            .collect::<Vec<_>>();
+
+        self.sequence_constructor(&fallbacks)
+    }
+
+    fn try_has_prior_output_before_source_document(&self, try_: &ast::Try) -> bool {
+        let mut saw_prior_output = false;
+        for item in &try_.sequence_constructor {
+            match item {
+                ast::SequenceConstructorItem::Instruction(
+                    ast::SequenceConstructorInstruction::SourceDocument(_),
+                ) => return saw_prior_output,
+                ast::SequenceConstructorItem::Instruction(
+                    ast::SequenceConstructorInstruction::Variable(_),
+                ) => {}
+                _ => saw_prior_output = true,
+            }
+        }
+        false
+    }
+
+    fn try_(&mut self, try_: &ast::Try) -> error::SpannedResult<Bindings> {
+        let processor_xslt_version = self.static_context.processor_xslt_version().unwrap_or(3);
+        if processor_xslt_version < 3 {
+            if try_.xslt_version > processor_xslt_version {
+                return self.try_fallback_bindings(try_);
+            }
+            return Err(error::Error::XTSE0010.with_ast_span(
+                (try_.span.start..try_.span.end).into(),
+            ));
+        }
+
+        let try_body = self.select_or_sequence_constructor(try_)?;
+        let (body_atom, body_bindings) = self.zero_arg_closure(try_body);
+        let mut bindings = body_bindings;
+        let mut handler_atoms = Vec::new();
+        let mut pattern_atoms = Vec::new();
+
+        let catches = std::iter::once(&try_.catch).chain(try_.catches.iter().filter_map(
+            |catch_or_fallback| match catch_or_fallback {
+                ast::TryCatchOrFallback::Catch(catch) => Some(catch),
+                ast::TryCatchOrFallback::Fallback(_) => None,
+            },
+        ));
+
+        for catch in catches {
+            let (handler_atom, handler_bindings) = self.catch_handler_closure(catch)?;
+            bindings = bindings.concat(handler_bindings);
+            handler_atoms.push(handler_atom);
+
+            let pattern = catch
+                .errors
+                .as_ref()
+                .filter(|errors| !errors.is_empty())
+                .map(|errors| errors.join(" "))
+                .unwrap_or_else(|| "*".to_string());
+            pattern_atoms.push(Spanned::new(
+                ir::Atom::Const(ir::Const::String(pattern)),
+                (0..0).into(),
+            ));
+        }
+
+        let (patterns_atom, pattern_bindings) = self.square_array_atom(pattern_atoms);
+        let (handlers_atom, handler_bindings) = self.square_array_atom(handler_atoms);
+        bindings = bindings.concat(pattern_bindings).concat(handler_bindings);
+        let rollback_output_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(
+                if try_.rollback_output.unwrap_or(true) {
+                    "yes"
+                } else {
+                    "no"
+                }
+                .to_string(),
+            )),
+            (0..0).into(),
+        );
+        let nonrecoverable_on_error_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(
+                if !try_.rollback_output.unwrap_or(true)
+                    && self.try_has_prior_output_before_source_document(try_)
+                {
+                    "yes"
+                } else {
+                    "no"
+                }
+                .to_string(),
+            )),
+            (0..0).into(),
+        );
+
+        let expr = self.static_function_call_expr(
+            "xslt-try",
+            FN_NAMESPACE,
+            5,
+            vec![
+                body_atom,
+                patterns_atom,
+                handlers_atom,
+                rollback_output_atom,
+                nonrecoverable_on_error_atom,
+            ],
+        );
+        Ok(bindings.bind_expr_no_span(&mut self.variables, expr))
     }
 
     fn select_or_sequence_constructor(
@@ -3859,6 +4069,45 @@ impl<'a> IrConverter<'a> {
         Ok(bindings.concat(sequence_constructor_bindings))
     }
 
+    fn source_document(
+        &mut self,
+        source_document: &ast::SourceDocument,
+    ) -> error::SpannedResult<Bindings> {
+        if source_document.streamable
+            || source_document.use_accumulators.is_some()
+            || source_document.validation.is_some()
+            || source_document.type_.is_some()
+        {
+            return Err(error::Error::Unsupported(format!(
+                "Instruction not supported: {:?}",
+                source_document
+            ))
+            .into());
+        }
+
+        let (href_atom, href_bindings) = self.attribute_value_template(&source_document.href)?.atom_bindings();
+        let load_expr = self.static_function_call_expr("doc", FN_NAMESPACE, 1, vec![href_atom]);
+        let load_bindings = href_bindings.bind_expr(
+            &mut self.variables,
+            Spanned::new(load_expr, (source_document.span.start..source_document.span.end).into()),
+        );
+        let (document_atom, bindings) = load_bindings.atom_bindings();
+
+        let context_names = self.variables.push_context();
+        let return_bindings = self.sequence_constructor(&source_document.sequence_constructor)?;
+        self.variables.pop_context();
+        let expr = ir::Expr::Map(ir::Map {
+            context_names,
+            var_atom: document_atom,
+            return_expr: Box::new(return_bindings.expr()),
+        });
+
+        Ok(bindings.bind_expr(
+            &mut self.variables,
+            Spanned::new(expr, (source_document.span.start..source_document.span.end).into()),
+        ))
+    }
+
     fn text(&mut self, text: &ast::Text) -> error::SpannedResult<Bindings> {
         let (atom, bindings) = self
             .attribute_value_template(&text.content)?
@@ -3986,7 +4235,250 @@ impl<'a> IrConverter<'a> {
             let atom = Spanned::new(ir::Atom::Const(ir::Const::String(base_uri)), (0..0).into());
             return Ok(Bindings::empty().bind_expr_no_span(&mut self.variables, ir::Expr::Atom(atom)));
         }
-        self.xpath(&expression.xpath.0, &expression.namespaces)
+        let mut rewritten_xpath = expression.xpath.0.clone();
+        self.offset_xpath_spans_expr(&mut rewritten_xpath, expression.span.start);
+        let current_focus = self.bind_current_focus_variable(&mut rewritten_xpath);
+        self.rewrite_user_function_references_expr(&mut rewritten_xpath, &expression.namespaces);
+        let static_context = self
+            .current_static_context()
+            .clone_with_static_base_uri(
+                self.current_static_context()
+                    .static_base_uri()
+                    .map(ToOwned::to_owned),
+            );
+        let mut ir_converter =
+            xee_xpath_compiler::IrConverter::new(&mut self.variables, &static_context);
+        let bindings = ir_converter.expr(&rewritten_xpath);
+        let current_focus = current_focus?;
+        if let Some((_, current_name)) = &current_focus {
+            self.variables.remove_var_name_in_current_scope(current_name);
+        }
+        let bindings = bindings?;
+        Ok(match current_focus {
+            Some((current_bindings, _)) => current_bindings.concat(bindings),
+            None => bindings,
+        })
+    }
+
+    fn bind_current_focus_variable(
+        &mut self,
+        expr: &mut xpath_ast::ExprS,
+    ) -> error::SpannedResult<Option<(Bindings, Name)>> {
+        let current_name = Name::new(
+            "__xee_current_focus".to_string(),
+            "urn:xee:internal".to_string(),
+            String::new(),
+        );
+        if !self.rewrite_current_focus_expr(expr, &current_name) {
+            return Ok(None);
+        }
+
+        let Some(context_names) = self.variables.current_context_names() else {
+            return Ok(None);
+        };
+
+        let ir_name = self.variables.new_name();
+        let binding = xee_ir::Binding::new(
+            ir_name.clone(),
+            ir::Expr::Atom(Spanned::new(
+                ir::Atom::Variable(context_names.item),
+                (0..0).into(),
+            )),
+            (0..0).into(),
+        );
+        self.variables
+            .insert_var_name_in_current_scope(current_name.clone(), ir_name);
+        Ok(Some((Bindings::new(binding), current_name)))
+    }
+
+    fn rewrite_current_focus_expr(&self, expr: &mut xpath_ast::ExprS, current_name: &Name) -> bool {
+        let mut rewritten = false;
+        for expr_single in &mut expr.value.0 {
+            rewritten |= self.rewrite_current_focus_expr_single(expr_single, current_name);
+        }
+        rewritten
+    }
+
+    fn rewrite_current_focus_expr_or_empty(
+        &self,
+        expr: &mut xpath_ast::ExprOrEmptyS,
+        current_name: &Name,
+    ) -> bool {
+        let Some(expr_value) = &mut expr.value else {
+            return false;
+        };
+        let mut rewritten = false;
+        for expr_single in &mut expr_value.0 {
+            rewritten |= self.rewrite_current_focus_expr_single(expr_single, current_name);
+        }
+        rewritten
+    }
+
+    fn rewrite_current_focus_expr_single(
+        &self,
+        expr: &mut xpath_ast::ExprSingleS,
+        current_name: &Name,
+    ) -> bool {
+        match &mut expr.value {
+            xpath_ast::ExprSingle::Path(path_expr) => {
+                self.rewrite_current_focus_path_expr(path_expr, current_name)
+            }
+            xpath_ast::ExprSingle::Apply(apply_expr) => {
+                let mut rewritten =
+                    self.rewrite_current_focus_path_expr(&mut apply_expr.path_expr, current_name);
+                if let xpath_ast::ApplyOperator::SimpleMap(path_exprs) = &mut apply_expr.operator {
+                    for path_expr in path_exprs {
+                        rewritten |= self.rewrite_current_focus_path_expr(path_expr, current_name);
+                    }
+                }
+                rewritten
+            }
+            xpath_ast::ExprSingle::Let(let_expr) => {
+                self.rewrite_current_focus_expr_single(&mut let_expr.var_expr, current_name)
+                    | self.rewrite_current_focus_expr_single(&mut let_expr.return_expr, current_name)
+            }
+            xpath_ast::ExprSingle::If(if_expr) => {
+                self.rewrite_current_focus_expr(&mut if_expr.condition, current_name)
+                    | self.rewrite_current_focus_expr_single(&mut if_expr.then, current_name)
+                    | self.rewrite_current_focus_expr_single(&mut if_expr.else_, current_name)
+            }
+            xpath_ast::ExprSingle::Binary(binary_expr) => {
+                self.rewrite_current_focus_path_expr(&mut binary_expr.left, current_name)
+                    | self.rewrite_current_focus_path_expr(&mut binary_expr.right, current_name)
+            }
+            xpath_ast::ExprSingle::For(for_expr) => {
+                self.rewrite_current_focus_expr_single(&mut for_expr.var_expr, current_name)
+                    | self.rewrite_current_focus_expr_single(&mut for_expr.return_expr, current_name)
+            }
+            xpath_ast::ExprSingle::Quantified(quantified_expr) => {
+                self.rewrite_current_focus_expr_single(&mut quantified_expr.var_expr, current_name)
+                    | self.rewrite_current_focus_expr_single(
+                        &mut quantified_expr.satisfies_expr,
+                        current_name,
+                    )
+            }
+        }
+    }
+
+    fn rewrite_current_focus_path_expr(
+        &self,
+        path_expr: &mut xpath_ast::PathExpr,
+        current_name: &Name,
+    ) -> bool {
+        let mut rewritten = false;
+        for step in &mut path_expr.steps {
+            rewritten |= self.rewrite_current_focus_step_expr(step, current_name);
+        }
+        rewritten
+    }
+
+    fn rewrite_current_focus_step_expr(
+        &self,
+        step: &mut xpath_ast::StepExprS,
+        current_name: &Name,
+    ) -> bool {
+        match &mut step.value {
+            xpath_ast::StepExpr::PrimaryExpr(primary) => {
+                self.rewrite_current_focus_primary_expr(primary, current_name)
+            }
+            xpath_ast::StepExpr::PostfixExpr { primary, postfixes } => {
+                let mut rewritten = self.rewrite_current_focus_primary_expr(primary, current_name);
+                for postfix in postfixes {
+                    match postfix {
+                        xpath_ast::Postfix::Predicate(expr) => {
+                            rewritten |= self.rewrite_current_focus_expr(expr, current_name);
+                        }
+                        xpath_ast::Postfix::ArgumentList(arguments) => {
+                            for argument in arguments {
+                                rewritten |= self
+                                    .rewrite_current_focus_expr_single(argument, current_name);
+                            }
+                        }
+                        xpath_ast::Postfix::Lookup(key_specifier) => {
+                            rewritten |= self
+                                .rewrite_current_focus_key_specifier(key_specifier, current_name);
+                        }
+                    }
+                }
+                rewritten
+            }
+            xpath_ast::StepExpr::AxisStep(axis_step) => {
+                let mut rewritten = false;
+                for predicate in &mut axis_step.predicates {
+                    rewritten |= self.rewrite_current_focus_expr(predicate, current_name);
+                }
+                rewritten
+            }
+        }
+    }
+
+    fn rewrite_current_focus_primary_expr(
+        &self,
+        primary: &mut xpath_ast::PrimaryExprS,
+        current_name: &Name,
+    ) -> bool {
+        match &mut primary.value {
+            xpath_ast::PrimaryExpr::FunctionCall(function_call)
+                if function_call.name.value.namespace() == FN_NAMESPACE
+                    && function_call.name.value.local_name() == "current"
+                    && function_call.arguments.is_empty() =>
+            {
+                primary.value = xpath_ast::PrimaryExpr::VarRef(current_name.clone());
+                true
+            }
+            xpath_ast::PrimaryExpr::FunctionCall(function_call) => {
+                let mut rewritten = false;
+                for argument in &mut function_call.arguments {
+                    rewritten |= self.rewrite_current_focus_expr_single(argument, current_name);
+                }
+                rewritten
+            }
+            xpath_ast::PrimaryExpr::Expr(expr) => {
+                self.rewrite_current_focus_expr_or_empty(expr, current_name)
+            }
+            xpath_ast::PrimaryExpr::InlineFunction(inline_function) => {
+                self.rewrite_current_focus_expr_or_empty(&mut inline_function.body, current_name)
+            }
+            xpath_ast::PrimaryExpr::MapConstructor(map_constructor) => {
+                let mut rewritten = false;
+                for entry in &mut map_constructor.entries {
+                    rewritten |= self.rewrite_current_focus_expr_single(&mut entry.key, current_name);
+                    rewritten |=
+                        self.rewrite_current_focus_expr_single(&mut entry.value, current_name);
+                }
+                rewritten
+            }
+            xpath_ast::PrimaryExpr::ArrayConstructor(array_constructor) => match array_constructor {
+                xpath_ast::ArrayConstructor::Square(expr) => {
+                    self.rewrite_current_focus_expr(expr, current_name)
+                }
+                xpath_ast::ArrayConstructor::Curly(expr) => {
+                    self.rewrite_current_focus_expr_or_empty(expr, current_name)
+                }
+            },
+            xpath_ast::PrimaryExpr::UnaryLookup(key_specifier) => {
+                self.rewrite_current_focus_key_specifier(key_specifier, current_name)
+            }
+            xpath_ast::PrimaryExpr::Literal(_)
+            | xpath_ast::PrimaryExpr::VarRef(_)
+            | xpath_ast::PrimaryExpr::ContextItem
+            | xpath_ast::PrimaryExpr::NamedFunctionRef(_) => false,
+        }
+    }
+
+    fn rewrite_current_focus_key_specifier(
+        &self,
+        key_specifier: &mut xpath_ast::KeySpecifier,
+        current_name: &Name,
+    ) -> bool {
+        match key_specifier {
+            xpath_ast::KeySpecifier::Expr(expr) => {
+                self.rewrite_current_focus_expr_or_empty(expr, current_name)
+            }
+            xpath_ast::KeySpecifier::NcName(_)
+            | xpath_ast::KeySpecifier::Integer(_)
+            | xpath_ast::KeySpecifier::Star => false,
+        }
     }
 
     fn xpath(
@@ -4006,6 +4498,160 @@ impl<'a> IrConverter<'a> {
         let mut ir_converter =
             xee_xpath_compiler::IrConverter::new(&mut self.variables, &static_context);
         ir_converter.expr(&rewritten_xpath)
+    }
+
+    fn offset_xpath_spans_expr(&self, expr: &mut xpath_ast::ExprS, offset: usize) {
+        expr.span = Self::offset_xpath_span(expr.span, offset);
+        for expr_single in &mut expr.value.0 {
+            self.offset_xpath_spans_expr_single(expr_single, offset);
+        }
+    }
+
+    fn offset_xpath_spans_expr_or_empty(&self, expr: &mut xpath_ast::ExprOrEmptyS, offset: usize) {
+        expr.span = Self::offset_xpath_span(expr.span, offset);
+        if let Some(expr_value) = &mut expr.value {
+            expr_value.0.iter_mut().for_each(|expr_single| {
+                self.offset_xpath_spans_expr_single(expr_single, offset);
+            });
+        }
+    }
+
+    fn offset_xpath_spans_expr_single(&self, expr: &mut xpath_ast::ExprSingleS, offset: usize) {
+        expr.span = Self::offset_xpath_span(expr.span, offset);
+        match &mut expr.value {
+            xpath_ast::ExprSingle::Path(path_expr) => {
+                self.offset_xpath_spans_path_expr(path_expr, offset);
+            }
+            xpath_ast::ExprSingle::Apply(apply_expr) => {
+                self.offset_xpath_spans_path_expr(&mut apply_expr.path_expr, offset);
+                if let xpath_ast::ApplyOperator::SimpleMap(path_exprs) = &mut apply_expr.operator {
+                    for path_expr in path_exprs {
+                        self.offset_xpath_spans_path_expr(path_expr, offset);
+                    }
+                }
+            }
+            xpath_ast::ExprSingle::Let(let_expr) => {
+                self.offset_xpath_spans_expr_single(&mut let_expr.var_expr, offset);
+                self.offset_xpath_spans_expr_single(&mut let_expr.return_expr, offset);
+            }
+            xpath_ast::ExprSingle::If(if_expr) => {
+                self.offset_xpath_spans_expr(&mut if_expr.condition, offset);
+                self.offset_xpath_spans_expr_single(&mut if_expr.then, offset);
+                self.offset_xpath_spans_expr_single(&mut if_expr.else_, offset);
+            }
+            xpath_ast::ExprSingle::Binary(binary_expr) => {
+                self.offset_xpath_spans_path_expr(&mut binary_expr.left, offset);
+                self.offset_xpath_spans_path_expr(&mut binary_expr.right, offset);
+            }
+            xpath_ast::ExprSingle::For(for_expr) => {
+                self.offset_xpath_spans_expr_single(&mut for_expr.var_expr, offset);
+                self.offset_xpath_spans_expr_single(&mut for_expr.return_expr, offset);
+            }
+            xpath_ast::ExprSingle::Quantified(quantified_expr) => {
+                self.offset_xpath_spans_expr_single(&mut quantified_expr.var_expr, offset);
+                self.offset_xpath_spans_expr_single(&mut quantified_expr.satisfies_expr, offset);
+            }
+        }
+    }
+
+    fn offset_xpath_spans_path_expr(&self, path_expr: &mut xpath_ast::PathExpr, offset: usize) {
+        for step in &mut path_expr.steps {
+            self.offset_xpath_spans_step_expr(step, offset);
+        }
+    }
+
+    fn offset_xpath_spans_step_expr(&self, step: &mut xpath_ast::StepExprS, offset: usize) {
+        step.span = Self::offset_xpath_span(step.span, offset);
+        match &mut step.value {
+            xpath_ast::StepExpr::PrimaryExpr(primary) => {
+                self.offset_xpath_spans_primary_expr(primary, offset);
+            }
+            xpath_ast::StepExpr::PostfixExpr { primary, postfixes } => {
+                self.offset_xpath_spans_primary_expr(primary, offset);
+                for postfix in postfixes {
+                    self.offset_xpath_spans_postfix(postfix, offset);
+                }
+            }
+            xpath_ast::StepExpr::AxisStep(axis_step) => {
+                for predicate in &mut axis_step.predicates {
+                    self.offset_xpath_spans_expr(predicate, offset);
+                }
+            }
+        }
+    }
+
+    fn offset_xpath_spans_primary_expr(
+        &self,
+        primary: &mut xpath_ast::PrimaryExprS,
+        offset: usize,
+    ) {
+        primary.span = Self::offset_xpath_span(primary.span, offset);
+        match &mut primary.value {
+            xpath_ast::PrimaryExpr::FunctionCall(function_call) => {
+                function_call.name.span = Self::offset_xpath_span(function_call.name.span, offset);
+                for argument in &mut function_call.arguments {
+                    self.offset_xpath_spans_expr_single(argument, offset);
+                }
+            }
+            xpath_ast::PrimaryExpr::NamedFunctionRef(named_function_ref) => {
+                named_function_ref.name.span =
+                    Self::offset_xpath_span(named_function_ref.name.span, offset);
+            }
+            xpath_ast::PrimaryExpr::Expr(expr) => {
+                self.offset_xpath_spans_expr_or_empty(expr, offset);
+            }
+            xpath_ast::PrimaryExpr::InlineFunction(inline_function) => {
+                self.offset_xpath_spans_expr_or_empty(&mut inline_function.body, offset);
+            }
+            xpath_ast::PrimaryExpr::MapConstructor(map_constructor) => {
+                for entry in &mut map_constructor.entries {
+                    self.offset_xpath_spans_expr_single(&mut entry.key, offset);
+                    self.offset_xpath_spans_expr_single(&mut entry.value, offset);
+                }
+            }
+            xpath_ast::PrimaryExpr::ArrayConstructor(array_constructor) => match array_constructor {
+                xpath_ast::ArrayConstructor::Square(expr) => {
+                    self.offset_xpath_spans_expr(expr, offset);
+                }
+                xpath_ast::ArrayConstructor::Curly(expr) => {
+                    self.offset_xpath_spans_expr_or_empty(expr, offset);
+                }
+            },
+            xpath_ast::PrimaryExpr::UnaryLookup(key_specifier) => {
+                self.offset_xpath_spans_key_specifier(key_specifier, offset);
+            }
+            xpath_ast::PrimaryExpr::Literal(_)
+            | xpath_ast::PrimaryExpr::VarRef(_)
+            | xpath_ast::PrimaryExpr::ContextItem => {}
+        }
+    }
+
+    fn offset_xpath_spans_postfix(&self, postfix: &mut xpath_ast::Postfix, offset: usize) {
+        match postfix {
+            xpath_ast::Postfix::Predicate(expr) => self.offset_xpath_spans_expr(expr, offset),
+            xpath_ast::Postfix::ArgumentList(arguments) => {
+                for argument in arguments {
+                    self.offset_xpath_spans_expr_single(argument, offset);
+                }
+            }
+            xpath_ast::Postfix::Lookup(key_specifier) => {
+                self.offset_xpath_spans_key_specifier(key_specifier, offset);
+            }
+        }
+    }
+
+    fn offset_xpath_spans_key_specifier(
+        &self,
+        key_specifier: &mut xpath_ast::KeySpecifier,
+        offset: usize,
+    ) {
+        if let xpath_ast::KeySpecifier::Expr(expr) = key_specifier {
+            self.offset_xpath_spans_expr_or_empty(expr, offset);
+        }
+    }
+
+    fn offset_xpath_span(span: xpath_ast::Span, offset: usize) -> xpath_ast::Span {
+        xpath_ast::Span::new(span.start + offset, span.end + offset)
     }
 
     fn lookup_xslt_function_var_name(&self, name: &OwnedName, arity: u8) -> Option<OwnedName> {

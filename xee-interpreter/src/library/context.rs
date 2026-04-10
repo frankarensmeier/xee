@@ -103,6 +103,37 @@ const XSLT_ELEMENT_NAMES: &[&str] = &[
     "with-param",
 ];
 
+const XSLT_30_ONLY_ELEMENT_NAMES: &[&str] = &[
+    "accept",
+    "accumulator",
+    "accumulator-rule",
+    "assert",
+    "break",
+    "catch",
+    "context-item",
+    "evaluate",
+    "expose",
+    "fork",
+    "global-context-item",
+    "iterate",
+    "map",
+    "map-entry",
+    "merge",
+    "merge-action",
+    "merge-key",
+    "merge-source",
+    "next-iteration",
+    "on-completion",
+    "on-empty",
+    "on-non-empty",
+    "override",
+    "package",
+    "source-document",
+    "try",
+    "use-package",
+    "where-populated",
+];
+
 fn bound_position(
     _context: &DynamicContext,
     _interpreter: &mut interpreter::Interpreter,
@@ -193,7 +224,16 @@ fn element_available(context: &DynamicContext, element_name: &str) -> bool {
     let Some(name) = resolve_element_name(context, element_name) else {
         return false;
     };
-    name.namespace() == XSLT_NAMESPACE && XSLT_ELEMENT_NAMES.contains(&name.local_name())
+    if name.namespace() != XSLT_NAMESPACE || !XSLT_ELEMENT_NAMES.contains(&name.local_name()) {
+        return false;
+    }
+
+    let processor_xslt_version = context.static_context().processor_xslt_version().unwrap_or(3);
+    if processor_xslt_version < 3 && XSLT_30_ONLY_ELEMENT_NAMES.contains(&name.local_name()) {
+        return false;
+    }
+
+    true
 }
 
 fn resolve_function_name(context: &DynamicContext, lexical_name: &str) -> Option<Name> {

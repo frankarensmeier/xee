@@ -891,6 +891,12 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    pub(crate) fn has_resolving_global_variable(&self) -> bool {
+        self.global_variables
+            .iter()
+            .any(|state| matches!(state, GlobalValueState::Resolving))
+    }
+
     pub(crate) fn function_name(&self, function: &function::Function) -> Option<Name> {
         self.runnable.function_info(function).name()
     }
@@ -911,6 +917,90 @@ impl<'a> Interpreter<'a> {
     ) -> error::Result<sequence::Sequence> {
         let arguments = arguments.iter().cloned().map(Some).collect::<Vec<_>>();
         self.call_function_with_optional_arguments(function, &arguments)
+    }
+
+    pub(crate) fn call_function_with_arguments_catching(
+        &mut self,
+        function: &function::Function,
+        arguments: &[sequence::Sequence],
+    ) -> error::Result<sequence::Sequence> {
+        let checkpoint = self.state.checkpoint();
+        let tunnel_params_len = self.tunnel_params.len();
+        let mode_stack_len = self.mode_stack.len();
+        let template_rule_stack_len = self.template_rule_stack.len();
+
+        match self.call_function_with_arguments(function, arguments) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                self.state.restore(checkpoint);
+                self.tunnel_params.truncate(tunnel_params_len);
+                self.mode_stack.truncate(mode_stack_len);
+                self.template_rule_stack.truncate(template_rule_stack_len);
+                Err(error)
+            }
+        }
+    }
+
+    pub(crate) fn call_function_with_arguments_catching_spanned(
+        &mut self,
+        function: &function::Function,
+        arguments: &[sequence::Sequence],
+    ) -> error::SpannedResult<sequence::Sequence> {
+        let checkpoint = self.state.checkpoint();
+        let tunnel_params_len = self.tunnel_params.len();
+        let mode_stack_len = self.mode_stack.len();
+        let template_rule_stack_len = self.template_rule_stack.len();
+
+        match self.call_function_with_arguments_spanned(function, arguments) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                self.state.restore(checkpoint);
+                self.tunnel_params.truncate(tunnel_params_len);
+                self.mode_stack.truncate(mode_stack_len);
+                self.template_rule_stack.truncate(template_rule_stack_len);
+                Err(error)
+            }
+        }
+    }
+
+    pub(crate) fn call_function_with_arguments_catching_spanned_with_rollback(
+        &mut self,
+        function: &function::Function,
+        arguments: &[sequence::Sequence],
+        rollback_output: bool,
+    ) -> error::SpannedResult<sequence::Sequence> {
+        let checkpoint = self.state.checkpoint();
+        let tunnel_params_len = self.tunnel_params.len();
+        let mode_stack_len = self.mode_stack.len();
+        let template_rule_stack_len = self.template_rule_stack.len();
+
+        match self.call_function_with_arguments_spanned(function, arguments) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                let output_changed = self.state.output_changed_since(&checkpoint);
+                self.state.restore(checkpoint);
+                self.tunnel_params.truncate(tunnel_params_len);
+                self.mode_stack.truncate(mode_stack_len);
+                self.template_rule_stack.truncate(template_rule_stack_len);
+                if !rollback_output && output_changed {
+                    Err(error::SpannedError {
+                        error: error::Error::XTDE3530,
+                        span: error.span,
+                    })
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    pub(crate) fn call_function_with_arguments_spanned(
+        &mut self,
+        function: &function::Function,
+        arguments: &[sequence::Sequence],
+    ) -> error::SpannedResult<sequence::Sequence> {
+        let arguments = arguments.iter().cloned().map(Some).collect::<Vec<_>>();
+        self.call_function_with_optional_arguments_spanned(function, &arguments)
     }
 
     pub(crate) fn call_function_with_optional_arguments(
@@ -937,6 +1027,28 @@ impl<'a> Interpreter<'a> {
             self.run_actual(self.state.frame().base())?;
         }
         self.state.pop()
+    }
+
+    pub(crate) fn call_function_with_optional_arguments_spanned(
+        &mut self,
+        function: &function::Function,
+        arguments: &[Option<sequence::Sequence>],
+    ) -> error::SpannedResult<sequence::Sequence> {
+        let item: sequence::Item = function.clone().into();
+        self.state.push(item);
+        let arity = arguments.len() as u8;
+        for arg in arguments.iter() {
+            if let Some(arg) = arg {
+                self.state.push(arg.clone());
+            } else {
+                self.state.push_value(stack::Value::Absent);
+            }
+        }
+        self.call_function(function, arity).map_err(|error| self.err(error))?;
+        if matches!(function, function::Function::Inline(_)) {
+            self.run(self.state.frame().base())?;
+        }
+        self.state.pop().map_err(|error| self.err(error))
     }
 
     fn call_function(&mut self, function: &function::Function, arity: u8) -> error::Result<()> {
@@ -1366,6 +1478,7 @@ impl<'a> Interpreter<'a> {
                             for child in children {
                                 let child = self.state.xot.clone_node(child);
                                 self.state.xot.any_append(parent_node, child).unwrap();
+                                self.state.record_output_mutation();
                             }
                             continue;
                         }
@@ -1390,6 +1503,7 @@ impl<'a> Interpreter<'a> {
                     // TODO: error out if namespace or attribute node
                     // is added once a normal child already exists
                     self.state.xot.any_append(parent_node, node).unwrap();
+                    self.state.record_output_mutation();
                 }
                 sequence::Item::Atomic(atomic) => string_values.push(atomic.string_value()),
                 sequence::Item::Function(_) => return Err(error::Error::XTDE0450),
@@ -1406,6 +1520,7 @@ impl<'a> Interpreter<'a> {
         let text = string_values.join(" ");
         let text_node = self.state.xot.new_text(&text);
         self.state.xot.append(parent_node, text_node).unwrap();
+        self.state.record_output_mutation();
     }
 
     fn shallow_copy_node(&mut self, node: xot::Node) -> xot::Node {
@@ -1786,7 +1901,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn call_template_with_params(
+    pub(crate) fn call_template_with_params(
         &mut self,
         function: &function::Function,
         context_arguments: [Option<sequence::Sequence>; 3],

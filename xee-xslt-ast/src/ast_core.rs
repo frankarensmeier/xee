@@ -461,6 +461,16 @@ pub struct Catch {
     pub span: Span,
 }
 
+impl SelectOrSequenceConstructor for Catch {
+    fn select(&self) -> Option<&Expression> {
+        self.select.as_ref()
+    }
+
+    fn sequence_constructor(&self) -> &SequenceConstructor {
+        &self.sequence_constructor
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CharacterMap {
@@ -1716,6 +1726,7 @@ pub struct Transform {
 pub struct Try {
     pub select: Option<Expression>,
     pub rollback_output: Option<bool>,
+    pub xslt_version: u8,
 
     pub sequence_constructor: SequenceConstructor,
     // TODO: at least one catch needs to be there, so could fold it into
@@ -1724,6 +1735,22 @@ pub struct Try {
     pub catches: Vec<TryCatchOrFallback>,
 
     pub span: Span,
+}
+
+impl From<Try> for SequenceConstructorItem {
+    fn from(i: Try) -> Self {
+        SequenceConstructorInstruction::Try(Box::new(i)).into()
+    }
+}
+
+impl SelectOrSequenceConstructor for Try {
+    fn select(&self) -> Option<&Expression> {
+        self.select.as_ref()
+    }
+
+    fn sequence_constructor(&self) -> &SequenceConstructor {
+        &self.sequence_constructor
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

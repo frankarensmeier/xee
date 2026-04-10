@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 use xee_name::{Namespaces, VariableNames};
+use xee_xpath_ast::parse_name;
 use xot::Node;
 use xot::xmlname::{NameStrInfo, OwnedName};
 
@@ -9,7 +10,10 @@ use crate::ast_core::{self as ast};
 use crate::attributes::Attributes;
 use crate::combinator::{one, NodeParser};
 use crate::content::Content;
-use crate::element::{by_element, children, instruction, sequence_constructor, ContentParseLock};
+use crate::element::{
+    by_element, children, instruction, parse_sequence_constructor_node, sequence_constructor,
+    ContentParseLock,
+};
 use crate::error::ElementError as Error;
 use crate::state::State;
 
@@ -523,13 +527,109 @@ impl InstructionParser for ast::CallTemplate {
 impl InstructionParser for ast::Catch {
     fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
         let names = &content.state.names;
+        let errors = attributes
+            .optional(names.errors, attributes.tokens())?
+            .map(|errors| normalize_catch_errors(content, errors))
+            .transpose()?;
         Ok(ast::Catch {
-            errors: attributes.optional(names.errors, attributes.tokens())?,
+            errors,
             select: attributes.optional(names.select, attributes.xpath())?,
 
             span: content.span()?,
 
             sequence_constructor: content.sequence_constructor()?,
+        })
+    }
+}
+
+fn normalize_catch_errors(content: &Content, errors: Vec<ast::Token>) -> Result<Vec<ast::Token>> {
+    let span = content.span()?;
+    let namespaces = content.context.namespaces(content.state);
+    errors
+        .into_iter()
+        .map(|error| {
+            if error == "*"
+                || error.starts_with("Q{")
+                || error.starts_with("*:")
+                || !error.contains(':')
+            {
+                return Ok(error);
+            }
+
+            let name = parse_name(&error, &namespaces)
+                .map_err(|_| Error::Unexpected { span })?
+                .value;
+            Ok(format!("Q{{{}}}{}", name.namespace(), name.local_name()))
+        })
+        .collect()
+}
+
+impl InstructionParser for ast::Try {
+    fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
+        let names = &content.state.names;
+        let mut sequence_constructor = Vec::new();
+        let mut first_catch = None;
+        let mut catches = Vec::new();
+        let mut child = content.state.xot.first_child(content.node);
+        let mut parsing_catches = false;
+
+        while let Some(node) = child {
+            child = content.state.next(node);
+
+            let Some(element) = content.state.xot.element(node) else {
+                if parsing_catches {
+                    return Err(Error::Unexpected {
+                        span: content.state.span(node).ok_or(Error::Internal)?,
+                    });
+                }
+                let items = parse_sequence_constructor_node(content.with_node(node))?;
+                sequence_constructor.extend(items);
+                continue;
+            };
+
+            let child_content = content.with_node(node);
+            match element.name() {
+                name if name == names.xsl_catch => {
+                    let catch = child_content.parse_element(element, ast::Catch::parse_and_validate)?;
+                    if first_catch.is_some() {
+                        catches.push(ast::TryCatchOrFallback::Catch(catch));
+                    } else {
+                        first_catch = Some(catch);
+                    }
+                    parsing_catches = true;
+                }
+                name if name == names.xsl_fallback => {
+                    if !parsing_catches {
+                        return Err(Error::Unexpected {
+                            span: child_content.span()?,
+                        });
+                    }
+                    let fallback =
+                        child_content.parse_element(element, ast::Fallback::parse_and_validate)?;
+                    catches.push(ast::TryCatchOrFallback::Fallback(fallback));
+                }
+                _ => {
+                    if parsing_catches {
+                        return Err(Error::Unexpected {
+                            span: child_content.span()?,
+                        });
+                    }
+                    let items = parse_sequence_constructor_node(child_content)?;
+                    sequence_constructor.extend(items);
+                }
+            }
+        }
+
+        Ok(ast::Try {
+            select: attributes.optional(names.select, attributes.xpath())?,
+            rollback_output: attributes.optional(names.rollback_output, attributes.boolean())?,
+            xslt_version: content.context.xslt_version_major(),
+
+            span: content.span()?,
+
+            sequence_constructor,
+            catch: first_catch.ok_or(Error::UnexpectedEnd)?,
+            catches,
         })
     }
 }

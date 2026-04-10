@@ -50,11 +50,12 @@ impl KnownDependencies {
 
 impl Dependency {
     pub(crate) fn load<'a>(queries: &'a Queries) -> Result<impl Query<Vec<Vec<Dependency>>> + 'a> {
+        let name_query = queries.one("local-name()", convert_string)?;
         let satisfied_query = queries.option("@satisfied/string()", convert_string)?;
-        let type_query = queries.one("@type/string()", convert_string)?;
+        let type_query = queries.option("@type/string()", convert_string)?;
         let value_query = queries.one("@value/string()", convert_string)?;
 
-        let dependency_query = queries.many("dependency", move |session, item| {
+        let dependency_query = queries.many("dependency | dependencies/*", move |session, item| {
             let satisfied = satisfied_query.execute(session, item)?;
             let satisfied = if let Some(satisfied) = satisfied {
                 if satisfied == "true" {
@@ -67,9 +68,11 @@ impl Dependency {
             } else {
                 true
             };
+            let type_ = type_query
+                .execute(session, item)?
+                .unwrap_or_else(|| name_query.execute(session, item).unwrap());
             let value = value_query.execute(session, item)?;
             let values = value.split(' ');
-            let type_ = type_query.execute(session, item)?;
             Ok(values
                 .map(|value| Dependency {
                     spec: DependencySpec {
@@ -184,7 +187,7 @@ mod tests {
 
     use super::*;
 
-    use crate::{language::XPathLanguage, ns::XPATH_TEST_NS};
+    use crate::{language::{XPathLanguage, XsltLanguage}, ns::{XPATH_TEST_NS, XSLT_TEST_NS}};
 
     #[test]
     fn test_load_dependencies() {
@@ -221,6 +224,44 @@ mod tests {
                         spec: DependencySpec {
                             type_: "spec".to_string(),
                             value: "XQ31".to_string(),
+                        },
+                        satisfied: true,
+                    },
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_load_xslt_style_dependencies() {
+        let xml = format!(
+            r#"
+<doc xmlns="{}">
+  <dependencies>
+    <spec value="XSLT30+"/>
+    <feature value="schema_aware"/>
+  </dependencies>
+</doc>"#,
+            XSLT_TEST_NS
+        );
+        let context = LoadContext::new::<XsltLanguage>(PathBuf::new());
+        let dependencies = Dependencies::load_from_xml_with_context(&xml, &context).unwrap();
+
+        assert_eq!(
+            dependencies,
+            Dependencies {
+                dependencies: vec![
+                    Dependency {
+                        spec: DependencySpec {
+                            type_: "spec".to_string(),
+                            value: "XSLT30+".to_string(),
+                        },
+                        satisfied: true,
+                    },
+                    Dependency {
+                        spec: DependencySpec {
+                            type_: "feature".to_string(),
+                            value: "schema_aware".to_string(),
                         },
                         satisfied: true,
                     },

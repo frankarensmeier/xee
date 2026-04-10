@@ -2,6 +2,7 @@ use std::fs;
 
 use iri_string::types::{IriReferenceStr, IriString};
 use xee_xpath_macros::xpath_fn;
+use xot::xmlname::OwnedName;
 
 use crate::{
     context::DynamicContext, error, function::StaticFunctionDescription, interpreter::Interpreter,
@@ -66,19 +67,32 @@ fn load_document(
     uri: &IriString,
 ) -> error::Result<Option<xot::Node>> {
     let url = url::Url::parse(uri.as_str()).map_err(|_| error::Error::FODC0005)?;
-    let path = url.to_file_path().map_err(|_| error::Error::FODC0002)?;
-    let xml = fs::read_to_string(&path).map_err(|_| error::Error::FODC0002)?;
+    let path = url
+        .to_file_path()
+        .map_err(|_| resource_error(uri.as_str().to_string()))?;
+    let xml = fs::read_to_string(&path).map_err(|_| resource_error(uri.as_str().to_string()))?;
 
     let documents = context.documents();
     let handle = documents
         .borrow_mut()
         .add_string(interpreter.xot_mut(), Some(uri.as_ref()), &xml)
-        .map_err(|_| error::Error::FODC0002)?;
+        .map_err(|_| resource_error(uri.as_str().to_string()))?;
     let document = documents
         .borrow()
         .get_node_by_handle(handle)
-        .ok_or(error::Error::FODC0002)?;
+        .ok_or_else(|| resource_error(uri.as_str().to_string()))?;
     Ok(Some(document))
+}
+
+fn resource_error(uri: String) -> error::Error {
+    error::Error::Application(Box::new(error::ApplicationError::new(
+        OwnedName::new(
+            "FODC0002".to_string(),
+            "http://www.w3.org/2005/xqt-errors".to_string(),
+            "err".to_string(),
+        ),
+        format!("Error retrieving resource: {uri}"),
+    )))
 }
 
 #[xpath_fn("fn:collection() as item()*")]
