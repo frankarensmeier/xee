@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 use xee_name::{Namespaces, VariableNames};
 use xot::Node;
-use xot::xmlname::NameStrInfo;
+use xot::xmlname::{NameStrInfo, OwnedName};
 
 use xee_xpath_ast::ast as xpath_ast;
 
@@ -128,6 +128,40 @@ impl InstructionParser for ast::ElementNode {
             content.state.names.xsl_use_attribute_sets,
             attributes.eqnames(),
         )?;
+        let xsl_namespace = content.state.xot.namespace_str(content.state.names.xsl_ns);
+        let resolve_owned_name = |name_id| -> Result<OwnedName> {
+            match content.state.xot.name_ref(name_id, content.node) {
+                Ok(name) => Ok(name.to_owned()),
+                Err(xot::Error::MissingPrefix(_)) => {
+                    let (local_name, namespace) = content.state.xot.name_ns_str(name_id);
+                    let prefix = if namespace.is_empty() {
+                        String::new()
+                    } else {
+                        content
+                            .state
+                            .xot
+                            .namespaces_in_scope(content.node)
+                            .find_map(|(prefix, namespace_id)| {
+                                let prefix = content.state.xot.prefix_str(prefix);
+                                if content.state.xot.namespace_str(namespace_id) == namespace
+                                    && !prefix.is_empty()
+                                {
+                                    Some(prefix.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_default()
+                    };
+                    Ok(OwnedName::new(
+                        local_name.to_string(),
+                        namespace.to_string(),
+                        prefix,
+                    ))
+                }
+                Err(error) => Err(error.into()),
+            }
+        };
         let mut parent_namespaces = Vec::new();
         let mut parent = content.state.xot.parent(content.node);
         while let Some(node) = parent {
@@ -161,12 +195,12 @@ impl InstructionParser for ast::ElementNode {
             })
             .collect::<Vec<_>>();
 
-        let mut add_required_namespace = |name: xot::xmlname::RefName| -> Result<()> {
-            if name.namespace_id() == content.state.names.xsl_ns {
+        let mut add_required_namespace = |name: &OwnedName| -> Result<()> {
+            if name.namespace() == xsl_namespace {
                 return Ok(());
             }
             let prefix = name.prefix().to_string();
-            let uri = content.state.xot.namespace_str(name.namespace_id()).to_string();
+            let uri = name.namespace().to_string();
             if namespaces
                 .iter()
                 .any(|namespace| namespace.prefix == prefix && namespace.uri == uri)
@@ -195,29 +229,22 @@ impl InstructionParser for ast::ElementNode {
             Ok(())
         };
 
-        let element_name = content
-            .state
-            .xot
-            .name_ref(content.state.xot.node_name(content.node).unwrap(), content.node)?;
-        add_required_namespace(element_name)?;
+        let element_name = resolve_owned_name(attributes.element.name())?;
+        add_required_namespace(&element_name)?;
         let mut element_attributes = Vec::new();
         for key in content.state.xot.attributes(content.node).keys() {
-            let name = content.state.xot.name_ref(key, content.node)?;
+            let name = resolve_owned_name(key)?;
             // if any name is in the xsl namespace, we skip it
-            if name.namespace_id() == content.state.names.xsl_ns {
+            if name.namespace() == xsl_namespace {
                 continue;
             }
-            add_required_namespace(name.clone())?;
+            add_required_namespace(&name)?;
             let value = attributes.required(key, attributes.value_template(attributes.string()))?;
-            element_attributes.push((name.to_owned(), value));
+            element_attributes.push((name, value));
         }
 
-        let name = content
-            .state
-            .xot
-            .name_ref(attributes.element.name(), content.node)?;
         Ok(ast::ElementNode {
-            name: name.to_owned(),
+            name: element_name,
             namespaces,
             use_attribute_sets,
             attributes: element_attributes,

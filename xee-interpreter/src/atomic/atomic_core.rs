@@ -214,6 +214,7 @@ impl Atomic {
         matches!(
             self,
             Atomic::String(_, _)
+                | Atomic::Untyped(_)
                 | Atomic::Float(_)
                 | Atomic::Double(_)
                 | Atomic::Decimal(_)

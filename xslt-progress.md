@@ -148,6 +148,57 @@ instead of replacing it.
 - Resolution:
   - document the issue separately in `CHANGES-use-when-dtd-followup.md` and defer it from the current semantic-fix tranche.
 
+## 2026-04-10 11:28 CEST
+
+### Status snapshot
+
+- Checkpoint focus: finish the remaining non-DTD `use-when` tail by fixing `0427` and `0501`, leaving only the explicitly deferred parser-capability case.
+- Full `use-when` bucket is now `101 passed / 0 failed / 1 error / 0 wrongE`.
+- Focused compiler regressions for the `use-when` tranche now pass at `23 passed / 0 failed`.
+- Newly fixed vendor cases in this tranche:
+  - `use-when-0427`
+  - `use-when-0501`
+- Remaining tail after this checkpoint:
+  - `use-when-0136` deferred as the documented DTD/entity parser tranche
+
+### Progress made
+
+- Fixed literal-result-element QName preservation when a stylesheet uses the XSLT namespace as the default namespace and then clears it with `xmlns=""`, by falling back to an in-scope prefix lookup when direct name resolution reports a missing prefix.
+- Added a focused regression for that `0427` shape so no-namespace `use-when` on an LRE remains inert even when the stylesheet default namespace is XSLT and the LRE relies on an inherited prefixed namespace.
+- Fixed node sorting for default text sort keys by allowing `xs:untypedAtomic` values to participate in atomic comparability checks, which matches XPath comparison rules that cast untyped values before comparing.
+- Added a focused regression for `xsl:sort` without an explicit `select`, using node inputs and codepoint collation, to lock in the `0501` behavior.
+- Narrowed the default text-key lowering path for `xsl:sort` to use `fn:sort($input, $collation)` when no explicit sort-key expression or sequence constructor is present, which matches the vendor case and avoids unnecessary key-function wrapping.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_use_when_default_namespace_on_stylesheet_does_not_make_lre_use_when_special -- --nocapture`
+- `cargo test -p xee-xslt-compiler --test test_xslt test_use_when_sort_without_select_can_sort_nodes -- --nocapture`
+- `cargo test -p xee-xslt-compiler --test test_xslt test_use_when_ -- --nocapture`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0427`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml use-when-0501`
+- `cargo run -q -p xee-testrunner -- all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml`
+- `cargo run -q -p xee-testrunner -- -v all vendor/xslt-tests/tests/attr/use-when/_use-when-test-set.xml | rg '^use-when-[0-9]+'`
+
+### Obstacles seen
+
+#### Literal result elements could lose inherited prefixes after `xmlns=""` reset
+
+- Symptoms:
+  - `0427` failed during stylesheet parsing with an internal error even though the no-namespace `use-when` attribute should have been ignored.
+- Root cause:
+  - direct QName reconstruction for literal result elements depended on `xot` being able to recover a lexical prefix immediately, and the `xmlns=""` reset left the `out` namespace available only through inherited in-scope bindings.
+- Resolution:
+  - rebuild the `OwnedName` using the namespace URI plus an explicit scan of in-scope prefixes when direct name resolution reports `MissingPrefix(...)`.
+
+#### Default node sort keys were rejected because untyped atomics were marked non-comparable
+
+- Symptoms:
+  - `0501` still raised runtime `XPTY0004` even after reducing the `xsl:sort` lowering to the default text-key path.
+- Root cause:
+  - atomizing element nodes produces `xs:untypedAtomic`, but the atomic comparability guard rejected that type before the comparison operators could apply the normal untyped-to-string cast.
+- Resolution:
+  - treat `Atomic::Untyped(_)` as comparable so the existing comparison code can perform the required casts and sort node string values correctly.
+
 ## 2026-04-10 08:52 CEST
 
 ### Status snapshot

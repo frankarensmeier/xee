@@ -3131,6 +3131,81 @@ fn test_use_when_false_on_static_variable_body_prunes_content_before_xtse0620() 
 }
 
 #[test]
+fn test_use_when_default_namespace_on_stylesheet_does_not_make_lre_use_when_special() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<transform xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns="http://www.w3.org/1999/XSL/Transform"
+    xmlns:out="urn:out"
+    exclude-result-prefixes="xs out"
+    version="3.0">
+  <template match="/">
+    <result xmlns="">
+      <out:row select="'raises no error'" use-when="wrong///xpath" xmlns="http://www.w3.org/1999/XSL/Transform" />
+    </result>
+  </template>
+</transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+      "<result><out:row xmlns:out=\"urn:out\" select=\"&apos;raises no error&apos;\" use-when=\"wrong///xpath\"/></result>"
+    );
+}
+
+#[test]
+fn test_use_when_sort_without_select_can_sort_nodes() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<doc>
+  <item>television</item>
+  <item>radio</item>
+  <item>VCR</item>
+  <item>Mirror</item>
+  <item>Bed</item>
+  <item>Closet</item>
+  <item>Cabinet</item>
+  <item>Carpet</item>
+  <item>DVD player</item>
+  <item>Desk</item>
+  <item>Xbox</item>
+  <item>Coffee table</item>
+  <item>Sofa</item>
+  <item>love seat</item>
+  <item>chair</item>
+  <item>wine bar</item>
+  <item>04</item>
+  <item>002</item>
+</doc>"#,
+        r#"
+<t:transform xmlns:t="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <t:template match="doc">
+    <out>
+      <descending>
+        <t:for-each select="item">
+          <t:sort order="descending"
+                  collation="http://www.w3.org/2005/xpath-functions/collation/codepoint"/>
+          <t:copy-of select="."/>
+        </t:for-each>
+      </descending>
+    </out>
+  </t:template>
+</t:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out><descending><item>wine bar</item><item>television</item><item>radio</item><item>love seat</item><item>chair</item><item>Xbox</item><item>VCR</item><item>Sofa</item><item>Mirror</item><item>Desk</item><item>DVD player</item><item>Coffee table</item><item>Closet</item><item>Carpet</item><item>Cabinet</item><item>Bed</item><item>04</item><item>002</item></descending></out>"
+    );
+}
+
+#[test]
 fn test_imported_decimal_format_merges_across_import_precedence() {
     let temp_dir = unique_temp_dir("format-number-import-precedence");
     let stylesheet_path = temp_dir.join("main.xsl");

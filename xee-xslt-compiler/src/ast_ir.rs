@@ -2798,17 +2798,26 @@ impl<'a> IrConverter<'a> {
 
         for sort in sorts.iter().rev() {
             self.ensure_supported_sort(sort)?;
-
-            let (key_atom, key_bindings) = self.sort_key_function(sort)?;
             let (collation_atom, collation_bindings) = self.sort_collation_atom(sort)?;
 
-            bindings = bindings.concat(key_bindings).concat(collation_bindings);
-            let sort_expr = self.static_function_call_expr(
-                "sort",
-                FN_NAMESPACE,
-                3,
-                vec![current_atom.clone(), collation_atom, key_atom],
-            );
+            bindings = bindings.concat(collation_bindings);
+            let sort_expr = if self.sort_uses_default_text_key(sort)? {
+                self.static_function_call_expr(
+                    "sort",
+                    FN_NAMESPACE,
+                    2,
+                    vec![current_atom.clone(), collation_atom],
+                )
+            } else {
+                let (key_atom, key_bindings) = self.sort_key_function(sort)?;
+                bindings = bindings.concat(key_bindings);
+                self.static_function_call_expr(
+                    "sort",
+                    FN_NAMESPACE,
+                    3,
+                    vec![current_atom.clone(), collation_atom, key_atom],
+                )
+            };
             let (sorted_atom, sorted_bindings) = bindings
                 .bind_expr_no_span(&mut self.variables, sort_expr)
                 .atom_bindings();
@@ -2831,6 +2840,12 @@ impl<'a> IrConverter<'a> {
         }
 
         Ok((current_atom, bindings))
+    }
+
+    fn sort_uses_default_text_key(&self, sort: &ast::Sort) -> error::SpannedResult<bool> {
+        Ok(sort.select.is_none()
+            && sort.sequence_constructor.is_empty()
+            && matches!(self.sort_data_type(sort)?, SortDataType::Text))
     }
 
     fn sort_key_function(
