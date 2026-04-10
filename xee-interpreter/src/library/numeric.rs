@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 use ahash::random_state::RandomState;
 use ibig::ops::Abs;
 use ibig::IBig;
+use icu_properties::{maps, GeneralCategory};
 use num_traits::Float;
 use rand::prelude::*;
 use rand_xoshiro::SplitMix64;
@@ -691,10 +692,6 @@ fn grouping_positions(
         digits_since_group += 1;
     }
 
-    if digits_since_group == 0 && !positions.is_empty() {
-        return Err(error::Error::FODF1310);
-    }
-
     let repeat_grouping = match positions.as_slice() {
         [] => None,
         [position] => Some(*position),
@@ -750,7 +747,7 @@ fn is_active_picture_char(c: char, decimal_format: &context::DecimalFormatSymbol
     is_digit_placeholder(c, decimal_format)
         || c == decimal_format.decimal_separator
         || c == decimal_format.grouping_separator
-    || c == decimal_format.exponent_separator
+        || c == decimal_format.exponent_separator
 }
 
 fn is_digit_placeholder(c: char, decimal_format: &context::DecimalFormatSymbols) -> bool {
@@ -761,11 +758,39 @@ fn mandatory_digit_value(c: char, decimal_format: &context::DecimalFormatSymbols
     let zero = decimal_format.zero_digit as u32;
     let value = c as u32;
     let offset = value.checked_sub(zero)?;
-    if offset <= 9 {
+    if is_valid_zero_digit(decimal_format.zero_digit) && offset <= 9 && is_decimal_digit(c) {
         Some(offset)
     } else {
         None
     }
+}
+
+fn is_valid_zero_digit(zero_digit: char) -> bool {
+    if !is_decimal_digit(zero_digit) {
+        return false;
+    }
+
+    let zero = zero_digit as u32;
+    let has_all_following_digits = (1..=9).all(|offset| {
+        char::from_u32(zero + offset)
+            .map(is_decimal_digit)
+            .unwrap_or(false)
+    });
+    if !has_all_following_digits {
+        return false;
+    }
+
+    zero.checked_sub(1)
+        .and_then(char::from_u32)
+        .map(|previous| !is_decimal_digit(previous))
+        .unwrap_or(true)
+}
+
+fn is_decimal_digit(c: char) -> bool {
+    maps::general_category()
+        .get_set_for_value(GeneralCategory::DecimalNumber)
+    .as_borrowed()
+    .contains32(c as u32)
 }
 
 fn is_negative_number(value: &Atomic) -> bool {

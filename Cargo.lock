@@ -2903,6 +2903,7 @@ dependencies = [
  "hex",
  "ibig",
  "icu",
+ "icu_properties",
  "icu_provider_adapters",
  "insta",
  "iri-string",
@@ -3137,6 +3138,7 @@ version = "0.1.6"
 dependencies = [
  "ahash 0.8.11",
  "ibig",
+ "icu_properties",
  "insta",
  "iri-string",
  "ordered-float",

@@ -1,8 +1,10 @@
 // https://www.w3.org/TR/2017/REC-xpath-functions-31-20170321/#context
 
 use xee_name::{Name, Namespaces, FN_NAMESPACE};
+use xee_xpath_ast::parse_name;
 use xee_xpath_ast::ast;
 use xee_xpath_macros::xpath_fn;
+use xot::xmlname::NameStrInfo;
 
 use crate::atomic;
 use crate::atomic::NaiveDateWithOffset;
@@ -74,6 +76,58 @@ fn static_base_uri(context: &DynamicContext) -> Option<atomic::Atomic> {
         .map(|uri| atomic::Atomic::String(atomic::StringType::AnyURI, uri.to_string().into()))
 }
 
+#[xpath_fn("fn:system-property($property_name as xs:string) as xs:string")]
+fn system_property(context: &DynamicContext, property_name: &str) -> String {
+    resolve_system_property(context, property_name).unwrap_or_default()
+}
+
+fn resolve_system_property(context: &DynamicContext, property_name: &str) -> Option<String> {
+    if !property_name.contains(':') && !property_name.starts_with("Q{") {
+        return None;
+    }
+
+    let name = parse_name(property_name, context.static_context().namespaces())
+        .ok()?
+        .value;
+
+    const XSLT_NAMESPACE: &str = "http://www.w3.org/1999/XSL/Transform";
+    if name.namespace() != XSLT_NAMESPACE {
+        return None;
+    }
+
+    let xslt_version = format!(
+        "{}.0",
+        context
+            .static_context()
+            .processor_xslt_version()
+            .or(context.static_context().stylesheet_xslt_version())
+            .unwrap_or(3)
+    );
+    let xpath_version = match context.static_context().processor_xpath_version().unwrap_or(31) {
+        20 => "2.0",
+        30 => "3.0",
+        31 => "3.1",
+        version => return Some(format!("{version}.0")),
+    };
+
+    Some(match name.local_name() {
+        "version" => xslt_version,
+        "vendor" => "Xee".to_string(),
+        "vendor-url" => "https://github.com/frankarensmeier/xee".to_string(),
+        "product-name" => "Xee".to_string(),
+        "product-version" => xslt_version,
+        "is-schema-aware" => "no".to_string(),
+        "supports-serialization" => "yes".to_string(),
+        "supports-backwards-compatibility" => "yes".to_string(),
+        "supports-dynamic-evaluation" => "no".to_string(),
+        "supports-streaming" => "no".to_string(),
+        "supports-higher-order-functions" => "yes".to_string(),
+        "xpath-version" => xpath_version.to_string(),
+        "xsd-version" => "1.1".to_string(),
+        _ => return None,
+    })
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         StaticFunctionDescription {
@@ -102,5 +156,6 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(implicit_timezone),
         wrap_xpath_fn!(default_collation),
         wrap_xpath_fn!(static_base_uri),
+        wrap_xpath_fn!(system_property),
     ]
 }

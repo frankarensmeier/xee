@@ -10,6 +10,7 @@ use xee_interpreter::{
     xml::Documents,
 };
 use xee_name::{Namespaces, FN_NAMESPACE};
+use xee_xslt_ast::parse_transform as parse_xslt_transform;
 use xee_xslt_compiler::{evaluate, parse, parse_with_base_dir};
 use xot::Xot;
 
@@ -2498,6 +2499,105 @@ fn test_imported_decimal_format_merges_across_import_precedence() {
 }
 
 #[test]
+fn test_imported_named_decimal_format_is_visible_in_importing_stylesheet() {
+    let temp_dir = unique_temp_dir("format-number-named-import-visibility");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r##"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
+  <xsl:import href="imported.xsl"/>
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number('NaN','###','decimal3')"/>
+      <xsl:text>, </xsl:text>
+      <xsl:value-of select="format-number(-13.2,'###.0','decimal3')"/>
+      <xsl:text>|</xsl:text>
+      <xsl:call-template name="sub"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"##,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("imported.xsl"),
+        r##"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
+  <xsl:decimal-format name="decimal3" digit="#" NaN="not a number"/>
+  <xsl:template name="sub">
+    <sub>
+      <xsl:value-of select="format-number('NaN','###','decimal3')"/>
+      <xsl:text>, </xsl:text>
+      <xsl:value-of select="format-number(-13.2,'###.0','decimal3')"/>
+    </sub>
+  </xsl:template>
+</xsl:stylesheet>"##,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>not a number, -13.2|<sub>not a number, -13.2</sub></out>");
+}
+
+#[test]
+fn test_imported_named_decimal_format_merges_identical_declarations() {
+    let temp_dir = unique_temp_dir("format-number-named-import-merge");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r##"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
+  <xsl:import href="imported.xsl"/>
+  <xsl:decimal-format name="decimal3" NaN="not a number" decimal-separator="."/>
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number('NaN','###','decimal3')"/>
+      <xsl:text>, </xsl:text>
+      <xsl:value-of select="format-number(-13.2,'###.0','decimal3')"/>
+      <xsl:text>|</xsl:text>
+      <xsl:call-template name="sub"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"##,
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.join("imported.xsl"),
+        r##"<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
+  <xsl:decimal-format name="decimal3" digit="#" NaN="not a number"/>
+  <xsl:template name="sub">
+    <sub>
+      <xsl:value-of select="format-number('NaN','###','decimal3')"/>
+      <xsl:text>, </xsl:text>
+      <xsl:value-of select="format-number(-13.2,'###.0','decimal3')"/>
+    </sub>
+  </xsl:template>
+</xsl:stylesheet>"##,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>not a number, -13.2|<sub>not a number, -13.2</sub></out>");
+}
+
+#[test]
 fn test_format_number_resolves_prefixed_decimal_format_name_in_expression_context() {
     let mut xot = Xot::new();
     let output = evaluate(
@@ -2581,6 +2681,204 @@ fn test_format_number_rejects_exponent_separator_without_xpath31_processor_mode(
     .unwrap_err();
 
     assert_eq!(error.value(), error::Error::XTSE0090);
+}
+
+#[test]
+fn test_format_number_supports_non_ascii_zero_digit_and_literal_ascii_suffix() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:decimal-format digit="!" zero-digit="&#x0660;" />
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number(4030201.0506, '#!!!,!!!,&#x0660;&#x0660;&#x0660;.&#x0660;&#x0660;&#x0660;&#x0660;&#x0660;&#x0660;0')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+      "<out>#\u{0664},\u{0660}\u{0663}\u{0660},\u{0662}\u{0660}\u{0661}.\u{0660}\u{0665}\u{0660}\u{0666}\u{0660}\u{0660}0</out>"
+    );
+}
+
+#[test]
+fn test_format_number_supports_leading_grouping_separator_pattern() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:decimal-format decimal-separator="&#110000;" grouping-separator="&#110001;" />
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number(1234567890.123456, '&#110001;000&#110000;000')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out>1\u{1ADB1}234\u{1ADB1}567\u{1ADB1}890\u{1ADB0}123</out>"
+    );
+}
+
+#[test]
+fn test_format_number_supports_non_bmp_zero_digit_output() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:decimal-format zero-digit="&#x104a0;"/>
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="format-number(1234567890.123456, '##########&#x104a0;.&#x104a0;#####')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out>\u{104A1}\u{104A2}\u{104A3}\u{104A4}\u{104A5}\u{104A6}\u{104A7}\u{104A8}\u{104A9}\u{104A0}.\u{104A1}\u{104A2}\u{104A3}\u{104A4}\u{104A5}\u{104A6}</out>"
+    );
+}
+
+#[test]
+fn test_overloaded_xslt_function_call_inside_function_body() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<root><value1>10</value1><value2>20</value2></root>",
+        r#"
+<xsl:stylesheet exclude-result-prefixes="xs f"
+                version="3.0"
+                xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns:f="http://aimtec.cz/EDI">
+  <xsl:template match="root">
+    <out>
+      <one><xsl:value-of select="f:format-number(value1, '000')"/></one>
+      <two><xsl:value-of select="f:format-number(value2, '0000')"/></two>
+    </out>
+  </xsl:template>
+
+  <xsl:function name="f:format-number" as="xs:string">
+    <xsl:param name="number"/>
+    <xsl:param name="format" as="xs:string"/>
+    <xsl:param name="decimals"/>
+
+    <xsl:choose>
+      <xsl:when test="string($decimals) != '' and $number castable as xs:decimal">
+        <xsl:sequence select="format-number($number, $format)"/>
+      </xsl:when>
+      <xsl:when test="$number castable as xs:decimal">
+        <xsl:value-of select="format-number($number, $format)"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:sequence select="''"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:function>
+
+  <xsl:function name="f:format-number" as="xs:string">
+    <xsl:param name="number"/>
+    <xsl:param name="format" as="xs:string"/>
+    <xsl:value-of select="f:format-number($number, $format, '')"/>
+  </xsl:function>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><one>010</one><two>0020</two></out>");
+}
+
+#[test]
+fn test_vendor_format_number_040_stylesheet() {
+  let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("../vendor/xslt-tests/tests/fn/format-number");
+  let stylesheet_path = vendor_dir.join("format-number-040.xsl");
+  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &stylesheet_path).unwrap();
+
+  assert_eq!(
+    xml(&xot, output),
+    "<out>\n<one>not a number, -13.2</one>\n<sub>not a number, -13.2</sub></out>"
+  );
+}
+
+#[test]
+fn test_vendor_format_number_041_stylesheet() {
+  let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("../vendor/xslt-tests/tests/fn/format-number");
+  let stylesheet_path = vendor_dir.join("format-number-041.xsl");
+  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &stylesheet_path).unwrap();
+
+  assert_eq!(
+    xml(&xot, output),
+    "<out>\n<main>not a number, -13.2</main>\n<sub>not a number, -13.2</sub></out>"
+  );
+}
+
+#[test]
+fn test_vendor_format_number_070_stylesheet() {
+  let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("../vendor/xslt-tests/tests/fn/format-number");
+  let stylesheet_path = vendor_dir.join("format-number-070.xsl");
+  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(
+    &mut xot,
+    "<root><value1>58</value1><value2>64</value2></root>",
+    &xslt,
+    &stylesheet_path,
+  )
+  .unwrap();
+
+  assert_eq!(xml(&xot, output), "<root><format1>058</format1><format2>0000000064</format2><ver>3.0</ver></root>");
+}
+
+#[test]
+fn test_vendor_format_number_x43import_parses() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/fn/format-number/x43import.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+
+    parse_xslt_transform(&xslt).unwrap();
+}
+
+#[test]
+fn test_system_property_product_version_is_available() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="doc">
+    <out>
+      <xsl:value-of select="system-property('xsl:product-version')"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert!(xml(&xot, output).starts_with("<out>"));
 }
 
 #[test]

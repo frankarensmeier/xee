@@ -4,6 +4,68 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-10 07:10 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the Unicode `format-number` bucket, clear the imported decimal-format cases, and narrow the last remaining failure to the vendor runner path.
+- Newly unfiltered and passing vendor cases: `format-number-031`, `format-number-040`, `format-number-041`, `format-number-050`, `format-number-051`.
+- Checked suite after validation: `3498 passed / 0 failed / 0 error / 0 wrongE / 11097 filtered`.
+- Remaining filtered `format-number` cases after this checkpoint:
+  - `format-number-070`
+
+### Progress made
+
+- Replaced ASCII-only zero-digit validation with Unicode Decimal_Number checks in both the XSLT compiler and runtime formatter, including contiguous ten-codepoint validation for non-ASCII and non-BMP digit sets.
+- Fixed picture parsing so leading grouping separators are accepted, which unlocks the non-BMP separator cases instead of rejecting them with `FODF1310`.
+- Added focused regressions for non-ASCII zero digits, non-BMP zero-digit output, leading grouping-separator pictures, imported named decimal-format visibility and merge behavior, the exact vendor `x43import.xsl` parse shape, and the exact vendor `format-number-040`/`041`/`070` stylesheets.
+- Relaxed top-level XSLT document parsing to ignore trailing comments, processing instructions, and whitespace after the stylesheet element, which allows the imported `x43import.xsl` vendor asset to compile instead of being flattened into `XTSE0165`.
+- Implemented `fn:system-property()` for the standard XSLT processor properties needed by the vendor suite, which removes the old `XPST0017` compile-time failure from the exact `format-number-070` stylesheet under normal source-driven execution.
+- Reduced the `format-number` filter block to a single remaining case after validating `040` and `041` through both focused runs and the filtered suite.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_format_number_supports_non_ascii_zero_digit_and_literal_ascii_suffix -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_format_number_supports_leading_grouping_separator_pattern -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_format_number_supports_non_bmp_zero_digit_output -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_vendor_format_number_040_stylesheet -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_vendor_format_number_041_stylesheet -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_vendor_format_number_070_stylesheet -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_vendor_format_number_x43import_parses -- --nocapture`
+- `cargo test -p xee-xslt-compiler test_system_property_product_version_is_available -- --nocapture`
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/fn/format-number/_format-number-test-set.xml format-number-040`
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/fn/format-number/_format-number-test-set.xml format-number-041`
+- `cargo run -p xee-testrunner -- check vendor/xslt-tests/`
+
+### Obstacles seen
+
+#### Unicode decimal-format handling was still ASCII-shaped in two places
+
+- Symptoms:
+  - `format-number-031`, `050`, and `051` still failed even after the main `format-number` implementation existed.
+- Root cause:
+  - zero-digit validation relied on ASCII digit semantics and the picture parser rejected leading grouping separators before the formatter had a chance to use them.
+- Resolution:
+  - switch validation to ICU Decimal_Number membership plus contiguous digit checks, and remove the over-strict leading-grouping rejection from picture parsing.
+
+#### Imported vendor stylesheets could fail on trailing metadata after `</xsl:stylesheet>`
+
+- Symptoms:
+  - `format-number-040` and `041` both surfaced as `XTSE0165` even though named decimal-format import handling already worked in simpler focused regressions.
+- Root cause:
+  - `x43import.xsl` includes a trailing document-level metadata comment after the stylesheet element, and the XSLT parser treated any trailing sibling node as fatal.
+- Resolution:
+  - allow trailing comments, processing instructions, and ignorable whitespace after the top-level stylesheet element while still rejecting real trailing content.
+
+#### The last remaining `format-number` failure is no longer in `format-number`
+
+- Symptoms:
+  - `format-number-070` no longer fails at compile time under normal execution, but the vendor testrunner still reports `Initial template not found: main`.
+- Root cause:
+  - the catalog requests `<initial-template name="main"/>`, while the stylesheet only defines `match="root"`; this is a runner/catalog mismatch rather than a formatter or user-function rewrite bug.
+- Resolution:
+  - keep `format-number-070` filtered for now and treat the remaining work as a separate initial-template handling investigation.
+
 ## 2026-04-10 00:49 CEST
 
 ### Status snapshot

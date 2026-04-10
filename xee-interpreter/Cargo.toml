@@ -49,6 +49,7 @@ hex = "0.4.3"
 base64 = "0.22.1"
 chrono = { workspace = true }
 icu = { workspace = true }
+icu_properties = { workspace = true }
 icu_provider_adapters = { workspace = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 regexml = { workspace = true }

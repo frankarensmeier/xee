@@ -38,7 +38,23 @@ impl<'a> XsltParser<'a> {
     pub(crate) fn parse_transform(&self, node: Node) -> Result<ast::Transform, ElementError> {
         let parser = instruction(self.state.names.xsl_transform)
             .or(instruction(self.state.names.xsl_stylesheet));
-        parser.parse(Some(node), self.state, &Context::empty())
+        let (transform, mut next) = parser.parse_next(Some(node), self.state, &Context::empty())?;
+        while let Some(node) = next {
+            match self.state.xot.value(node) {
+                Value::Comment(_) | Value::ProcessingInstruction(_) => {
+                    next = self.state.next(node);
+                }
+                Value::Text(text) if text.get().trim().is_empty() => {
+                    next = self.state.next(node);
+                }
+                _ => {
+                    return Err(ElementError::Unexpected {
+                        span: self.state.span(node).ok_or(ElementError::Internal)?,
+                    });
+                }
+            }
+        }
+        Ok(transform)
     }
 }
 

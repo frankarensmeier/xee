@@ -24,6 +24,7 @@ xee-interpreter = { path = "../xee-interpreter", version = "0.2.0" }
 xee-ir = { path = "../xee-ir", version = "0.1.5" }
 ahash = { workspace = true }
 iri-string = { workspace = true }
+icu_properties = { workspace = true }
 ordered-float = { workspace = true }
 rust_decimal = { workspace = true }
 rust_decimal_macros = { workspace = true }

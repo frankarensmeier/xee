@@ -1,4 +1,5 @@
 use ahash::{HashMap, HashMapExt, HashSetExt};
+use icu_properties::{maps, GeneralCategory};
 use iri_string::types::{IriAbsoluteString, IriReferenceStr};
 use xee_name::{Name, Namespaces, FN_NAMESPACE};
 
@@ -215,11 +216,34 @@ fn validate_decimal_format_symbols(symbols: &DecimalFormatSymbols) -> error::Res
         }
     }
 
-    if symbols.zero_digit.to_digit(10) != Some(0) {
+    if !is_valid_zero_digit(symbols.zero_digit) {
         return Err(error::Error::XTSE1295);
     }
 
     Ok(())
+}
+
+fn is_valid_zero_digit(zero_digit: char) -> bool {
+    let decimal_digits = maps::general_category().get_set_for_value(GeneralCategory::DecimalNumber);
+    let decimal_digits = decimal_digits.as_borrowed();
+    if !decimal_digits.contains32(zero_digit as u32) {
+        return false;
+    }
+
+    let zero = zero_digit as u32;
+    let has_all_following_digits = (1..=9).all(|offset| {
+        char::from_u32(zero + offset)
+            .map(|c| decimal_digits.contains32(c as u32))
+            .unwrap_or(false)
+    });
+    if !has_all_following_digits {
+        return false;
+    }
+
+    zero.checked_sub(1)
+        .and_then(char::from_u32)
+        .map(|previous| !decimal_digits.contains32(previous as u32))
+        .unwrap_or(true)
 }
 
 fn augment_static_context_with_decimal_formats(
