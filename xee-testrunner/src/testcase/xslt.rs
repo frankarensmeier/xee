@@ -6,9 +6,10 @@ use xee_interpreter::declaration::OnMultipleMatch;
 
 use xee_xpath::{
     context::{self, StaticContextBuilder},
-    Queries, Query,
+    Documents, Queries, Query,
 };
 use xee_xpath_load::{convert_string, ContextLoadable};
+use xot::xmlname::OwnedName as Name;
 
 use crate::{
     catalog::{Catalog, LoadContext},
@@ -39,8 +40,16 @@ pub(crate) struct XsltTest {
     pub(crate) initial_mode: Option<String>,
     pub(crate) initial_template: Option<String>,
     pub(crate) on_multiple_match: Option<String>,
+    pub(crate) params: Vec<TestParam>,
     pub(crate) processor_xslt_version: Option<u8>,
     pub(crate) processor_xpath_version: Option<u8>,
+}
+
+/// A stylesheet parameter supplied by the test catalog.
+#[derive(Debug)]
+pub(crate) struct TestParam {
+    pub(crate) name: Name,
+    pub(crate) select: String,
 }
 
 impl Runnable<XsltLanguage> for XsltTestCase {
@@ -199,10 +208,30 @@ impl Runnable<XsltLanguage> for XsltTestCase {
         let variables =
             self.test_case
                 .variables(run_context, catalog, test_set, static_base_uri.as_deref());
-        let variables = match variables {
+        let mut variables = match variables {
             Ok(variables) => variables,
             Err(error) => return TestOutcome::EnvironmentError(error.to_string()),
         };
+
+        // Evaluate test-level params and merge them into variables
+        if !self.test.params.is_empty() {
+            let mut xpath_documents = Documents::new();
+            for param in &self.test.params {
+                let queries = Queries::default();
+                let query = match queries.sequence(&param.select) {
+                    Ok(query) => query,
+                    Err(_e) => continue,
+                };
+                let dynamic_context_builder = query.dynamic_context_builder(&xpath_documents);
+                let dynamic_context = dynamic_context_builder.build();
+                match query.execute_with_context(&mut xpath_documents, &dynamic_context) {
+                    Ok(result) => {
+                        variables.insert(param.name.clone(), result);
+                    }
+                    Err(_e) => continue,
+                }
+            }
+        }
 
         // now construct the dynamic context. We want to have one here
         // explicitly so we can use it later in the assertions
@@ -268,6 +297,17 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
             Ok(Stylesheet { path: file })
         })?;
 
+        let param_name_query = queries.one("@name/string()", convert_string)?;
+        let param_select_query = queries.option("@select/string()", convert_string)?;
+        let test_params_query = queries.many("param", move |documents, item| {
+            let name = param_name_query.execute(documents, item)?;
+            let select = param_select_query.execute(documents, item)?;
+            Ok(TestParam {
+                name: Name::name(&name),
+                select: select.unwrap_or_default(),
+            })
+        })?;
+
         let xslt_test_query = queries.one("test", move |documents, item| {
             // the base dir is the same as the test set path, but
             // without the filename
@@ -277,12 +317,14 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
             let initial_mode = initial_mode_query.execute(documents, item)?;
             let initial_template = initial_template_query.execute(documents, item)?;
             let on_multiple_match = on_multiple_match_query.execute(documents, item)?;
+            let params = test_params_query.execute(documents, item)?;
             Ok(XsltTest {
                 stylesheets,
                 base_dir: base_dir.to_path_buf(),
                 initial_mode,
                 initial_template,
                 on_multiple_match,
+                params,
                 processor_xslt_version: None,
                 processor_xpath_version: None,
             })
