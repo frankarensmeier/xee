@@ -4,6 +4,42 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-11 20:21 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `xsl:number level="any"`, format picture prefix/suffix parsing, and default count fix for `level="single"` with `from`.
+- Three earlier bug fixes this session: namespace copy (`fc530ed1`), in-scope namespaces (`cd4522c4`), pattern parser kind-tests (`6894de8d`).
+- `xsl:number level="any"` now compiles and runs with both default count and named count/from patterns using reverse document-order traversal.
+- Format picture strings with prefix/suffix (e.g., `(1) `, `A-1 `) now properly parse multi-token format strings.
+- Fixed `xslt_number_count_single_named` to fall back to node's own name for default count (was creating empty-name lookup).
+- Vendor tests: 3503 passed (+24 from this commit, +48 from session start at 3455).
+- DocBook frontier moved from `xsl:number level="any"` to `xsl:number count/from pattern with predicates`.
+
+### Progress made
+
+- Added `xslt_number_count_any` and `xslt_number_count_any_named` runtime functions in `hidden_xslt.rs`.
+- Implemented `ReverseDocOrderIter` for correct reverse document-order traversal including ancestors (previous sibling → last descendant drill, else parent).
+- Refactored `format_xslt_number_value` to parse format pictures into prefix, format tokens, separators, and suffix per XSLT spec.
+- Extracted `format_number_token` helper for individual format token formatting.
+- Added `ast::NumberLevel::Any` branch in `ast_ir.rs` `number()` function (parallel structure to `Single`).
+- Fixed `xslt_number_count_single_named` default count fallback — now uses node's own name instead of empty-name lookup.
+- Added 4 unit tests: `level_any_default`, `level_any_from`, `level_any_count_from`, `format_prefix_suffix`.
+
+### Next blocker
+
+- DocBook uses complex `xsl:number` count/from patterns with predicates and unions:
+  - `count="db:section[not(parent::db:section)]|db:sect1"`
+  - `count="db:figure[not(ancestor::db:formalgroup)]|db:formalgroup[db:figure]"`
+  - `from="db:preface|db:chapter|db:appendix|..."`
+- Current implementation only supports simple element name patterns.
+
+### Validation used for the checkpoint
+
+- `cargo test -p xee-xslt-compiler test_xsl_number` — 12 passed, 0 failed
+- `cargo run -p xee-testrunner -- -v check vendor/xslt-tests` — 3503 passed, 0 failed
+- `cargo run -p xee -- xslt main.xsl prague2016mhk.xml` — confirmed next blocker is predicated count/from patterns
+
 ## 2026-04-11 00:30 CEST
 
 ### Status snapshot
