@@ -97,6 +97,7 @@ impl<'a> DeclarationCompiler<'a> {
         self.compile_templates(declarations)?;
         self.compile_global_variables(declarations)?;
         self.compile_keys(declarations)?;
+        self.compile_number_patterns(declarations)?;
 
         for rule in &declarations.rules {
             self.compile_rule(rule)?;
@@ -408,6 +409,32 @@ impl<'a> DeclarationCompiler<'a> {
                 pattern,
                 use_function_id,
             },
+        );
+        Ok(())
+    }
+
+    fn compile_number_patterns(
+        &mut self,
+        declarations: &ir::Declarations,
+    ) -> error::SpannedResult<()> {
+        for number_pattern in &declarations.number_patterns {
+            self.compile_number_pattern(number_pattern)?;
+        }
+        Ok(())
+    }
+
+    fn compile_number_pattern(
+        &mut self,
+        number_pattern: &ir::NumberPatternDefinition,
+    ) -> error::SpannedResult<()> {
+        let mut function_compiler = self.function_compiler();
+
+        let pattern = transform_pattern(&number_pattern.pattern, |function_definition| {
+            function_compiler.compile_function_id(function_definition, (0..0).into())
+        })?;
+
+        self.program.declarations.add_number_pattern(
+            xee_interpreter::declaration::NumberPatternDeclaration { pattern },
         );
         Ok(())
     }

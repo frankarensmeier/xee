@@ -39,6 +39,7 @@ struct IrConverter<'a> {
     secondary_result_document_depth: usize,
     named_templates_with_absent_context: HashSet<String>,
     template_continuation_available: bool,
+    number_patterns: Vec<ir::NumberPatternDefinition>,
 }
 
 #[derive(Debug, Clone)]
@@ -733,6 +734,7 @@ impl<'a> IrConverter<'a> {
             secondary_result_document_depth: 0,
             named_templates_with_absent_context: HashSet::new(),
             template_continuation_available: false,
+            number_patterns: Vec::new(),
         }
     }
 
@@ -891,6 +893,9 @@ impl<'a> IrConverter<'a> {
         for declaration in declarations {
             self.declaration(&mut ir_declarations, declaration)?;
         }
+
+        // Move accumulated number patterns into IR declarations
+        ir_declarations.number_patterns = std::mem::take(&mut self.number_patterns);
 
         Ok(ir_declarations)
     }
@@ -2461,46 +2466,64 @@ impl<'a> IrConverter<'a> {
                 .level
                 .as_ref()
                 .unwrap_or(&ast::NumberLevel::Single);
+
+            // Compile the selected node (select= or context item)
+            let (node_atom, node_bindings) = if let Some(select) = &number.select {
+                self.expression(select)?.atom_bindings()
+            } else {
+                self.variables.context_item((0..0).into())?.atom_bindings()
+            };
+
             match level {
-                ast::NumberLevel::Single => {
-                    // Compile the selected node (select= or context item)
-                    let (node_atom, node_bindings) = if let Some(select) = &number.select {
-                        self.expression(select)?.atom_bindings()
-                    } else {
-                        self.variables.context_item((0..0).into())?.atom_bindings()
-                    };
-
+                ast::NumberLevel::Single | ast::NumberLevel::Any => {
                     if number.count.is_some() || number.from.is_some() {
-                        // Explicit count/from patterns: extract element names
-                        let (count_local, count_ns) =
-                            Self::extract_element_name_from_pattern(number.count.as_ref())?;
-                        let (from_local, from_ns) =
-                            Self::extract_element_name_from_pattern(number.from.as_ref())?;
+                        // Compile count/from patterns and pass indices to runtime
+                        let count_index: i64 = if let Some(count_pattern) = &number.count {
+                            self.compile_number_pattern(count_pattern)? as i64
+                        } else {
+                            -1 // sentinel: use default count
+                        };
+                        let from_index: i64 = if let Some(from_pattern) = &number.from {
+                            self.compile_number_pattern(from_pattern)? as i64
+                        } else {
+                            -1 // sentinel: no from boundary
+                        };
 
-                        let (count_local_atom, count_local_bindings) =
-                            self.const_string_bindings(&count_local);
-                        let (count_ns_atom, count_ns_bindings) =
-                            self.const_string_bindings(&count_ns);
-                        let (from_local_atom, from_local_bindings) =
-                            self.const_string_bindings(&from_local);
-                        let (from_ns_atom, from_ns_bindings) =
-                            self.const_string_bindings(&from_ns);
+                        let (count_index_atom, count_index_bindings) = Bindings::empty()
+                            .bind_expr_no_span(
+                                &mut self.variables,
+                                ir::Expr::Atom(Spanned::new(
+                                    ir::Atom::Const(ir::Const::Integer(count_index.into())),
+                                    (0..0).into(),
+                                )),
+                            )
+                            .atom_bindings();
+                        let (from_index_atom, from_index_bindings) = Bindings::empty()
+                            .bind_expr_no_span(
+                                &mut self.variables,
+                                ir::Expr::Atom(Spanned::new(
+                                    ir::Atom::Const(ir::Const::Integer(from_index.into())),
+                                    (0..0).into(),
+                                )),
+                            )
+                            .atom_bindings();
+
+                        let fn_name = match level {
+                            ast::NumberLevel::Single => "xslt-number-count-single-pattern",
+                            ast::NumberLevel::Any => "xslt-number-count-any-pattern",
+                            _ => unreachable!(),
+                        };
 
                         let string_expr = self.static_function_call_expr(
-                            "xslt-number-count-single-named",
+                            fn_name,
                             FN_NAMESPACE,
-                            6,
-                            vec![
-                                node_atom, count_local_atom, count_ns_atom,
-                                from_local_atom, from_ns_atom, format_atom,
-                            ],
+                            4,
+                            vec![node_atom, count_index_atom, from_index_atom, format_atom],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
-                            .concat(count_local_bindings)
-                            .concat(count_ns_bindings)
-                            .concat(from_local_bindings)
-                            .concat(from_ns_bindings)
+                            .concat(count_index_bindings)
+                            .concat(from_index_bindings)
                             .bind_expr_no_span(&mut self.variables, string_expr)
                             .atom_bindings();
                         Ok(bindings.bind_expr_no_span(
@@ -2509,71 +2532,13 @@ impl<'a> IrConverter<'a> {
                         ))
                     } else {
                         // Default count/from: use the simpler runtime function
+                        let fn_name = match level {
+                            ast::NumberLevel::Single => "xslt-number-count-single",
+                            ast::NumberLevel::Any => "xslt-number-count-any",
+                            _ => unreachable!(),
+                        };
                         let string_expr = self.static_function_call_expr(
-                            "xslt-number-count-single",
-                            FN_NAMESPACE,
-                            2,
-                            vec![node_atom, format_atom],
-                        );
-                        let (text_atom, bindings) = node_bindings
-                            .concat(format_bindings)
-                            .bind_expr_no_span(&mut self.variables, string_expr)
-                            .atom_bindings();
-                        Ok(bindings.bind_expr_no_span(
-                            &mut self.variables,
-                            ir::Expr::XmlText(ir::XmlText { value: text_atom }),
-                        ))
-                    }
-                }
-                ast::NumberLevel::Any => {
-                    // Compile the selected node (select= or context item)
-                    let (node_atom, node_bindings) = if let Some(select) = &number.select {
-                        self.expression(select)?.atom_bindings()
-                    } else {
-                        self.variables.context_item((0..0).into())?.atom_bindings()
-                    };
-
-                    if number.count.is_some() || number.from.is_some() {
-                        // Explicit count/from patterns: extract element names
-                        let (count_local, count_ns) =
-                            Self::extract_element_name_from_pattern(number.count.as_ref())?;
-                        let (from_local, from_ns) =
-                            Self::extract_element_name_from_pattern(number.from.as_ref())?;
-
-                        let (count_local_atom, count_local_bindings) =
-                            self.const_string_bindings(&count_local);
-                        let (count_ns_atom, count_ns_bindings) =
-                            self.const_string_bindings(&count_ns);
-                        let (from_local_atom, from_local_bindings) =
-                            self.const_string_bindings(&from_local);
-                        let (from_ns_atom, from_ns_bindings) =
-                            self.const_string_bindings(&from_ns);
-
-                        let string_expr = self.static_function_call_expr(
-                            "xslt-number-count-any-named",
-                            FN_NAMESPACE,
-                            6,
-                            vec![
-                                node_atom, count_local_atom, count_ns_atom,
-                                from_local_atom, from_ns_atom, format_atom,
-                            ],
-                        );
-                        let (text_atom, bindings) = node_bindings
-                            .concat(format_bindings)
-                            .concat(count_local_bindings)
-                            .concat(count_ns_bindings)
-                            .concat(from_local_bindings)
-                            .concat(from_ns_bindings)
-                            .bind_expr_no_span(&mut self.variables, string_expr)
-                            .atom_bindings();
-                        Ok(bindings.bind_expr_no_span(
-                            &mut self.variables,
-                            ir::Expr::XmlText(ir::XmlText { value: text_atom }),
-                        ))
-                    } else {
-                        // Default count/from: use the simpler runtime function
-                        let string_expr = self.static_function_call_expr(
-                            "xslt-number-count-any",
+                            fn_name,
                             FN_NAMESPACE,
                             2,
                             vec![node_atom, format_atom],
@@ -2613,79 +2578,6 @@ impl<'a> IrConverter<'a> {
                 .bind_expr_no_span(&mut self.variables, format_expr)
                 .atom_bindings())
         }
-    }
-
-    /// Extract an element local name and namespace URI from a simple name-test pattern.
-    /// Returns ("", "") if the pattern is None.
-    /// Returns an error for complex patterns (predicates, multi-step paths, etc.).
-    fn extract_element_name_from_pattern(
-        pattern: Option<&ast::Pattern>,
-    ) -> error::SpannedResult<(String, String)> {
-        use xee_xpath_ast::pattern;
-
-        let Some(pattern) = pattern else {
-            return Ok((String::new(), String::new()));
-        };
-
-        match &pattern.pattern {
-            pattern::Pattern::Expr(pattern::ExprPattern::Path(path_expr)) => {
-                if !matches!(path_expr.root, pattern::PathRoot::Relative) {
-                    return Err(error::Error::Unsupported(
-                        "xsl:number count/from pattern must be a simple element name".to_string(),
-                    )
-                    .into());
-                }
-                if path_expr.steps.len() != 1 {
-                    return Err(error::Error::Unsupported(
-                        "xsl:number count/from pattern must be a simple element name".to_string(),
-                    )
-                    .into());
-                }
-                match &path_expr.steps[0] {
-                    pattern::StepExpr::AxisStep(axis_step) => {
-                        if !axis_step.predicates.is_empty() {
-                            return Err(error::Error::Unsupported(
-                                "xsl:number count/from pattern with predicates is not yet supported"
-                                    .to_string(),
-                            )
-                            .into());
-                        }
-                        match &axis_step.node_test {
-                            xpath_ast::NodeTest::NameTest(xpath_ast::NameTest::Name(name)) => {
-                                Ok((
-                                    name.value.local_name().to_string(),
-                                    name.value.namespace().to_string(),
-                                ))
-                            }
-                            _ => Err(error::Error::Unsupported(
-                                "xsl:number count/from pattern must be a simple element name"
-                                    .to_string(),
-                            )
-                            .into()),
-                        }
-                    }
-                    _ => Err(error::Error::Unsupported(
-                        "xsl:number count/from pattern must be a simple element name".to_string(),
-                    )
-                    .into()),
-                }
-            }
-            _ => Err(error::Error::Unsupported(
-                "xsl:number count/from pattern must be a simple element name".to_string(),
-            )
-            .into()),
-        }
-    }
-
-    fn const_string_bindings(&mut self, s: &str) -> (Spanned<ir::Atom>, Bindings) {
-        let bindings = Bindings::empty();
-        let expr = ir::Expr::Atom(Spanned::new(
-            ir::Atom::Const(ir::Const::String(s.to_string())),
-            (0..0).into(),
-        ));
-        bindings
-            .bind_expr_no_span(&mut self.variables, expr)
-            .atom_bindings()
     }
 
     fn message(&mut self, message: &ast::Message) -> error::SpannedResult<Bindings> {
@@ -5552,6 +5444,22 @@ impl<'a> IrConverter<'a> {
             return_type: None,
             body: Box::new(bindings.expr()),
         })
+    }
+
+    /// Compile an XSLT pattern and store it as a NumberPatternDefinition.
+    /// Returns the index into the number_patterns vec.
+    fn compile_number_pattern(
+        &mut self,
+        pattern: &ast::Pattern,
+    ) -> error::SpannedResult<usize> {
+        let compiled = transform_pattern(&pattern.pattern, |expr| {
+            self.pattern_predicate(expr)
+        })?;
+        let index = self.number_patterns.len();
+        self.number_patterns.push(ir::NumberPatternDefinition {
+            pattern: compiled,
+        });
+        Ok(index)
     }
 }
 

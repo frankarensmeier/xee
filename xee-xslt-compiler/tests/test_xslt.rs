@@ -6380,3 +6380,53 @@ fn test_xsl_number_format_prefix_suffix() {
 
     assert_eq!(xml(&xot, output), "<out>[1].[2].[3].</out>");
 }
+
+#[test]
+fn test_xsl_number_level_any_predicated_count() {
+    // level="any" with predicated count pattern: count only notes NOT inside a sidebar
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><ch><note>a</note><sidebar><note>s</note></sidebar><note>b</note></ch><ch><note>c</note></ch></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="//note"/></out>
+  </xsl:template>
+  <xsl:template match="note">
+    <xsl:number level="any" count="note[not(ancestor::sidebar)]" from="ch"/>
+    <xsl:text> </xsl:text>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    // note "a" = 1 (first note matching count pattern in ch)
+    // note "s" = 1 (doesn't match count pattern itself, but 1 preceding match)
+    // note "b" = 2, note "c" = 1 (reset by from="ch")
+    assert_eq!(xml(&xot, output), "<out>1 1 2 1 </out>");
+}
+
+#[test]
+fn test_xsl_number_level_any_union_from() {
+    // Union pattern in from
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><part><item>a</item><item>b</item></part><chapter><item>c</item><item>d</item></chapter></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="//item"/></out>
+  </xsl:template>
+  <xsl:template match="item">
+    <xsl:number level="any" from="part|chapter"/>
+    <xsl:text> </xsl:text>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    // Numbering resets at each part or chapter boundary
+    assert_eq!(xml(&xot, output), "<out>1 2 1 2 </out>");
+}

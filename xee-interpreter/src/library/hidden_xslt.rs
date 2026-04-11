@@ -4,6 +4,7 @@ use ahash::{HashMap, HashMapExt};
 use std::collections::HashSet;
 
 use iri_string::types::{IriReferenceStr, IriString};
+use ibig::IBig;
 use xee_name::Namespaces;
 use xee_xpath_ast::parse_name;
 use xee_xpath_macros::xpath_fn;
@@ -16,6 +17,7 @@ use crate::function;
 use crate::function::StaticFunctionDescription;
 use crate::interpreter::Interpreter;
 use crate::library::numeric;
+use crate::pattern::PredicateMatcher;
 use crate::sequence;
 use crate::wrap_xpath_fn;
 use crate::xml::DocumentsError;
@@ -328,97 +330,6 @@ fn node_matches_default_count(
     }
 }
 
-// xsl:number level="single" with explicit count and/or from patterns (simple element names).
-// count_local/count_ns: element name to count (empty = use default).
-// from_local/from_ns: ancestor boundary (empty = no boundary).
-#[xpath_fn(
-    "fn:xslt-number-count-single-named($node as node(), $count_local as xs:string, $count_ns as xs:string, $from_local as xs:string, $from_ns as xs:string, $format as xs:string?) as xs:string"
-)]
-fn xslt_number_count_single_named(
-    interpreter: &Interpreter,
-    node: xot::Node,
-    count_local: &str,
-    count_ns: &str,
-    from_local: &str,
-    from_ns: &str,
-    format: Option<&str>,
-) -> error::Result<String> {
-    let xot = interpreter.xot();
-
-    let count_name_id = if count_local.is_empty() {
-        // Default count: use the node's own name
-        match xot.value(node) {
-            xot::Value::Element(el) => Some(el.name()),
-            xot::Value::Attribute(attr) => Some(attr.name()),
-            _ => None,
-        }
-    } else {
-        let count_owned = OwnedName::new(
-            count_local.to_string(),
-            count_ns.to_string(),
-            String::new(),
-        );
-        count_owned.maybe_to_ref(xot).map(|r| r.name_id())
-    };
-
-    let from_name_id = if from_local.is_empty() {
-        None
-    } else {
-        let from_owned = OwnedName::new(
-            from_local.to_string(),
-            from_ns.to_string(),
-            String::new(),
-        );
-        Some(from_owned.maybe_to_ref(xot).map(|r| r.name_id()))
-    };
-
-    let count = count_single_level_named(xot, node, count_name_id, from_name_id);
-    format_xslt_number_value(count, format.unwrap_or("1"))
-}
-
-fn count_single_level_named(
-    xot: &Xot,
-    node: xot::Node,
-    count_name_id: Option<xot::NameId>,
-    from_name_id: Option<Option<xot::NameId>>,
-) -> i64 {
-    // Walk ancestor-or-self to find the first node matching the count pattern.
-    // If from is specified, stop at the first ancestor matching from.
-    let count_node = std::iter::once(node)
-        .chain(xot.ancestors(node))
-        .find(|&n| {
-            // If we hit a from-boundary ancestor, stop searching
-            if let Some(from_id) = from_name_id {
-                if node_is_named_element(xot, n, from_id) {
-                    return false;
-                }
-            }
-            node_is_named_element(xot, n, count_name_id)
-        });
-
-    let Some(count_node) = count_node else {
-        return 0;
-    };
-
-    // Count 1 + preceding siblings that match the count pattern
-    let mut count: i64 = 1;
-    for sibling in xot.axis(xot::Axis::PrecedingSibling, count_node) {
-        if node_is_named_element(xot, sibling, count_name_id) {
-            count += 1;
-        }
-    }
-    count
-}
-
-/// Test if a node is an element with the given name. If name_id is None,
-/// the name hasn't been seen in any document yet, so no node can match.
-fn node_is_named_element(xot: &Xot, node: xot::Node, name_id: Option<xot::NameId>) -> bool {
-    let Some(name_id) = name_id else {
-        return false;
-    };
-    matches!(xot.value(node), xot::Value::Element(el) if el.name() == name_id)
-}
-
 // xsl:number level="any" with default count pattern (no explicit count/from).
 // Counts all preceding nodes (in document order) that match the same node kind
 // and expanded-QName as the current node, including the current node itself.
@@ -463,79 +374,171 @@ fn count_any_level(xot: &Xot, node: xot::Node) -> i64 {
     count
 }
 
-// xsl:number level="any" with explicit count and/or from patterns (simple element names).
+// xsl:number level="single" with compiled count/from patterns.
+// count_index: index into declarations.number_patterns for the count pattern (-1 = default).
+// from_index: index into declarations.number_patterns for the from pattern (-1 = none).
 #[xpath_fn(
-    "fn:xslt-number-count-any-named($node as node(), $count_local as xs:string, $count_ns as xs:string, $from_local as xs:string, $from_ns as xs:string, $format as xs:string?) as xs:string"
+    "fn:xslt-number-count-single-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?) as xs:string"
 )]
-fn xslt_number_count_any_named(
-    interpreter: &Interpreter,
+fn xslt_number_count_single_pattern(
+    interpreter: &mut Interpreter,
     node: xot::Node,
-    count_local: &str,
-    count_ns: &str,
-    from_local: &str,
-    from_ns: &str,
+    count_index: IBig,
+    from_index: IBig,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let xot = interpreter.xot();
-
-    let count_name_id = if count_local.is_empty() {
-        // Default count: use the node's own name
-        match xot.value(node) {
-            xot::Value::Element(el) => Some(el.name()),
-            xot::Value::Attribute(attr) => Some(attr.name()),
-            _ => None,
-        }
-    } else {
-        let count_owned = OwnedName::new(
-            count_local.to_string(),
-            count_ns.to_string(),
-            String::new(),
-        );
-        count_owned.maybe_to_ref(xot).map(|r| r.name_id())
-    };
-
-    let from_name_id = if from_local.is_empty() {
-        None
-    } else {
-        let from_owned = OwnedName::new(
-            from_local.to_string(),
-            from_ns.to_string(),
-            String::new(),
-        );
-        Some(from_owned.maybe_to_ref(xot).map(|r| r.name_id()))
-    };
-
-    let count = count_any_level_named(xot, node, count_name_id, from_name_id);
+    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let count = count_single_level_pattern(interpreter, node, count_index, from_index);
     format_xslt_number_value(count, format.unwrap_or("1"))
 }
 
-fn count_any_level_named(
-    xot: &Xot,
+fn count_single_level_pattern(
+    interpreter: &mut Interpreter,
     node: xot::Node,
-    count_name_id: Option<xot::NameId>,
-    from_name_id: Option<Option<xot::NameId>>,
+    count_index: i64,
+    from_index: i64,
 ) -> i64 {
+    let use_default_count = count_index < 0;
+
+    // Collect ancestor-or-self first to avoid borrow conflicts
+    let ancestor_or_self: Vec<_> = std::iter::once(node)
+        .chain(interpreter.xot().ancestors(node))
+        .collect();
+
+    // Walk ancestor-or-self to find the first node matching the count pattern.
+    // If from is specified, stop at the first ancestor matching from.
+    let count_node = {
+        let mut found = None;
+        for n in ancestor_or_self {
+            // If we hit a from-boundary ancestor, stop searching
+            if from_index >= 0 {
+                if node_matches_pattern(interpreter, n, from_index as usize) {
+                    break;
+                }
+            }
+            if use_default_count {
+                if node_matches_default_count_for(interpreter.xot(), node, n) {
+                    found = Some(n);
+                    break;
+                }
+            } else if node_matches_pattern(interpreter, n, count_index as usize) {
+                found = Some(n);
+                break;
+            }
+        }
+        found
+    };
+
+    let Some(count_node) = count_node else {
+        return 0;
+    };
+
+    // Count 1 + preceding siblings that match the count pattern
+    let mut count: i64 = 1;
+    let siblings: Vec<_> = interpreter
+        .xot()
+        .axis(xot::Axis::PrecedingSibling, count_node)
+        .collect();
+    for sibling in siblings {
+        if use_default_count {
+            if node_matches_default_count_for(interpreter.xot(), node, sibling) {
+                count += 1;
+            }
+        } else if node_matches_pattern(interpreter, sibling, count_index as usize) {
+            count += 1;
+        }
+    }
+    count
+}
+
+// xsl:number level="any" with compiled count/from patterns.
+#[xpath_fn(
+    "fn:xslt-number-count-any-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?) as xs:string"
+)]
+fn xslt_number_count_any_pattern(
+    interpreter: &mut Interpreter,
+    node: xot::Node,
+    count_index: IBig,
+    from_index: IBig,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let count = count_any_level_pattern(interpreter, node, count_index, from_index);
+    format_xslt_number_value(count, format.unwrap_or("1"))
+}
+
+fn count_any_level_pattern(
+    interpreter: &mut Interpreter,
+    node: xot::Node,
+    count_index: i64,
+    from_index: i64,
+) -> i64 {
+    let use_default_count = count_index < 0;
+
     // Count the current node if it matches count
-    let mut count: i64 = if node_is_named_element(xot, node, count_name_id) {
+    let mut count: i64 = if use_default_count {
+        if node_matches_default_count_for(interpreter.xot(), node, node) {
+            1
+        } else {
+            0
+        }
+    } else if node_matches_pattern(interpreter, node, count_index as usize) {
         1
     } else {
         0
     };
 
-    // Walk preceding nodes + ancestors in reverse document order
-    for n in reverse_document_order(xot, node) {
+    // Collect all preceding nodes first (can't borrow xot mutably while iterating)
+    let preceding: Vec<_> = reverse_document_order(interpreter.xot(), node).collect();
+
+    for n in preceding {
         // If we hit a from-boundary, stop counting
-        if let Some(from_id) = from_name_id {
-            if node_is_named_element(xot, n, from_id) {
+        if from_index >= 0 {
+            if node_matches_pattern(interpreter, n, from_index as usize) {
                 break;
             }
         }
-        if node_is_named_element(xot, n, count_name_id) {
+        if use_default_count {
+            if node_matches_default_count_for(interpreter.xot(), node, n) {
+                count += 1;
+            }
+        } else if node_matches_pattern(interpreter, n, count_index as usize) {
             count += 1;
         }
     }
 
     count
+}
+
+/// Test if a node matches the compiled pattern stored at the given index.
+fn node_matches_pattern(
+    interpreter: &mut Interpreter,
+    node: xot::Node,
+    pattern_index: usize,
+) -> bool {
+    let pattern = interpreter
+        .runnable()
+        .program()
+        .declarations
+        .number_pattern(pattern_index)
+        .pattern
+        .clone();
+    let item = sequence::Item::from(node);
+    interpreter.matches(&pattern, &item)
+}
+
+/// Test if a candidate node matches the default count pattern for the reference node.
+/// Default count matches nodes with the same node kind and expanded-QName.
+fn node_matches_default_count_for(xot: &Xot, reference_node: xot::Node, candidate: xot::Node) -> bool {
+    let target_value_type = xot.value_type(reference_node);
+    let target_name = match xot.value(reference_node) {
+        xot::Value::Element(el) => Some(el.name()),
+        xot::Value::Attribute(attr) => Some(attr.name()),
+        _ => None,
+    };
+    node_matches_default_count(xot, candidate, target_value_type, target_name)
 }
 
 /// Walk all nodes preceding `node` in reverse document order, including
@@ -1056,9 +1059,9 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(format_number_lexical3),
         wrap_xpath_fn!(xslt_number_value),
         wrap_xpath_fn!(xslt_number_count_single),
-        wrap_xpath_fn!(xslt_number_count_single_named),
         wrap_xpath_fn!(xslt_number_count_any),
-        wrap_xpath_fn!(xslt_number_count_any_named),
+        wrap_xpath_fn!(xslt_number_count_single_pattern),
+        wrap_xpath_fn!(xslt_number_count_any_pattern),
         wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),

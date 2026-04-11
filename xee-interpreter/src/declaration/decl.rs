@@ -34,6 +34,13 @@ pub struct KeyDeclaration {
     pub use_function_id: function::InlineFunctionId,
 }
 
+/// A compiled count or from pattern for xsl:number, stored in Declarations
+/// so runtime functions can access it by index.
+#[derive(Debug, Clone)]
+pub struct NumberPatternDeclaration {
+    pub pattern: Pattern<function::InlineFunctionId>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModeDeclaration {
     pub on_no_match: ModeOnNoMatch,
@@ -92,6 +99,7 @@ pub struct Declarations {
     pub global_variables: Vec<GlobalVariableDeclaration>,
     pub named_templates: Vec<NamedTemplateDeclaration>,
     pub keys: Vec<KeyDeclaration>,
+    pub number_patterns: Vec<NumberPatternDeclaration>,
     pub serialization_params: SerializationParameters,
     template_params: HashMap<function::InlineFunctionId, Vec<TemplateParamDeclaration>>,
     template_import_precedence: HashMap<function::InlineFunctionId, i64>,
@@ -106,6 +114,7 @@ impl Declarations {
             global_variables: Vec::new(),
             named_templates: Vec::new(),
             keys: Vec::new(),
+            number_patterns: Vec::new(),
             serialization_params: SerializationParameters::new(),
             template_params: HashMap::new(),
             template_import_precedence: HashMap::new(),
@@ -205,5 +214,15 @@ impl Declarations {
 
     pub fn keys_by_name(&self, name: &OwnedName) -> Vec<&KeyDeclaration> {
         self.keys.iter().filter(|k| &k.name == name).collect()
+    }
+
+    pub fn add_number_pattern(&mut self, pattern: NumberPatternDeclaration) -> usize {
+        let index = self.number_patterns.len();
+        self.number_patterns.push(pattern);
+        index
+    }
+
+    pub fn number_pattern(&self, index: usize) -> &NumberPatternDeclaration {
+        &self.number_patterns[index]
     }
 }

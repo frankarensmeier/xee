@@ -464,6 +464,7 @@ pub struct Declarations {
     pub functions: Vec<FunctionBinding>,
     pub global_variables: Vec<GlobalVariable>,
     pub keys: Vec<KeyDefinition>,
+    pub number_patterns: Vec<NumberPatternDefinition>,
     pub main: FunctionDefinition,
     pub serialization_params: SerializationParameters,
 }
@@ -476,6 +477,7 @@ impl Declarations {
             functions: Vec::new(),
             global_variables: Vec::new(),
             keys: Vec::new(),
+            number_patterns: Vec::new(),
             main,
             serialization_params: SerializationParameters::new(),
         }
@@ -487,6 +489,12 @@ pub struct KeyDefinition {
     pub name: xmlname::OwnedName,
     pub pattern: Pattern<FunctionDefinition>,
     pub use_function: FunctionDefinition,
+}
+
+/// A compiled xsl:number count or from pattern at the IR level.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NumberPatternDefinition {
+    pub pattern: Pattern<FunctionDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

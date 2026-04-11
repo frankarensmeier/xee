@@ -4,6 +4,33 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-11 21:30 CEST
+
+### Status snapshot
+
+- Checkpoint focus: compiled pattern infrastructure for `xsl:number` count/from patterns — supports predicates, unions, kind tests, multi-step paths.
+- Replaced the old string-based name-matching approach (`*-named` runtime functions) with compiled patterns stored in `Declarations` (following the `xsl:key` pattern compilation pipeline).
+- Pipeline: `Pattern<ExprS>` → `transform_pattern()` + `pattern_predicate()` → `Pattern<FunctionDefinition>` → `compile_function_id()` → `Pattern<InlineFunctionId>` → runtime `PredicateMatcher::matches()`.
+- Removed dead code: `extract_element_name_from_pattern`, `const_string_bindings`, `xslt_number_count_single_named`, `xslt_number_count_any_named` and helpers.
+- Vendor tests: 3521 passed (+18 from compiled patterns, +66 from session start at 3455).
+- DocBook frontier: predicated count/from patterns now supported; remaining `xsl:number` gaps are variable references in patterns and multi-value sequences.
+
+### Progress made
+
+- Added `NumberPatternDeclaration` (runtime) and `NumberPatternDefinition` (IR) structs for pattern storage.
+- Added `compile_number_patterns()` / `compile_number_pattern()` methods in `declaration_compiler.rs`.
+- Added `compile_number_pattern()` method in `ast_ir.rs` — compiles AST pattern via `transform_pattern` + `pattern_predicate`, stores in IR declarations.
+- Rewrote `number()` in `ast_ir.rs`: merged Single/Any branches, compiles count/from patterns, passes indices as `xs:integer` constants to new `*-pattern` runtime functions.
+- Added `xslt_number_count_single_pattern` and `xslt_number_count_any_pattern` runtime functions with `interpreter: &mut Interpreter` for pattern matching.
+- Added `node_matches_pattern()` and `node_matches_default_count_for()` runtime helpers.
+- Removed old `*-named` runtime functions and `extract_element_name_from_pattern` / `const_string_bindings` (dead code).
+- Added 2 unit tests: `level_any_predicated_count`, `level_any_union_from`.
+
+### Next blocker
+
+- `xsl:number` with variable references in count/from patterns (number-0403: "variable not found" compilation error).
+- `xsl:number value="(sequence)"` multi-value sequences (number-0404: XPTY0004 at runtime).
+
 ## 2026-04-11 20:21 CEST
 
 ### Status snapshot
