@@ -1229,7 +1229,7 @@ fn test_xsl_copy_preserves_namespaces() {
 
     assert_eq!(
         xml(&xot, output),
-        r#"<root xmlns="http://example.com"><item>test</item></root>"#
+        r#"<root xmlns="http://example.com"><item xmlns="http://example.com">test</item></root>"#
     );
 }
 
@@ -1252,7 +1252,39 @@ fn test_xsl_copy_preserves_prefixed_namespaces() {
 
     assert_eq!(
         xml(&xot, output),
-        r#"<ex:root xmlns:ex="http://example.com"><ex:item>test</ex:item></ex:root>"#
+        r#"<ex:root xmlns:ex="http://example.com"><ex:item xmlns:ex="http://example.com">test</ex:item></ex:root>"#
+    );
+}
+
+#[test]
+fn test_xsl_copy_inner_content_preserves_namespaces() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<d:section xmlns:d="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"><d:title>Hello</d:title><d:para xlink:href="http://example.com">World</d:para></d:section>"#,
+        r#"
+<xsl:stylesheet
+    xmlns:d="http://docbook.org/ns/docbook"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    version="2.0">
+
+    <xsl:template match="/">
+        <xsl:apply-templates select="*/*|*/@*|*/text()|*/comment()|*/processing-instruction()"/>
+    </xsl:template>
+
+    <xsl:template match="@*|*|comment()|processing-instruction()">
+        <xsl:copy>
+            <xsl:apply-templates select="*|@*|text()|comment()|processing-instruction()"/>
+        </xsl:copy>
+    </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        r#"<d:title xmlns:d="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink">Hello</d:title><d:para xmlns:d="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="http://example.com">World</d:para>"#
     );
 }
 

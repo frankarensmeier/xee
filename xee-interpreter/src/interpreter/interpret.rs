@@ -1531,15 +1531,11 @@ impl<'a> Interpreter<'a> {
             xot::Value::Document => xot.new_document(),
             xot::Value::Element(element) => {
                 let copy = xot.new_element(element.name());
-                // Copy namespace declarations from source to copy
-                let namespace_nodes = xot
-                    .namespaces(node)
-                    .keys()
-                    .filter_map(|prefix| xot.namespaces(node).get_node(prefix))
-                    .collect::<Vec<_>>();
-                for namespace_node in namespace_nodes {
-                    let namespace_copy = xot.clone_node(namespace_node);
-                    xot.any_append(copy, namespace_copy).unwrap();
+                // Copy all in-scope namespace bindings (including inherited)
+                let ns_bindings: Vec<_> = xot.namespaces_in_scope(node).collect();
+                for (prefix_id, namespace_id) in ns_bindings {
+                    let namespace_node = xot.new_namespace_node(prefix_id, namespace_id);
+                    xot.any_append(copy, namespace_node).unwrap();
                 }
                 copy
             }
