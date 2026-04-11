@@ -1269,8 +1269,8 @@ fn test_xsl_copy_inner_content_preserves_namespaces() {
     xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
     version="2.0">
 
-    <xsl:template match="/">
-        <xsl:apply-templates select="*/*|*/@*|*/text()|*/comment()|*/processing-instruction()"/>
+    <xsl:template match="/node()|/node()/@*">
+        <xsl:apply-templates select="*|@*|text()|comment()|processing-instruction()"/>
     </xsl:template>
 
     <xsl:template match="@*|*|comment()|processing-instruction()">

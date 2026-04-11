@@ -508,6 +508,85 @@ fn parse_kind_test_pattern_via_xpath(
     ))))
 }
 
+/// Check if an XPath step is a `root()` function call (used by the XPath parser
+/// for absolute paths like `/foo`).
+fn is_root_step(step: &ast::StepExprS) -> bool {
+    if let ast::StepExpr::PrimaryExpr(primary) = &step.value {
+        if let ast::PrimaryExpr::FunctionCall(fc) = &primary.value {
+            let root_name =
+                ast::Name::new("root".to_string(), FN_NAMESPACE.to_string(), String::new());
+            return fc.name.value == root_name;
+        }
+    }
+    false
+}
+
+/// Check if an XPath step is `descendant-or-self::node()` (inserted by the XPath
+/// parser for `//` paths).
+fn is_descendant_or_self_any(step: &ast::StepExprS) -> bool {
+    if let ast::StepExpr::AxisStep(axis_step) = &step.value {
+        return axis_step.axis == ast::Axis::DescendantOrSelf
+            && axis_step.node_test == ast::NodeTest::KindTest(ast::KindTest::Any)
+            && axis_step.predicates.is_empty();
+    }
+    false
+}
+
+/// General fallback: parse the pattern as an XPath expression and convert to
+/// pattern AST. This handles cases the chumsky pattern parser can't, such as
+/// kind-test steps (node(), element(), etc.) in non-final position of multi-step
+/// paths.
+fn parse_pattern_via_xpath(
+    input: &str,
+    namespaces: &Namespaces,
+    variable_names: &VariableNames,
+) -> Option<Result<pattern::Pattern<ast::ExprS>, ParserError>> {
+    let xpath = ast::XPath::parse(input, namespaces, variable_names).ok()?;
+    let exprs = xpath.0.value.0;
+    if exprs.len() != 1 {
+        return None;
+    }
+    let ast::ExprSingle::Path(path_expr) = exprs.into_iter().next()?.value else {
+        return None;
+    };
+
+    let mut steps_iter = path_expr.steps.into_iter().peekable();
+    let first_step = steps_iter.peek()?;
+
+    // Detect absolute root
+    let root = if is_root_step(first_step) {
+        steps_iter.next(); // consume root step
+        if steps_iter.peek().is_some_and(|s| is_descendant_or_self_any(s)) {
+            steps_iter.next(); // consume descendant-or-self::node()
+            pattern::PathRoot::AbsoluteDoubleSlash
+        } else {
+            pattern::PathRoot::AbsoluteSlash
+        }
+    } else {
+        pattern::PathRoot::Relative
+    };
+
+    let mut pattern_steps = Vec::new();
+    for step in steps_iter {
+        let ast::StepExpr::AxisStep(axis_step) = step.value else {
+            return None;
+        };
+        let forward = convert_xpath_axis(axis_step.axis)?;
+        pattern_steps.push(pattern::StepExpr::AxisStep(pattern::AxisStep {
+            forward,
+            node_test: axis_step.node_test,
+            predicates: axis_step.predicates,
+        }));
+    }
+
+    Some(Ok(pattern::Pattern::Expr(pattern::ExprPattern::Path(
+        pattern::PathExpr {
+            root,
+            steps: pattern_steps,
+        },
+    ))))
+}
+
 impl pattern::Pattern<ast::ExprS> {
     pub fn parse<'a>(
         input: &'a str,
@@ -522,7 +601,11 @@ impl pattern::Pattern<ast::ExprS> {
                 None => match parse_kind_test_pattern_via_xpath(input, namespaces, _variable_names) {
                     Some(Ok(pattern)) => pattern,
                     Some(Err(fallback_error)) => return Err(fallback_error),
-                    None => return Err(error),
+                    None => match parse_pattern_via_xpath(input, namespaces, _variable_names) {
+                        Some(Ok(pattern)) => pattern,
+                        Some(Err(fallback_error)) => return Err(fallback_error),
+                        None => return Err(error),
+                    },
                 },
             },
         };
@@ -637,6 +720,36 @@ mod tests {
         let namespaces = Namespaces::default();
         let variable_names = VariableNames::new();
         assert!(pattern::Pattern::parse("node()[1]", &namespaces, &variable_names).is_ok());
+    }
+
+    #[test]
+    fn test_kind_test_in_multi_step_path() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        assert!(
+            pattern::Pattern::parse("a/node()/b", &namespaces, &variable_names).is_ok(),
+            "a/node()/b should parse"
+        );
+    }
+
+    #[test]
+    fn test_kind_test_absolute_multi_step() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        assert!(
+            pattern::Pattern::parse("/node()/@*", &namespaces, &variable_names).is_ok(),
+            "/node()/@* should parse"
+        );
+    }
+
+    #[test]
+    fn test_kind_test_union_absolute() {
+        let namespaces = Namespaces::default();
+        let variable_names = VariableNames::new();
+        assert!(
+            pattern::Pattern::parse("/node()|/node()/@*", &namespaces, &variable_names).is_ok(),
+            "/node()|/node()/@* should parse"
+        );
     }
 
     #[test]
