@@ -260,18 +260,178 @@ fn xslt_number_value(
     format_xslt_number_value(number, format.unwrap_or("1"))
 }
 
-fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String> {
-    let mut chars = picture.chars();
-    let Some(format_char) = chars.next() else {
-        return Err(error::Error::FODF1310);
+// xsl:number level="single" with default count pattern (no explicit count/from).
+// Counts 1 + preceding siblings that match the same node kind and expanded-QName.
+#[xpath_fn(
+    "fn:xslt-number-count-single($node as node(), $format as xs:string?) as xs:string"
+)]
+fn xslt_number_count_single(
+    interpreter: &Interpreter,
+    node: xot::Node,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let xot = interpreter.xot();
+    let count = count_single_level(xot, node);
+    format_xslt_number_value(count, format.unwrap_or("1"))
+}
+
+/// For level="single" with default count pattern: find the first ancestor-or-self
+/// matching the default count (same node kind and expanded-QName), then count
+/// 1 + preceding siblings that also match.
+fn count_single_level(xot: &Xot, node: xot::Node) -> i64 {
+    // The default count pattern matches nodes with the same node kind and
+    // (for elements/attributes) the same expanded-QName as the selected node.
+    let target_value_type = xot.value_type(node);
+    let target_name = match xot.value(node) {
+        xot::Value::Element(el) => Some(el.name()),
+        xot::Value::Attribute(attr) => Some(attr.name()),
+        _ => None,
     };
-    if chars.next().is_some() {
+
+    // Walk ancestor-or-self to find the first node matching the default count pattern
+    let count_node = std::iter::once(node)
+        .chain(xot.ancestors(node))
+        .find(|&n| node_matches_default_count(xot, n, target_value_type, target_name));
+
+    let Some(count_node) = count_node else {
+        // No matching ancestor; spec says result is empty list → format 0
+        return 0;
+    };
+
+    // Count 1 + preceding siblings that match the same default count pattern
+    let mut count: i64 = 1;
+    for sibling in xot.axis(xot::Axis::PrecedingSibling, count_node) {
+        if node_matches_default_count(xot, sibling, target_value_type, target_name) {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn node_matches_default_count(
+    xot: &Xot,
+    node: xot::Node,
+    target_value_type: xot::ValueType,
+    target_name: Option<xot::NameId>,
+) -> bool {
+    if xot.value_type(node) != target_value_type {
+        return false;
+    }
+    match target_name {
+        Some(name) => match xot.value(node) {
+            xot::Value::Element(el) => el.name() == name,
+            xot::Value::Attribute(attr) => attr.name() == name,
+            _ => false,
+        },
+        // For non-named nodes (text, comment, PI), kind match is sufficient
+        None => true,
+    }
+}
+
+// xsl:number level="single" with explicit count and/or from patterns (simple element names).
+// count_local/count_ns: element name to count (empty = use default).
+// from_local/from_ns: ancestor boundary (empty = no boundary).
+#[xpath_fn(
+    "fn:xslt-number-count-single-named($node as node(), $count_local as xs:string, $count_ns as xs:string, $from_local as xs:string, $from_ns as xs:string, $format as xs:string?) as xs:string"
+)]
+fn xslt_number_count_single_named(
+    interpreter: &Interpreter,
+    node: xot::Node,
+    count_local: &str,
+    count_ns: &str,
+    from_local: &str,
+    from_ns: &str,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let xot = interpreter.xot();
+
+    let count_owned = OwnedName::new(
+        count_local.to_string(),
+        count_ns.to_string(),
+        String::new(),
+    );
+    let count_name_id = count_owned.maybe_to_ref(xot).map(|r| r.name_id());
+
+    let from_name_id = if from_local.is_empty() {
+        None
+    } else {
+        let from_owned = OwnedName::new(
+            from_local.to_string(),
+            from_ns.to_string(),
+            String::new(),
+        );
+        Some(from_owned.maybe_to_ref(xot).map(|r| r.name_id()))
+    };
+
+    let count = count_single_level_named(xot, node, count_name_id, from_name_id);
+    format_xslt_number_value(count, format.unwrap_or("1"))
+}
+
+fn count_single_level_named(
+    xot: &Xot,
+    node: xot::Node,
+    count_name_id: Option<xot::NameId>,
+    from_name_id: Option<Option<xot::NameId>>,
+) -> i64 {
+    // Walk ancestor-or-self to find the first node matching the count pattern.
+    // If from is specified, stop at the first ancestor matching from.
+    let count_node = std::iter::once(node)
+        .chain(xot.ancestors(node))
+        .find(|&n| {
+            // If we hit a from-boundary ancestor, stop searching
+            if let Some(from_id) = from_name_id {
+                if node_is_named_element(xot, n, from_id) {
+                    return false;
+                }
+            }
+            node_is_named_element(xot, n, count_name_id)
+        });
+
+    let Some(count_node) = count_node else {
+        return 0;
+    };
+
+    // Count 1 + preceding siblings that match the count pattern
+    let mut count: i64 = 1;
+    for sibling in xot.axis(xot::Axis::PrecedingSibling, count_node) {
+        if node_is_named_element(xot, sibling, count_name_id) {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Test if a node is an element with the given name. If name_id is None,
+/// the name hasn't been seen in any document yet, so no node can match.
+fn node_is_named_element(xot: &Xot, node: xot::Node, name_id: Option<xot::NameId>) -> bool {
+    let Some(name_id) = name_id else {
+        return false;
+    };
+    matches!(xot.value(node), xot::Value::Element(el) if el.name() == name_id)
+}
+
+fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String> {
+    if picture.is_empty() {
+        return Err(error::Error::FODF1310);
+    }
+
+    // Handle zero-padded decimal pictures like "01", "001"
+    let chars: Vec<char> = picture.chars().collect();
+    if chars.iter().all(|c| *c == '0' || *c == '1')
+        && chars.last() == Some(&'1')
+        && chars.len() > 1
+    {
+        let min_width = chars.len();
+        return Ok(format!("{:0>width$}", number, width = min_width));
+    }
+
+    if chars.len() > 1 {
         return Err(error::Error::Unsupported(format!(
             "xsl:number value formatting picture not supported yet: {picture}"
         )));
     }
 
-    match format_char {
+    match chars[0] {
         '1' => Ok(number.to_string()),
         'a' => format_alphabetic_number(number, false),
         'A' => format_alphabetic_number(number, true),
@@ -680,6 +840,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(format_number_lexical2),
         wrap_xpath_fn!(format_number_lexical3),
         wrap_xpath_fn!(xslt_number_value),
+        wrap_xpath_fn!(xslt_number_count_single),
+        wrap_xpath_fn!(xslt_number_count_single_named),
         wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),

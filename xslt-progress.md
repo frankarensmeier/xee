@@ -1393,3 +1393,22 @@ instead of replacing it.
 ```
 
 Next blocker is `xsl:number` with `level="single"` — the node-counting form that counts preceding siblings matching a pattern. Only `value=` (value-form) is currently implemented.
+
+## 2026-04-11 13:02 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 3450 passed / 0 failed / 0 error / 5343 filtered / 5802 unsupported (14595 total)
+- Baseline unchanged (no new W3C filtered tests affected; 10 new passes in full `number` test set)
+
+### What was done
+
+1. **`xsl:number level="single"`**: Implemented the node-counting form of `xsl:number` with default count pattern (no explicit `count`/`from`). Runtime function `xslt-number-count-single` walks ancestor-or-self to find the matching node, then counts preceding siblings with the same node kind and expanded-QName. Explicit `count`/`from` patterns not yet supported.
+
+2. **Zero-padded format pictures**: Extended `format_xslt_number_value` to handle multi-digit decimal pictures like `"01"`, `"001"` (zero-padded output).
+
+### DocBook frontier
+
+Proceeding to find the next blocker after `xsl:number`.
+
+Next blocker is `xsl:number level="any"` with complex count/from patterns (predicates, path steps). This requires the full XSLT pattern matching infrastructure to be accessible from xsl:number's runtime, not just simple element name extraction.

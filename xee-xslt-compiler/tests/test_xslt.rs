@@ -6058,3 +6058,152 @@ fn test_xsl_analyze_string_matching_only() {
 
     assert_eq!(xml(&xot, output), "<out>ABC</out>");
 }
+
+#[test]
+fn test_xsl_number_level_single_default() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item>A</item><item>B</item><item>C</item></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:for-each select="doc/item">
+        <xsl:if test="position() > 1">,</xsl:if>
+        <xsl:number/>
+        <xsl:text>:</xsl:text>
+        <xsl:value-of select="."/>
+      </xsl:for-each>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>1:A,2:B,3:C</out>");
+}
+
+#[test]
+fn test_xsl_number_level_single_zero_padded() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item>A</item><item>B</item><item>C</item></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:for-each select="doc/item">
+        <xsl:if test="position() > 1">,</xsl:if>
+        <xsl:number level="single" format="01"/>
+      </xsl:for-each>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>01,02,03</out>");
+}
+
+#[test]
+fn test_xsl_number_level_single_mixed_siblings() {
+    // Only siblings with the same element name should be counted
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item>A</item><other>X</other><item>B</item><other>Y</other><item>C</item></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:for-each select="doc/item">
+        <xsl:if test="position() > 1">,</xsl:if>
+        <xsl:number/>
+      </xsl:for-each>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>1,2,3</out>");
+}
+
+#[test]
+fn test_xsl_number_format_zero_padded_width_3() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:number value="7" format="001"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>007</out>");
+}
+
+#[test]
+fn test_xsl_number_level_single_count_from() {
+    // xsl:number with explicit count and from patterns (DocBook segmentedlist pattern)
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<list>
+  <seg><item>A</item><item>B</item><item>C</item></seg>
+  <seg><item>D</item><item>E</item></seg>
+</list>"#,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:for-each select="//item">
+        <xsl:if test="position() > 1">,</xsl:if>
+        <xsl:number from="seg" count="item"/>
+        <xsl:text>:</xsl:text>
+        <xsl:value-of select="."/>
+      </xsl:for-each>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    // Items restart numbering from each <seg> parent
+    assert_eq!(xml(&xot, output), "<out>1:A,2:B,3:C,1:D,2:E</out>");
+}
+
+#[test]
+fn test_xsl_number_level_single_count_only() {
+    // xsl:number with count only (no from)
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><a/><b/><a/><b/><a/></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:for-each select="doc/*">
+        <xsl:if test="position() > 1">,</xsl:if>
+        <xsl:number count="a"/>
+        <xsl:text>:</xsl:text>
+        <xsl:value-of select="local-name()"/>
+      </xsl:for-each>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    // Only <a> elements are counted; <b> elements get 0 (no matching ancestor)
+    assert_eq!(xml(&xot, output), "<out>1:a,0:b,2:a,0:b,3:a</out>");
+}
