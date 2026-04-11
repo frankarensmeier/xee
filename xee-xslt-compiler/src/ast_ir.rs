@@ -2553,11 +2553,71 @@ impl<'a> IrConverter<'a> {
                         ))
                     }
                 }
-                _ => Err(error::Error::Unsupported(format!(
-                    "Instruction not supported: {:?}",
-                    number
-                ))
-                .into()),
+                ast::NumberLevel::Multiple => {
+                    if number.count.is_some() || number.from.is_some() {
+                        let count_index: i64 = if let Some(count_pattern) = &number.count {
+                            self.compile_number_pattern(count_pattern)? as i64
+                        } else {
+                            -1
+                        };
+                        let from_index: i64 = if let Some(from_pattern) = &number.from {
+                            self.compile_number_pattern(from_pattern)? as i64
+                        } else {
+                            -1
+                        };
+
+                        let (count_index_atom, count_index_bindings) = Bindings::empty()
+                            .bind_expr_no_span(
+                                &mut self.variables,
+                                ir::Expr::Atom(Spanned::new(
+                                    ir::Atom::Const(ir::Const::Integer(count_index.into())),
+                                    (0..0).into(),
+                                )),
+                            )
+                            .atom_bindings();
+                        let (from_index_atom, from_index_bindings) = Bindings::empty()
+                            .bind_expr_no_span(
+                                &mut self.variables,
+                                ir::Expr::Atom(Spanned::new(
+                                    ir::Atom::Const(ir::Const::Integer(from_index.into())),
+                                    (0..0).into(),
+                                )),
+                            )
+                            .atom_bindings();
+
+                        let string_expr = self.static_function_call_expr(
+                            "xslt-number-count-multiple-pattern",
+                            FN_NAMESPACE,
+                            4,
+                            vec![node_atom, count_index_atom, from_index_atom, format_atom],
+                        );
+                        let (text_atom, bindings) = node_bindings
+                            .concat(format_bindings)
+                            .concat(count_index_bindings)
+                            .concat(from_index_bindings)
+                            .bind_expr_no_span(&mut self.variables, string_expr)
+                            .atom_bindings();
+                        Ok(bindings.bind_expr_no_span(
+                            &mut self.variables,
+                            ir::Expr::XmlText(ir::XmlText { value: text_atom }),
+                        ))
+                    } else {
+                        let string_expr = self.static_function_call_expr(
+                            "xslt-number-count-multiple",
+                            FN_NAMESPACE,
+                            2,
+                            vec![node_atom, format_atom],
+                        );
+                        let (text_atom, bindings) = node_bindings
+                            .concat(format_bindings)
+                            .bind_expr_no_span(&mut self.variables, string_expr)
+                            .atom_bindings();
+                        Ok(bindings.bind_expr_no_span(
+                            &mut self.variables,
+                            ir::Expr::XmlText(ir::XmlText { value: text_atom }),
+                        ))
+                    }
+                }
             }
         }
     }

@@ -4,6 +4,29 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-11 23:41 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `xsl:number level="multiple"` implementation.
+- Added full runtime support for multi-value numbering (level="multiple") with both default and pattern-based count/from.
+- Multi-value format picture parsing: tokens + separators extraction, cycling last token for excess numbers.
+- Found and fixed indextree `ancestors()` semantics bug: includes self, so `iter::once(node).chain(ancestors)` double-counted.
+- Vendor tests: 4529 passed (+16 from this commit, +1074 from session start at 3455).
+- 11 of 13 level="multiple" tests now pass (2 blocked by unsupported `start_at`, 2 remaining edge case failures).
+
+### Progress made
+
+- New runtime functions: `xslt_number_count_multiple` (default count) and `xslt_number_count_multiple_pattern` (compiled patterns).
+- New `format_xslt_number_values` function handles Vec<i64> with multi-token format pictures and separator cycling.
+- Added `Multiple` arm in compiler `number()` method in `ast_ir.rs`.
+- Fixed double-counting bug caused by indextree's `ancestors()` including self.
+
+### Next priorities
+
+- `xsl:on-empty` / `xsl:on-non-empty` / `xsl:where-populated` — ~133 tests blocked.
+- Number formatting edge cases — ~102 tests with format picture issues.
+
 ## 2026-04-11 23:21 CEST
 
 ### Status snapshot

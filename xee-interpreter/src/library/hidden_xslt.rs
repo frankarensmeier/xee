@@ -512,6 +512,119 @@ fn count_any_level_pattern(
     count
 }
 
+// xsl:number level="multiple" with default count pattern (no explicit count/from).
+// For each ancestor-or-self matching the default count, count 1 + preceding siblings matching.
+// Returns the formatted multi-value string.
+#[xpath_fn(
+    "fn:xslt-number-count-multiple($node as node(), $format as xs:string?) as xs:string"
+)]
+fn xslt_number_count_multiple(
+    interpreter: &Interpreter,
+    node: xot::Node,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let xot = interpreter.xot();
+    let numbers = count_multiple_level(xot, node);
+    format_xslt_number_values(&numbers, format.unwrap_or("1"))
+}
+
+/// For level="multiple" with default count pattern: walk ancestor-or-self,
+/// for each matching ancestor count 1 + preceding siblings matching the same pattern.
+/// Return the counts in outermost-first order.
+fn count_multiple_level(xot: &Xot, node: xot::Node) -> Vec<i64> {
+    let target_value_type = xot.value_type(node);
+    let target_name = match xot.value(node) {
+        xot::Value::Element(el) => Some(el.name()),
+        xot::Value::Attribute(attr) => Some(attr.name()),
+        _ => None,
+    };
+
+    let mut numbers = Vec::new();
+    // xot.ancestors() includes self (indextree semantics), so no iter::once(node) needed
+    for n in xot.ancestors(node) {
+        if node_matches_default_count(xot, n, target_value_type, target_name) {
+            let mut count: i64 = 1;
+            for sibling in xot.axis(xot::Axis::PrecedingSibling, n) {
+                if node_matches_default_count(xot, sibling, target_value_type, target_name) {
+                    count += 1;
+                }
+            }
+            numbers.push(count);
+        }
+    }
+    // Reverse: we collected innermost-first, but spec wants outermost-first
+    numbers.reverse();
+    numbers
+}
+
+// xsl:number level="multiple" with compiled count/from patterns.
+#[xpath_fn(
+    "fn:xslt-number-count-multiple-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?) as xs:string"
+)]
+fn xslt_number_count_multiple_pattern(
+    interpreter: &mut Interpreter,
+    node: xot::Node,
+    count_index: IBig,
+    from_index: IBig,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let numbers = count_multiple_level_pattern(interpreter, node, count_index, from_index);
+    format_xslt_number_values(&numbers, format.unwrap_or("1"))
+}
+
+fn count_multiple_level_pattern(
+    interpreter: &mut Interpreter,
+    node: xot::Node,
+    count_index: i64,
+    from_index: i64,
+) -> Vec<i64> {
+    let use_default_count = count_index < 0;
+
+    // Collect ancestor-or-self first to avoid borrow conflicts
+    // xot.ancestors() includes self (indextree semantics)
+    let ancestor_or_self: Vec<_> = interpreter.xot().ancestors(node).collect();
+
+    let mut numbers = Vec::new();
+    for n in &ancestor_or_self {
+        let n = *n;
+        // If we hit a from-boundary ancestor, stop
+        if from_index >= 0 {
+            if node_matches_pattern(interpreter, n, from_index as usize) {
+                break;
+            }
+        }
+        let matches_count = if use_default_count {
+            node_matches_default_count_for(interpreter.xot(), node, n)
+        } else {
+            node_matches_pattern(interpreter, n, count_index as usize)
+        };
+        if matches_count {
+            // Count 1 + preceding siblings matching count pattern
+            let siblings: Vec<_> = interpreter
+                .xot()
+                .axis(xot::Axis::PrecedingSibling, n)
+                .collect();
+            let mut count: i64 = 1;
+            for sibling in siblings {
+                let sibling_matches = if use_default_count {
+                    node_matches_default_count_for(interpreter.xot(), node, sibling)
+                } else {
+                    node_matches_pattern(interpreter, sibling, count_index as usize)
+                };
+                if sibling_matches {
+                    count += 1;
+                }
+            }
+            numbers.push(count);
+        }
+    }
+    // Reverse: collected innermost-first, spec wants outermost-first
+    numbers.reverse();
+    numbers
+}
+
 /// Test if a node matches the compiled pattern stored at the given index.
 fn node_matches_pattern(
     interpreter: &mut Interpreter,
@@ -584,6 +697,16 @@ impl<'a> ReverseDocOrderIter<'a> {
 }
 
 fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String> {
+    format_xslt_number_values(&[number], picture)
+}
+
+/// Format a sequence of numbers according to the XSLT format picture.
+/// For level="single"/"any" this is a single number; for level="multiple" it may be several.
+fn format_xslt_number_values(numbers: &[i64], picture: &str) -> error::Result<String> {
+    if numbers.is_empty() {
+        return Ok(String::new());
+    }
+
     if picture.is_empty() {
         return Err(error::Error::FODF1310);
     }
@@ -612,20 +735,51 @@ fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String>
 
     if tokens.is_empty() {
         // No format tokens at all — use default "1"
-        let formatted = format_number_token(number, "1")?;
-        return Ok(format!("{picture}{formatted}"));
+        let mut result = picture.to_string();
+        for (i, &num) in numbers.iter().enumerate() {
+            if i > 0 {
+                result.push('.');
+            }
+            result.push_str(&format_number_token(num, "1")?);
+        }
+        return Ok(result);
     }
 
-    // For a single number (level="single"/"any"), use the first format token
-    let (first_start, first_end) = tokens[0];
-    let (_, last_end) = tokens[tokens.len() - 1];
+    let prefix: String = chars[..tokens[0].0].iter().collect();
+    let suffix: String = chars[tokens[tokens.len() - 1].1..].iter().collect();
 
-    let prefix: String = chars[..first_start].iter().collect();
-    let token: String = chars[first_start..first_end].iter().collect();
-    let suffix: String = chars[last_end..].iter().collect();
+    let mut result = prefix;
 
-    let formatted = format_number_token(number, &token)?;
-    Ok(format!("{prefix}{formatted}{suffix}"))
+    for (i, &num) in numbers.iter().enumerate() {
+        if i > 0 {
+            // Use the separator between token[i-1] and token[i] if it exists,
+            // otherwise use the separator between the last two tokens,
+            // otherwise use "."
+            let sep = if i < tokens.len() {
+                let prev_end = tokens[i - 1].1;
+                let curr_start = tokens[i].0;
+                let s: String = chars[prev_end..curr_start].iter().collect();
+                if s.is_empty() { ".".to_string() } else { s }
+            } else if tokens.len() >= 2 {
+                let prev_end = tokens[tokens.len() - 2].1;
+                let curr_start = tokens[tokens.len() - 1].0;
+                let s: String = chars[prev_end..curr_start].iter().collect();
+                if s.is_empty() { ".".to_string() } else { s }
+            } else {
+                ".".to_string()
+            };
+            result.push_str(&sep);
+        }
+
+        // Use token[i] if it exists, otherwise use the last token
+        let token_idx = if i < tokens.len() { i } else { tokens.len() - 1 };
+        let (t_start, t_end) = tokens[token_idx];
+        let token: String = chars[t_start..t_end].iter().collect();
+        result.push_str(&format_number_token(num, &token)?);
+    }
+
+    result.push_str(&suffix);
+    Ok(result)
 }
 
 fn format_number_token(number: i64, token: &str) -> error::Result<String> {
@@ -1062,6 +1216,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_number_count_any),
         wrap_xpath_fn!(xslt_number_count_single_pattern),
         wrap_xpath_fn!(xslt_number_count_any_pattern),
+        wrap_xpath_fn!(xslt_number_count_multiple),
+        wrap_xpath_fn!(xslt_number_count_multiple_pattern),
         wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),
