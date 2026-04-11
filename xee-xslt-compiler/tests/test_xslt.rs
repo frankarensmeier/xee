@@ -6285,3 +6285,98 @@ fn test_xsl_number_level_single_count_only() {
     // Only <a> elements are counted; <b> elements get 0 (no matching ancestor)
     assert_eq!(xml(&xot, output), "<out>1:a,0:b,2:a,0:b,3:a</out>");
 }
+
+#[test]
+fn test_xsl_number_level_any_default() {
+    // level="any" counts all matching nodes in the document
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><ch><note>a</note><note>b</note></ch><ch><note>c</note></ch></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="//note"/></out>
+  </xsl:template>
+  <xsl:template match="note">
+    <xsl:number level="any"/>
+    <xsl:text> </xsl:text>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>1 2 3 </out>");
+}
+
+#[test]
+fn test_xsl_number_level_any_from() {
+    // level="any" with from="chapter" resets at each chapter boundary
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><chapter><note>a</note><note>b</note><note>c</note></chapter><chapter><note>d</note><note>e</note></chapter></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="//note"/></out>
+  </xsl:template>
+  <xsl:template match="note">
+    <xsl:number level="any" from="chapter" format="(1) "/>
+    <xsl:value-of select="."/>
+    <xsl:text> </xsl:text>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out>(1) a (2) b (3) c (1) d (2) e </out>"
+    );
+}
+
+#[test]
+fn test_xsl_number_level_any_count_from() {
+    // level="any" with explicit count and from
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><chapter><note>a</note><p/><note>b</note></chapter><chapter><note>c</note></chapter></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="//note"/></out>
+  </xsl:template>
+  <xsl:template match="note">
+    <xsl:number level="any" count="note" from="chapter"/>
+    <xsl:text> </xsl:text>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>1 2 1 </out>");
+}
+
+#[test]
+fn test_xsl_number_format_prefix_suffix() {
+    // Format picture with prefix and suffix around presentation token
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item/><item/><item/></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out><xsl:apply-templates select="doc/item"/></out>
+  </xsl:template>
+  <xsl:template match="item">
+    <xsl:number format="[1]."/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>[1].[2].[3].</out>");
+}

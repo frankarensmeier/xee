@@ -345,12 +345,21 @@ fn xslt_number_count_single_named(
 ) -> error::Result<String> {
     let xot = interpreter.xot();
 
-    let count_owned = OwnedName::new(
-        count_local.to_string(),
-        count_ns.to_string(),
-        String::new(),
-    );
-    let count_name_id = count_owned.maybe_to_ref(xot).map(|r| r.name_id());
+    let count_name_id = if count_local.is_empty() {
+        // Default count: use the node's own name
+        match xot.value(node) {
+            xot::Value::Element(el) => Some(el.name()),
+            xot::Value::Attribute(attr) => Some(attr.name()),
+            _ => None,
+        }
+    } else {
+        let count_owned = OwnedName::new(
+            count_local.to_string(),
+            count_ns.to_string(),
+            String::new(),
+        );
+        count_owned.maybe_to_ref(xot).map(|r| r.name_id())
+    };
 
     let from_name_id = if from_local.is_empty() {
         None
@@ -410,13 +419,219 @@ fn node_is_named_element(xot: &Xot, node: xot::Node, name_id: Option<xot::NameId
     matches!(xot.value(node), xot::Value::Element(el) if el.name() == name_id)
 }
 
+// xsl:number level="any" with default count pattern (no explicit count/from).
+// Counts all preceding nodes (in document order) that match the same node kind
+// and expanded-QName as the current node, including the current node itself.
+#[xpath_fn(
+    "fn:xslt-number-count-any($node as node(), $format as xs:string?) as xs:string"
+)]
+fn xslt_number_count_any(
+    interpreter: &Interpreter,
+    node: xot::Node,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let xot = interpreter.xot();
+    let count = count_any_level(xot, node);
+    format_xslt_number_value(count, format.unwrap_or("1"))
+}
+
+/// For level="any" with default count pattern: count all nodes preceding
+/// (or equal to) the current node in document order that match the same
+/// node kind and expanded-QName.
+fn count_any_level(xot: &Xot, node: xot::Node) -> i64 {
+    let target_value_type = xot.value_type(node);
+    let target_name = match xot.value(node) {
+        xot::Value::Element(el) => Some(el.name()),
+        xot::Value::Attribute(attr) => Some(attr.name()),
+        _ => None,
+    };
+
+    // Count the current node if it matches
+    let mut count: i64 = if node_matches_default_count(xot, node, target_value_type, target_name) {
+        1
+    } else {
+        0
+    };
+
+    // Walk all preceding nodes in document order (via preceding axis + ancestors)
+    for n in reverse_document_order(xot, node) {
+        if node_matches_default_count(xot, n, target_value_type, target_name) {
+            count += 1;
+        }
+    }
+
+    count
+}
+
+// xsl:number level="any" with explicit count and/or from patterns (simple element names).
+#[xpath_fn(
+    "fn:xslt-number-count-any-named($node as node(), $count_local as xs:string, $count_ns as xs:string, $from_local as xs:string, $from_ns as xs:string, $format as xs:string?) as xs:string"
+)]
+fn xslt_number_count_any_named(
+    interpreter: &Interpreter,
+    node: xot::Node,
+    count_local: &str,
+    count_ns: &str,
+    from_local: &str,
+    from_ns: &str,
+    format: Option<&str>,
+) -> error::Result<String> {
+    let xot = interpreter.xot();
+
+    let count_name_id = if count_local.is_empty() {
+        // Default count: use the node's own name
+        match xot.value(node) {
+            xot::Value::Element(el) => Some(el.name()),
+            xot::Value::Attribute(attr) => Some(attr.name()),
+            _ => None,
+        }
+    } else {
+        let count_owned = OwnedName::new(
+            count_local.to_string(),
+            count_ns.to_string(),
+            String::new(),
+        );
+        count_owned.maybe_to_ref(xot).map(|r| r.name_id())
+    };
+
+    let from_name_id = if from_local.is_empty() {
+        None
+    } else {
+        let from_owned = OwnedName::new(
+            from_local.to_string(),
+            from_ns.to_string(),
+            String::new(),
+        );
+        Some(from_owned.maybe_to_ref(xot).map(|r| r.name_id()))
+    };
+
+    let count = count_any_level_named(xot, node, count_name_id, from_name_id);
+    format_xslt_number_value(count, format.unwrap_or("1"))
+}
+
+fn count_any_level_named(
+    xot: &Xot,
+    node: xot::Node,
+    count_name_id: Option<xot::NameId>,
+    from_name_id: Option<Option<xot::NameId>>,
+) -> i64 {
+    // Count the current node if it matches count
+    let mut count: i64 = if node_is_named_element(xot, node, count_name_id) {
+        1
+    } else {
+        0
+    };
+
+    // Walk preceding nodes + ancestors in reverse document order
+    for n in reverse_document_order(xot, node) {
+        // If we hit a from-boundary, stop counting
+        if let Some(from_id) = from_name_id {
+            if node_is_named_element(xot, n, from_id) {
+                break;
+            }
+        }
+        if node_is_named_element(xot, n, count_name_id) {
+            count += 1;
+        }
+    }
+
+    count
+}
+
+/// Walk all nodes preceding `node` in reverse document order, including
+/// ancestors but excluding the node itself. Stops at the document root.
+fn reverse_document_order(xot: &Xot, node: xot::Node) -> impl Iterator<Item = xot::Node> + '_ {
+    ReverseDocOrderIter {
+        xot,
+        current: Some(node),
+    }
+}
+
+struct ReverseDocOrderIter<'a> {
+    xot: &'a Xot,
+    current: Option<xot::Node>,
+}
+
+impl<'a> Iterator for ReverseDocOrderIter<'a> {
+    type Item = xot::Node;
+
+    fn next(&mut self) -> Option<xot::Node> {
+        let node = self.current?;
+
+        // Try previous sibling, then drill to its last descendant
+        if let Some(prev) = self.xot.previous_sibling(node) {
+            self.current = Some(Self::last_descendant(self.xot, prev));
+        } else {
+            // No previous sibling: go to parent
+            self.current = self.xot.parent(node);
+        }
+
+        self.current
+    }
+}
+
+impl<'a> ReverseDocOrderIter<'a> {
+    fn last_descendant(xot: &Xot, node: xot::Node) -> xot::Node {
+        let mut current = node;
+        while let Some(last) = xot.last_child(current) {
+            current = last;
+        }
+        current
+    }
+}
+
 fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String> {
     if picture.is_empty() {
         return Err(error::Error::FODF1310);
     }
 
-    // Handle zero-padded decimal pictures like "01", "001"
+    // Parse the format picture into tokens and separators per XSLT spec.
+    // Format tokens are sequences of alphanumeric characters.
+    // Separator tokens are sequences of non-alphanumeric characters between format tokens.
+    // The prefix is everything before the first format token.
+    // The suffix is everything after the last format token.
     let chars: Vec<char> = picture.chars().collect();
+
+    // Find all format token boundaries
+    let mut tokens: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_alphanumeric() {
+            let start = i;
+            while i < chars.len() && chars[i].is_alphanumeric() {
+                i += 1;
+            }
+            tokens.push((start, i));
+        } else {
+            i += 1;
+        }
+    }
+
+    if tokens.is_empty() {
+        // No format tokens at all — use default "1"
+        let formatted = format_number_token(number, "1")?;
+        return Ok(format!("{picture}{formatted}"));
+    }
+
+    // For a single number (level="single"/"any"), use the first format token
+    let (first_start, first_end) = tokens[0];
+    let (_, last_end) = tokens[tokens.len() - 1];
+
+    let prefix: String = chars[..first_start].iter().collect();
+    let token: String = chars[first_start..first_end].iter().collect();
+    let suffix: String = chars[last_end..].iter().collect();
+
+    let formatted = format_number_token(number, &token)?;
+    Ok(format!("{prefix}{formatted}{suffix}"))
+}
+
+fn format_number_token(number: i64, token: &str) -> error::Result<String> {
+    if token.is_empty() {
+        return Ok(number.to_string());
+    }
+
+    // Handle zero-padded decimal pictures like "01", "001"
+    let chars: Vec<char> = token.chars().collect();
     if chars.iter().all(|c| *c == '0' || *c == '1')
         && chars.last() == Some(&'1')
         && chars.len() > 1
@@ -427,7 +642,7 @@ fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String>
 
     if chars.len() > 1 {
         return Err(error::Error::Unsupported(format!(
-            "xsl:number value formatting picture not supported yet: {picture}"
+            "xsl:number value formatting token not supported yet: {token}"
         )));
     }
 
@@ -438,7 +653,7 @@ fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String>
         'i' => format_roman_number(number, false),
         'I' => format_roman_number(number, true),
         _ => Err(error::Error::Unsupported(format!(
-            "xsl:number value formatting picture not supported yet: {picture}"
+            "xsl:number value formatting token not supported yet: {token}"
         ))),
     }
 }
@@ -842,6 +1057,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_number_value),
         wrap_xpath_fn!(xslt_number_count_single),
         wrap_xpath_fn!(xslt_number_count_single_named),
+        wrap_xpath_fn!(xslt_number_count_any),
+        wrap_xpath_fn!(xslt_number_count_any_named),
         wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),

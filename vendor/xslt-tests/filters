@@ -310,7 +310,6 @@ bug-2601
 bug-2701
 bug-2801
 bug-3701
-bug-4301
 bug-4401
 bug-4501
 bug-5101
@@ -328,7 +327,6 @@ call-template-0801
 call-template-1001
 call-template-1002
 call-template-1003
-call-template-1401
 call-template-1701
 call-template-2101
 = castable
@@ -1840,7 +1838,6 @@ normalize-unicode-017
 normalize-unicode-018
 = notation
 = number
-number-0101
 number-0102
 number-0103
 number-0104
@@ -1853,13 +1850,8 @@ number-0110
 number-0111
 number-0202
 number-0301
-number-0401
-number-0402
 number-0403
 number-0404
-number-0405
-number-0406
-number-0407
 number-0501
 number-0601
 number-0602
@@ -1897,7 +1889,6 @@ number-0902
 number-1002
 number-1003
 number-1004
-number-1101
 number-1102
 number-1201
 number-1301
@@ -1914,9 +1905,7 @@ number-1903
 number-1904
 number-2002
 number-2003
-number-2201
 number-2301
-number-2401
 number-2402
 number-2501
 number-2502
@@ -1924,12 +1913,7 @@ number-2503
 number-2504
 number-2505
 number-2506
-number-2601
-number-2602
-number-2701
-number-2801
 number-2802
-number-2803
 number-2804
 number-2806
 number-2807
@@ -1942,9 +1926,6 @@ number-2813
 number-2814
 number-2901
 number-2902
-number-3002
-number-3003
-number-3101
 number-3201
 number-3202
 number-3203
@@ -1968,7 +1949,6 @@ number-3220
 number-3221
 number-3222
 number-3223
-number-3224
 number-3225
 number-3226
 number-3227
@@ -1991,10 +1971,6 @@ number-3802
 number-3901
 number-4001
 number-4101
-number-4201
-number-4202
-number-4301
-number-4601
 number-4701
 number-5001
 number-5002

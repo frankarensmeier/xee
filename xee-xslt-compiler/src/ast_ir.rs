@@ -2525,6 +2525,69 @@ impl<'a> IrConverter<'a> {
                         ))
                     }
                 }
+                ast::NumberLevel::Any => {
+                    // Compile the selected node (select= or context item)
+                    let (node_atom, node_bindings) = if let Some(select) = &number.select {
+                        self.expression(select)?.atom_bindings()
+                    } else {
+                        self.variables.context_item((0..0).into())?.atom_bindings()
+                    };
+
+                    if number.count.is_some() || number.from.is_some() {
+                        // Explicit count/from patterns: extract element names
+                        let (count_local, count_ns) =
+                            Self::extract_element_name_from_pattern(number.count.as_ref())?;
+                        let (from_local, from_ns) =
+                            Self::extract_element_name_from_pattern(number.from.as_ref())?;
+
+                        let (count_local_atom, count_local_bindings) =
+                            self.const_string_bindings(&count_local);
+                        let (count_ns_atom, count_ns_bindings) =
+                            self.const_string_bindings(&count_ns);
+                        let (from_local_atom, from_local_bindings) =
+                            self.const_string_bindings(&from_local);
+                        let (from_ns_atom, from_ns_bindings) =
+                            self.const_string_bindings(&from_ns);
+
+                        let string_expr = self.static_function_call_expr(
+                            "xslt-number-count-any-named",
+                            FN_NAMESPACE,
+                            6,
+                            vec![
+                                node_atom, count_local_atom, count_ns_atom,
+                                from_local_atom, from_ns_atom, format_atom,
+                            ],
+                        );
+                        let (text_atom, bindings) = node_bindings
+                            .concat(format_bindings)
+                            .concat(count_local_bindings)
+                            .concat(count_ns_bindings)
+                            .concat(from_local_bindings)
+                            .concat(from_ns_bindings)
+                            .bind_expr_no_span(&mut self.variables, string_expr)
+                            .atom_bindings();
+                        Ok(bindings.bind_expr_no_span(
+                            &mut self.variables,
+                            ir::Expr::XmlText(ir::XmlText { value: text_atom }),
+                        ))
+                    } else {
+                        // Default count/from: use the simpler runtime function
+                        let string_expr = self.static_function_call_expr(
+                            "xslt-number-count-any",
+                            FN_NAMESPACE,
+                            2,
+                            vec![node_atom, format_atom],
+                        );
+                        let (text_atom, bindings) = node_bindings
+                            .concat(format_bindings)
+                            .bind_expr_no_span(&mut self.variables, string_expr)
+                            .atom_bindings();
+                        Ok(bindings.bind_expr_no_span(
+                            &mut self.variables,
+                            ir::Expr::XmlText(ir::XmlText { value: text_atom }),
+                        ))
+                    }
+                }
                 _ => Err(error::Error::Unsupported(format!(
                     "Instruction not supported: {:?}",
                     number
