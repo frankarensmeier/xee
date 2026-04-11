@@ -1529,8 +1529,20 @@ impl<'a> Interpreter<'a> {
         match value {
             // root and element are shallow copies
             xot::Value::Document => xot.new_document(),
-            // TODO: work on copying prefixes
-            xot::Value::Element(element) => xot.new_element(element.name()),
+            xot::Value::Element(element) => {
+                let copy = xot.new_element(element.name());
+                // Copy namespace declarations from source to copy
+                let namespace_nodes = xot
+                    .namespaces(node)
+                    .keys()
+                    .filter_map(|prefix| xot.namespaces(node).get_node(prefix))
+                    .collect::<Vec<_>>();
+                for namespace_node in namespace_nodes {
+                    let namespace_copy = xot.clone_node(namespace_node);
+                    xot.any_append(copy, namespace_copy).unwrap();
+                }
+                copy
+            }
             // we can clone (deep-copy) these nodes as it's the same
             // operation as shallow copy
             _ => xot.clone_node(node),

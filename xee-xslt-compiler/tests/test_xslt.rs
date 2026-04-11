@@ -1211,6 +1211,52 @@ fn test_xsl_element_applies_attribute_sets() {
 }
 
 #[test]
+fn test_xsl_copy_preserves_namespaces() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<root xmlns="http://example.com"><item>test</item></root>"#,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="@*|node()">
+    <xsl:copy>
+      <xsl:apply-templates select="@*|node()"/>
+    </xsl:copy>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        r#"<root xmlns="http://example.com"><item>test</item></root>"#
+    );
+}
+
+#[test]
+fn test_xsl_copy_preserves_prefixed_namespaces() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<ex:root xmlns:ex="http://example.com"><ex:item>test</ex:item></ex:root>"#,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="@*|node()">
+    <xsl:copy>
+      <xsl:apply-templates select="@*|node()"/>
+    </xsl:copy>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        r#"<ex:root xmlns:ex="http://example.com"><ex:item>test</ex:item></ex:root>"#
+    );
+}
+
+#[test]
 fn test_xsl_copy_applies_attribute_sets() {
     let mut xot = Xot::new();
     let output = evaluate(

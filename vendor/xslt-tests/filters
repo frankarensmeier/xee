@@ -304,8 +304,6 @@ bug-0701
 bug-1402
 bug-1501
 bug-1601
-bug-1801
-bug-1802
 bug-2401
 bug-2502
 bug-2601
@@ -458,8 +456,6 @@ copy-1218
 copy-1219
 copy-1220
 copy-1221
-copy-2301
-copy-2601
 copy-3002
 copy-3003
 copy-3302
@@ -1510,7 +1506,6 @@ match-031
 match-032
 match-033
 match-034
-match-035
 match-048
 match-049
 match-060
@@ -1767,7 +1762,6 @@ mode-1904
 = namespace
 namespace-0101
 namespace-0201
-namespace-0904
 namespace-0911
 namespace-0913
 namespace-1102
@@ -1785,8 +1779,6 @@ namespace-2621
 namespace-2622
 namespace-2623
 namespace-2624
-namespace-2701
-namespace-3002
 namespace-3101
 namespace-3102
 namespace-3103
@@ -1871,7 +1863,6 @@ number-0108
 number-0109
 number-0110
 number-0111
-number-0201
 number-0202
 number-0301
 number-0401
@@ -1915,11 +1906,9 @@ number-0828
 number-0829
 number-0901
 number-0902
-number-1001
 number-1002
 number-1003
 number-1004
-number-1005
 number-1101
 number-1102
 number-1201
@@ -1935,10 +1924,8 @@ number-1901
 number-1902
 number-1903
 number-1904
-number-2001
 number-2002
 number-2003
-number-2101
 number-2201
 number-2301
 number-2401
@@ -1956,7 +1943,6 @@ number-2801
 number-2802
 number-2803
 number-2804
-number-2805
 number-2806
 number-2807
 number-2808
@@ -1968,7 +1954,6 @@ number-2813
 number-2814
 number-2901
 number-2902
-number-3001
 number-3002
 number-3003
 number-3101
@@ -2021,8 +2006,6 @@ number-4101
 number-4201
 number-4202
 number-4301
-number-4401
-number-4402
 number-4601
 number-4701
 number-5001
