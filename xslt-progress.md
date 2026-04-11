@@ -4,6 +4,32 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-11 23:21 CEST
+
+### Status snapshot
+
+- Checkpoint focus: testrunner infrastructure — added test-level `<param>` support.
+- The XSLT testrunner was not extracting `<param>` elements from inside `<test>` in the test catalog. This caused all tests with required stylesheet parameters to fail with XTDE0050 (required param missing). 42 test sets use test-level params; regex-syntax alone has 3191 param elements across 990 tests.
+- Single fix in `xee-testrunner/src/testcase/xslt.rs`: parse `<param name=... select=...>`, evaluate via XPath, merge into dynamic context variables.
+- Vendor tests: 4513 passed (+992 from this commit, +1058 from session start at 3455).
+- Ran full failure analysis across 146 test sets (excluding slow `misc/unicode-90/` and `misc/catalog/`). Saved to `target/tmp/failure-analysis.txt`.
+- DocBook frontier: `fn:transform()` is the blocker — too heavy for now, focusing on vendor test suite gains instead.
+
+### Progress made
+
+- Added `TestParam` struct and `params: Vec<TestParam>` field to `XsltTest`.
+- Parse `<param>` elements from `<test>` during test case loading (parallel to environment-level param handling in `environment/core.rs`).
+- Evaluate param `select` expressions via XPath and merge into variables before running the stylesheet.
+- regex-syntax: 0 → 983 passes (983 of 990 supported now pass).
+- regex-classes: changed from 120 errors → 120 fails (params now work, but regex class matching has bugs).
+- Many other test sets with params also gained passes.
+
+### Next priorities
+
+- `xsl:number level="multiple"` — 64 compilation errors, already have `single` and `any`.
+- `xsl:on-empty` / `xsl:on-non-empty` / `xsl:where-populated` — 133 tests blocked.
+- `xsl:number` formatting fixes — 102 runtime XTDE0050 errors (format tokens).
+
 ## 2026-04-11 21:30 CEST
 
 ### Status snapshot
