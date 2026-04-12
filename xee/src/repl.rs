@@ -106,7 +106,7 @@ impl RunContext {
         let sequence_query = match sequence_query {
             Ok(sequence_query) => sequence_query,
             Err(e) => {
-                render_error(xpath, e);
+                render_error("repl", xpath, e);
                 return Ok(());
             }
         };
@@ -120,7 +120,7 @@ impl RunContext {
         let sequence = match sequence {
             Ok(sequence) => sequence,
             Err(e) => {
-                render_error(xpath, e);
+                render_error("repl", xpath, e);
                 return Ok(());
             }
         };
@@ -219,7 +219,7 @@ impl Repl {
                         match run_context.execute(line) {
                             Ok(()) => {}
                             Err(e) => {
-                                render_error(line, e);
+                                render_error("repl", line, e);
                             }
                         }
                     } else {

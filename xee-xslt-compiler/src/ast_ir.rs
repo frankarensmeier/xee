@@ -384,6 +384,10 @@ pub fn parse_with_base_dir_and_initial_mode(
         static_context.static_base_uri().map(|u| u.to_string()),
     )?;
 
+    // Add namespace bindings from all included/imported modules to the static
+    // context so that xs:QName() casts can resolve prefixes from any module.
+    let static_context = augment_static_context_with_module_namespaces(static_context, &declarations);
+
     let initial_mode = parse_initial_mode_value(initial_mode)?;
     // When no CLI initial mode is specified (defaults to Unnamed), use the
     // stylesheet's default-mode attribute if present.
@@ -401,22 +405,54 @@ fn augment_static_context_with_stylesheet_namespaces(
     static_context: StaticContext,
     xslt: &str,
 ) -> StaticContext {
+    let mut namespaces = static_context.namespaces().clone();
+    collect_namespaces_from_xslt(xslt, &mut namespaces);
+    static_context.clone_with_namespaces(namespaces)
+}
+
+/// Collect namespace bindings from all included/imported module files
+/// and add them to the static context. This ensures that prefixes declared
+/// in any module (e.g. dbe: in errors.xsl) are available for xs:QName() casts.
+fn augment_static_context_with_module_namespaces(
+    static_context: StaticContext,
+    declarations: &[PreprocessedDeclaration],
+) -> StaticContext {
+    let mut seen_uris = std::collections::HashSet::new();
+    let mut namespaces = static_context.namespaces().clone();
+
+    for decl in declarations {
+        if let Some(uri) = &decl.stylesheet_uri {
+            if !seen_uris.insert(uri.clone()) {
+                continue;
+            }
+            let Some(path) = uri.strip_prefix("file://") else {
+                continue;
+            };
+            let path = path.replace("%20", " ");
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            collect_namespaces_from_xslt(&content, &mut namespaces);
+        }
+    }
+
+    static_context.clone_with_namespaces(namespaces)
+}
+
+fn collect_namespaces_from_xslt(xslt: &str, namespaces: &mut Namespaces) {
     let mut xot = Xot::new();
     let Ok(root) = xot.parse(xslt) else {
-        return static_context;
+        return;
     };
     let Ok(document_element) = xot.document_element(root) else {
-        return static_context;
+        return;
     };
 
-    let mut namespaces = static_context.namespaces().clone();
     for (prefix_id, namespace_id) in xot.namespaces_in_scope(document_element) {
         let prefix = xot.prefix_str(prefix_id);
         let namespace = xot.namespace_str(namespace_id);
         namespaces.add(&[(prefix, namespace)]);
     }
-
-    static_context.clone_with_namespaces(namespaces)
 }
 
 fn detect_stylesheet_version(xslt: &str) -> Option<u8> {
@@ -2784,7 +2820,15 @@ impl<'a> IrConverter<'a> {
             };
             Ok(message_bindings.concat(error_bindings))
         } else {
-            Ok(message_bindings.bind_expr(&mut self.variables, empty_sequence))
+            // Non-terminate: output message content to stderr via xslt-message
+            let (message_atom, bindings) = message_bindings.atom_bindings();
+            let call_expr = self.static_function_call_expr(
+                "xslt-message",
+                FN_NAMESPACE,
+                1,
+                vec![message_atom],
+            );
+            Ok(bindings.bind_expr_no_span(&mut self.variables, call_expr))
         }
     }
 

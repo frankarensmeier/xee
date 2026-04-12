@@ -12,7 +12,7 @@ use crate::function;
 use crate::sequence;
 use crate::stack;
 
-const FRAMES_MAX: usize = 64;
+const FRAMES_MAX: usize = 256;
 
 #[derive(Debug, Clone)]
 pub(crate) struct StateCheckpoint {

@@ -4,6 +4,50 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-12 23:56 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix testrunner regression masking, add DocBook blocker stubs.
+- Vendor tests: 4787 passed / 108 regressions now visible (were silently masked).
+- Honest baseline restored — previous "4783 passed" hid 109 failures.
+
+### Critical fix: testrunner filter update logic
+
+- Commit `2f0dae1b` changed `update_with_test_set_outcomes()` so the
+  `NotSubset` branch replaced `old_names` with `failing_names` instead of
+  preserving old entries. This silently added newly-failing tests to the
+  filter, masking regressions.
+- 5 subsequent commits ran `update.py` with the broken logic, hiding 109
+  regressions across accessor, attribute, axes, bug, error, expression,
+  include, key, namespace, node, output, package, position,
+  result-document, select, sequence, and version test sets.
+- Fix: intersection-only approach — keep tests already filtered AND still
+  failing, never add new failures. Restored filter to pre-broken baseline
+  and re-ran update.
+- Added 120s timeout with process group kill to `update.py`, excluded
+  `decl/function/` (fib(92) without `cache="yes"` hangs).
+
+### Feature additions (commit 9473b74f)
+
+- `fn:current-output-uri()` stub (empty sequence)
+- `fn:unparsed-entity-uri()` / `fn:unparsed-entity-public-id()` stubs
+- `xsl:message` non-terminate: compiles to hidden function, serializes
+  content to stderr via `string_value()`
+- Module namespace collection for `xs:QName` cast resolution in included
+  XSLT modules
+- `file://` URI prefix handling in `fn:transform` stylesheet resolution
+- Filename shown in ariadne error output instead of `"source"`
+- `FRAMES_MAX` bumped from 64 to 256
+
+### Next priorities
+
+- Investigate and fix the 108 exposed regressions (main areas:
+  result-document 48, namespace 15, accessor 11, axes 7, bug 7).
+- Fix xsl:iterate bug (second xsl:with-param gets wrong conditional
+  results — blocks DocBook).
+- Re-test DocBook NG pipeline after iterate fix.
+
 ## 2026-04-12 11:17 CEST
 
 ### Status snapshot
