@@ -4206,30 +4206,104 @@ impl<'a> IrConverter<'a> {
 
         let (select_atom, bindings) = self.expression(&for_each_group.select)?.atom_bindings();
         let (key_function_atom, key_function_bindings) = self.group_key_function(group_by)?;
-        let grouped_expr = self.static_function_call_expr(
-            "group-by-first",
-            FN_NAMESPACE,
-            2,
-            vec![select_atom, key_function_atom],
-        );
-        let (grouped_atom, group_bindings) = key_function_bindings
-            .bind_expr_no_span(&mut self.variables, grouped_expr)
-            .atom_bindings();
-        let bindings = bindings.concat(group_bindings);
+
+        // Create a body closure with 3 params: context_item, position, last
+        // This avoids using ir::Map (which would set position/last from the
+        // single-item argument) and instead uses explicit Let bindings so the
+        // runtime function can pass correct position/last values.
+        let item_param = self.variables.new_name();
+        let pos_param = self.variables.new_name();
+        let last_param = self.variables.new_name();
 
         let context_names = self.variables.push_context();
-        let return_bindings = self
+        let body_bindings = self
             .with_template_continuation_availability(false, |this| {
                 this.sequence_constructor(&for_each_group.sequence_constructor)
             })?;
         self.variables.pop_context();
-        let expr = ir::Expr::Map(ir::Map {
-            context_names,
-            var_atom: grouped_atom,
-            return_expr: Box::new(return_bindings.expr()),
+
+        // Build Let chain: bind context variables from closure params
+        let body_with_context = ir::Expr::Let(ir::Let {
+            name: context_names.item.clone(),
+            var_expr: Box::new(Spanned::new(
+                ir::Expr::Atom(Spanned::new(
+                    ir::Atom::Variable(item_param.clone()),
+                    (0..0).into(),
+                )),
+                (0..0).into(),
+            )),
+            return_expr: Box::new(Spanned::new(
+                ir::Expr::Let(ir::Let {
+                    name: context_names.position.clone(),
+                    var_expr: Box::new(Spanned::new(
+                        ir::Expr::Atom(Spanned::new(
+                            ir::Atom::Variable(pos_param.clone()),
+                            (0..0).into(),
+                        )),
+                        (0..0).into(),
+                    )),
+                    return_expr: Box::new(Spanned::new(
+                        ir::Expr::Let(ir::Let {
+                            name: context_names.last.clone(),
+                            var_expr: Box::new(Spanned::new(
+                                ir::Expr::Atom(Spanned::new(
+                                    ir::Atom::Variable(last_param.clone()),
+                                    (0..0).into(),
+                                )),
+                                (0..0).into(),
+                            )),
+                            return_expr: Box::new(body_bindings.expr()),
+                        }),
+                        (0..0).into(),
+                    )),
+                }),
+                (0..0).into(),
+            )),
         });
 
-        Ok(bindings.bind_expr_no_span(&mut self.variables, expr))
+        let body_closure_bindings =
+            Bindings::empty().bind_expr_no_span(&mut self.variables, body_with_context);
+        let (body_atom, body_fn_bindings) = self.closure(
+            vec![
+                ir::Param {
+                    name: item_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: pos_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: last_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+            ],
+            body_closure_bindings,
+        );
+
+        let expr = self.static_function_call_expr(
+            "xslt-for-each-group-by",
+            FN_NAMESPACE,
+            3,
+            vec![select_atom, key_function_atom, body_atom],
+        );
+
+        Ok(bindings
+            .concat(key_function_bindings)
+            .concat(body_fn_bindings)
+            .bind_expr_no_span(&mut self.variables, expr))
     }
 
     fn group_key_function(

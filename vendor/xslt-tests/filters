@@ -1033,7 +1033,6 @@ extension-functions-0104
 extension-functions-0105
 = for
 = for-each-group
-for-each-group-001
 for-each-group-003
 for-each-group-005
 for-each-group-007
@@ -1041,7 +1040,6 @@ for-each-group-009
 for-each-group-011
 for-each-group-012
 for-each-group-013
-for-each-group-014
 for-each-group-015b
 for-each-group-016
 for-each-group-018
@@ -1051,7 +1049,6 @@ for-each-group-024
 for-each-group-026
 for-each-group-027
 for-each-group-028
-for-each-group-029
 for-each-group-030
 for-each-group-031
 for-each-group-032
@@ -1082,32 +1079,21 @@ for-each-group-059
 for-each-group-060
 for-each-group-061
 for-each-group-062
-for-each-group-063
 for-each-group-064
 for-each-group-065
-for-each-group-066
 for-each-group-067
 for-each-group-068
 for-each-group-069
 for-each-group-070
 for-each-group-071
 for-each-group-072
-for-each-group-073
-for-each-group-074
-for-each-group-075
 for-each-group-078b
 for-each-group-079b
-for-each-group-080
 for-each-group-081b
-for-each-group-082
-for-each-group-083
 for-each-group-084
-for-each-group-085
 for-each-group-086
 for-each-group-087
-for-each-group-088
 for-each-group-089
-for-each-group-091
 = format-date
 format-date-001
 format-date-002a
@@ -1437,8 +1423,6 @@ lre-107
 lre-108
 lre-109
 = maps
-maps-001
-maps-002
 maps-007
 maps-008
 maps-901a

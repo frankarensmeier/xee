@@ -1473,6 +1473,26 @@ impl<'a> Interpreter<'a> {
         self.state.regex_group(n)
     }
 
+    pub(crate) fn push_current_group(
+        &mut self,
+        group: sequence::Sequence,
+        key: Option<crate::atomic::Atomic>,
+    ) {
+        self.state.push_current_group(group, key);
+    }
+
+    pub(crate) fn pop_current_group(&mut self) {
+        self.state.pop_current_group();
+    }
+
+    pub(crate) fn current_group(&self) -> sequence::Sequence {
+        self.state.current_group()
+    }
+
+    pub(crate) fn current_grouping_key(&self) -> sequence::Sequence {
+        self.state.current_grouping_key()
+    }
+
     fn xml_append(
         &mut self,
         parent_node: xot::Node,

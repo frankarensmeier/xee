@@ -1,7 +1,6 @@
 // functions used to implement the XSLT that aren't supposed to be
 // exposed to XPath
 use ahash::{HashMap, HashMapExt};
-use std::collections::HashSet;
 
 use iri_string::types::{IriReferenceStr, IriString};
 use ibig::IBig;
@@ -48,28 +47,77 @@ fn simple_content(
 }
 
 #[xpath_fn(
-    "fn:group-by-first($seq as item()*, $key as function(item()) as xs:anyAtomicType*) as item()*"
+    "fn:xslt-for-each-group-by($seq as item()*, $key as function(item()) as xs:anyAtomicType*, $body as function(*)) as item()*"
 )]
-fn group_by_first(
+fn xslt_for_each_group_by(
     interpreter: &mut Interpreter,
     seq: &sequence::Sequence,
     key: sequence::Item,
+    body: sequence::Item,
 ) -> error::Result<sequence::Sequence> {
-    let function = key.to_function()?;
-    let mut seen: HashSet<atomic::Atomic> = HashSet::new();
-    let mut result = Vec::new();
+    let key_function = key.to_function()?;
+    let body_function = body.to_function()?;
+
+    // Build groups preserving insertion order
+    let mut group_keys: Vec<atomic::Atomic> = Vec::new();
+    let mut groups: HashMap<atomic::Atomic, Vec<sequence::Item>> = HashMap::new();
 
     for item in seq.iter() {
-        let value = interpreter.call_function_with_arguments(&function, &[item.clone().into()])?;
+        let value =
+            interpreter.call_function_with_arguments(&key_function, &[item.clone().into()])?;
         let keys = value
             .atomized(interpreter.xot())
             .collect::<error::Result<Vec<_>>>()?;
-        if keys.into_iter().any(|atomic| seen.insert(atomic)) {
-            result.push(item.clone());
+        for k in keys {
+            if !groups.contains_key(&k) {
+                group_keys.push(k.clone());
+            }
+            groups.entry(k).or_default().push(item.clone());
         }
     }
 
+    // Iterate over groups in order, calling body with context item, position, last
+    let mut result = Vec::new();
+    let total_groups: IBig = group_keys.len().into();
+    for (index, group_key) in group_keys.iter().enumerate() {
+        let group_items: sequence::Sequence = groups
+            .get(group_key)
+            .cloned()
+            .unwrap_or_default()
+            .into();
+        let first_item: sequence::Sequence = group_items
+            .iter()
+            .next()
+            .map(|item| item.clone().into())
+            .unwrap_or_default();
+
+        let position: IBig = (index + 1).into();
+
+        interpreter.push_current_group(group_items, Some(group_key.clone()));
+        let body_result = interpreter.call_function_with_arguments(
+            &body_function,
+            &[
+                first_item,
+                atomic::Atomic::from(position).into(),
+                atomic::Atomic::from(total_groups.clone()).into(),
+            ],
+        );
+        interpreter.pop_current_group();
+
+        result.extend(body_result?.iter());
+    }
+
     Ok(result.into())
+}
+
+#[xpath_fn("fn:current-group() as item()*")]
+fn current_group(interpreter: &Interpreter) -> error::Result<sequence::Sequence> {
+    Ok(interpreter.current_group())
+}
+
+#[xpath_fn("fn:current-grouping-key() as xs:anyAtomicType?")]
+fn current_grouping_key(interpreter: &Interpreter) -> error::Result<sequence::Sequence> {
+    Ok(interpreter.current_grouping_key())
 }
 
 #[xpath_fn("fn:xslt-try($body as function(*), $catch_patterns as array(*), $catch_handlers as array(*), $rollback_output as xs:string, $nonrecoverable_on_error as xs:string) as item()*")]
@@ -1351,7 +1399,9 @@ fn is_item_populated(xot: &Xot, item: sequence::Item) -> bool {
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
-        wrap_xpath_fn!(group_by_first),
+        wrap_xpath_fn!(xslt_for_each_group_by),
+        wrap_xpath_fn!(current_group),
+        wrap_xpath_fn!(current_grouping_key),
         wrap_xpath_fn!(xslt_try),
         wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(format_number_lexical2),

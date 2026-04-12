@@ -6,6 +6,7 @@ use ahash::HashMapExt;
 use arrayvec::ArrayVec;
 use xot::Xot;
 
+use crate::atomic;
 use crate::error;
 use crate::function;
 use crate::sequence;
@@ -52,6 +53,8 @@ pub struct State<'a> {
     frames: ArrayVec<Frame, FRAMES_MAX>,
     regex_cache: RefCell<HashMap<RegexKey, Rc<regexml::Regex>>>,
     regex_groups: Vec<Vec<String>>,
+    current_group_stack: Vec<sequence::Sequence>,
+    current_grouping_key_stack: Vec<Option<atomic::Atomic>>,
     pub(crate) xot: &'a mut Xot,
 }
 
@@ -101,6 +104,8 @@ impl<'a> State<'a> {
             frames: ArrayVec::new(),
             regex_cache: RefCell::new(HashMap::new()),
             regex_groups: vec![],
+            current_group_stack: vec![],
+            current_grouping_key_stack: vec![],
             xot,
         }
     }
@@ -354,6 +359,35 @@ impl<'a> State<'a> {
             groups.get(n).cloned().unwrap_or_default()
         } else {
             String::new()
+        }
+    }
+
+    pub(crate) fn push_current_group(
+        &mut self,
+        group: sequence::Sequence,
+        key: Option<atomic::Atomic>,
+    ) {
+        self.current_group_stack.push(group);
+        self.current_grouping_key_stack.push(key);
+    }
+
+    pub(crate) fn pop_current_group(&mut self) {
+        self.current_group_stack.pop();
+        self.current_grouping_key_stack.pop();
+    }
+
+    pub(crate) fn current_group(&self) -> sequence::Sequence {
+        self.current_group_stack
+            .last()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn current_grouping_key(&self) -> sequence::Sequence {
+        if let Some(Some(key)) = self.current_grouping_key_stack.last() {
+            sequence::Item::Atomic(key.clone()).into()
+        } else {
+            sequence::Sequence::default()
         }
     }
 }
