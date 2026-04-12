@@ -207,7 +207,6 @@ avt-0401
 avt-0701
 avt-0801
 avt-0901
-avt-1001
 avt-2102
 avt-3201
 = axes
@@ -384,8 +383,6 @@ collations-0125
 collations-0126
 collations-0127
 collations-0128
-collations-0201
-collations-0301
 collations-0503
 collations-0601
 collations-1006
@@ -1033,7 +1030,6 @@ extension-functions-0104
 extension-functions-0105
 = for
 = for-each-group
-for-each-group-003
 for-each-group-005
 for-each-group-007
 for-each-group-009
@@ -1045,9 +1041,7 @@ for-each-group-016
 for-each-group-018
 for-each-group-020
 for-each-group-022
-for-each-group-024
 for-each-group-026
-for-each-group-027
 for-each-group-028
 for-each-group-030
 for-each-group-031
@@ -1056,7 +1050,6 @@ for-each-group-033
 for-each-group-034
 for-each-group-035
 for-each-group-036
-for-each-group-038
 for-each-group-039
 for-each-group-040
 for-each-group-041
@@ -2850,7 +2843,6 @@ sort-012
 sort-013
 sort-014
 sort-015
-sort-016
 sort-017
 sort-018
 sort-019
@@ -2862,19 +2854,16 @@ sort-029
 sort-041
 sort-042
 sort-043
-sort-049
 sort-050
 sort-051
 sort-052
 sort-053
 sort-054
-sort-055
 sort-062
 sort-063
 sort-064
 sort-065
 sort-066
-sort-067
 sort-071
 sort-072
 sort-073
@@ -4483,18 +4472,11 @@ unicode90-Zs-037
 unicode90-Zs-038
 = unparsed-entity-uri
 = unparsed-text
-unparsed-text-17
-unparsed-text-18
-unparsed-text-19
 unparsed-text-2001
 unparsed-text-2002
 unparsed-text-2003
 = unparsed-text-lines
-unparsed-text-lines-001
-unparsed-text-lines-002
-unparsed-text-lines-003
 unparsed-text-lines-004
-unparsed-text-lines-005
 unparsed-text-lines-006
 = use-package
 use-package-001
@@ -4722,5 +4704,4 @@ xpath-default-namespace-0201
 xsl-document-0402
 xsl-document-0404
 xsl-document-0603
-xsl-document-0701
 = xslt-compat

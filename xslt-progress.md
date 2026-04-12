@@ -1721,4 +1721,21 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 
 2. **`xsl:for-each-group group-by` with `current-group()` and `current-grouping-key()`** (+4): Rewrote the `for-each-group group-by` implementation from a simple deduplication filter (`group-by-first`) to proper grouping with `current-group()` and `current-grouping-key()` support. The runtime function `xslt-for-each-group-by` groups items by key, iterates groups in order, pushes/pops `current-group`/`current-grouping-key` state per group, and passes correct `position()`/`last()` values via closure arguments. The body closure uses explicit `Let` bindings for context variables (item, position, last) instead of `ir::Map`, so position/last reflect the group index. Added grouping state stack (`current_group_stack`, `current_grouping_key_stack`) to interpreter `State`. 17/78 supported vendor tests pass. Unblocks DocBook NG stylesheets that use `for-each-group group-by` with `current-group()`.
 
+## 2026-04-12 13:25 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4766 passed / 0 failed / 0 error / 4462 filtered / 5367 unsupported (14595 total)
+- **+18 new passes** over previous entry (4748)
+
+### What was done
+
+1. **`xsl:for-each-group` sort support** (+2): Removed the guard rejecting `<xsl:sort>` inside `<xsl:for-each-group>`. Added sort key function compilation and sorting logic to the runtime: evaluates sort key per group's first item, sorts groups by key (supports `data-type="number"` and `order="descending"`). 19→21 for-each-group vendor tests pass.
+
+2. **`xsl:sort lang` attribute accepted** (+0): Removed the compile-time error for `xsl:sort lang="..."`. The attribute is now silently accepted and ignored (uses default Unicode codepoint collation). Unblocks DocBook NG index sorting which uses `lang="{$lang}"`.
+
+3. **`fn:unparsed-text`, `fn:unparsed-text-available`, `fn:unparsed-text-lines`** (+14): Implemented all 6 function variants (1-arg and 2-arg for each). URI resolution follows the same pattern as `fn:doc()`. The 2-arg form accepts an encoding parameter (`utf-8`, `iso-8859-1`, etc.) via `encoding_rs`. Error codes: `FOUT1170` for bad URIs/missing files, `FOUT1190` for encoding errors.
+
+4. **`xsl:for-each-group group-adjacent`** (+2): Implemented adjacent grouping — consecutive items with the same key value are grouped together. Runtime function `xslt-for-each-group-adjacent` iterates the input sequence, starts a new group when the key changes. Same sort/closure/position infrastructure as `group-by`. 21/78 for-each-group vendor tests pass. DocBook NG now gets past `group-adjacent` (next blocker: variable scope resolution in closures).
+
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

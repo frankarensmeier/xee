@@ -2558,8 +2558,9 @@ fn test_disallowed_with_param_attribute_reports_xtse0090() {
 }
 
 #[test]
-fn test_sort_lang_attribute_is_parsed_before_compile_support_check() {
-    let error = parse(
+fn test_sort_lang_attribute_is_parsed_and_accepted() {
+    // lang attribute is now silently accepted (ignored, uses default Unicode collation)
+    let result = parse(
         StaticContext::default(),
         r#"
   <xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
@@ -2570,13 +2571,9 @@ fn test_sort_lang_attribute_is_parsed_before_compile_support_check() {
       </xsl:for-each>
     </xsl:template>
   </xsl:transform>"#,
-    )
-    .unwrap_err();
+    );
 
-    assert!(matches!(
-        error.value(),
-        error::Error::Unsupported(ref reason) if reason.contains("xsl:sort lang is not supported yet")
-    ));
+    assert!(result.is_ok());
 }
 
 #[test]

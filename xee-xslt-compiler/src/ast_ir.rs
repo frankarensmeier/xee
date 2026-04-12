@@ -3621,13 +3621,8 @@ impl<'a> IrConverter<'a> {
         }
     }
 
-    fn ensure_supported_sort(&self, sort: &ast::Sort) -> error::SpannedResult<()> {
-        if sort.lang.is_some() {
-            return Err(error::Error::Unsupported(String::from(
-                "xsl:sort lang is not supported yet",
-            ))
-            .into());
-        }
+    fn ensure_supported_sort(&self, _sort: &ast::Sort) -> error::SpannedResult<()> {
+        // lang attribute is accepted but silently ignored (uses default Unicode collation)
         Ok(())
     }
 
@@ -4186,12 +4181,10 @@ impl<'a> IrConverter<'a> {
         &mut self,
         for_each_group: &ast::ForEachGroup,
     ) -> error::SpannedResult<Bindings> {
-        if for_each_group.group_adjacent.is_some()
-            || for_each_group.group_starting_with.is_some()
+        if for_each_group.group_starting_with.is_some()
             || for_each_group.group_ending_with.is_some()
             || for_each_group.composite
             || for_each_group.collation.is_some()
-            || !for_each_group.sort.is_empty()
         {
             return Err(error::Error::Unsupported(format!(
                 "Instruction not supported: {:?}",
@@ -4200,12 +4193,21 @@ impl<'a> IrConverter<'a> {
             .into());
         }
 
-        let group_by = for_each_group.group_by.as_ref().ok_or_else(|| {
-            error::Error::Unsupported(format!("Instruction not supported: {:?}", for_each_group))
-        })?;
+        // Determine the grouping mode and key expression
+        let (group_key_expr, runtime_fn_name) = if let Some(group_by) = &for_each_group.group_by {
+            (group_by, "xslt-for-each-group-by")
+        } else if let Some(group_adjacent) = &for_each_group.group_adjacent {
+            (group_adjacent, "xslt-for-each-group-adjacent")
+        } else {
+            return Err(error::Error::Unsupported(format!(
+                "Instruction not supported: {:?}",
+                for_each_group
+            ))
+            .into());
+        };
 
         let (select_atom, bindings) = self.expression(&for_each_group.select)?.atom_bindings();
-        let (key_function_atom, key_function_bindings) = self.group_key_function(group_by)?;
+        let (key_function_atom, key_function_bindings) = self.group_key_function(group_key_expr)?;
 
         // Create a body closure with 3 params: context_item, position, last
         // This avoids using ir::Map (which would set position/last from the
@@ -4293,16 +4295,49 @@ impl<'a> IrConverter<'a> {
             body_closure_bindings,
         );
 
+        // Compile sort specifications into a sort key function and options
+        let sort_refs = for_each_group.sort.iter().collect::<Vec<_>>();
+        let (sort_key_atom, sort_key_bindings, sort_descending, sort_numeric) = if !sort_refs.is_empty() {
+            // Use first sort only for now; compile its key function
+            let sort = sort_refs[0];
+            let (key_atom, key_bindings) = self.sort_key_function(sort)?;
+            let descending = self.sort_is_descending(sort)?;
+            let numeric = matches!(self.sort_data_type(sort)?, SortDataType::Number);
+            (key_atom, key_bindings, descending, numeric)
+        } else {
+            // No sort: pass empty sequence as sort key function
+            let empty = Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (0..0).into());
+            let bindings = Bindings::empty();
+            (empty, bindings, false, false)
+        };
+
+        let sort_descending_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(if sort_descending { "yes" } else { "no" }.to_string())),
+            (0..0).into(),
+        );
+        let sort_numeric_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(if sort_numeric { "yes" } else { "no" }.to_string())),
+            (0..0).into(),
+        );
+
         let expr = self.static_function_call_expr(
-            "xslt-for-each-group-by",
+            runtime_fn_name,
             FN_NAMESPACE,
-            3,
-            vec![select_atom, key_function_atom, body_atom],
+            6,
+            vec![
+                select_atom,
+                key_function_atom,
+                body_atom,
+                sort_key_atom,
+                sort_descending_atom,
+                sort_numeric_atom,
+            ],
         );
 
         Ok(bindings
             .concat(key_function_bindings)
             .concat(body_fn_bindings)
+            .concat(sort_key_bindings)
             .bind_expr_no_span(&mut self.variables, expr))
     }
 

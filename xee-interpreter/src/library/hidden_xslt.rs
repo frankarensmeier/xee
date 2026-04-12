@@ -47,13 +47,16 @@ fn simple_content(
 }
 
 #[xpath_fn(
-    "fn:xslt-for-each-group-by($seq as item()*, $key as function(item()) as xs:anyAtomicType*, $body as function(*)) as item()*"
+    "fn:xslt-for-each-group-by($seq as item()*, $key as function(item()) as xs:anyAtomicType*, $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
 )]
 fn xslt_for_each_group_by(
     interpreter: &mut Interpreter,
     seq: &sequence::Sequence,
     key: sequence::Item,
     body: sequence::Item,
+    sort_key: &sequence::Sequence,
+    sort_descending: &str,
+    sort_numeric: &str,
 ) -> error::Result<sequence::Sequence> {
     let key_function = key.to_function()?;
     let body_function = body.to_function()?;
@@ -76,10 +79,57 @@ fn xslt_for_each_group_by(
         }
     }
 
+    // Sort groups if a sort key function is provided
+    let sorted_keys = if !sort_key.is_empty() {
+        let sort_key_fn = sort_key.iter().next().unwrap().to_function()?;
+        let mut keyed_groups: Vec<(atomic::Atomic, atomic::Atomic)> = Vec::new();
+        for gk in &group_keys {
+            let first_item: sequence::Sequence = groups
+                .get(gk)
+                .and_then(|g| g.first())
+                .map(|item| item.clone().into())
+                .unwrap_or_default();
+            let sort_val = interpreter
+                .call_function_with_arguments(&sort_key_fn, &[first_item])?;
+            let sort_atomic = sort_val
+                .atomized(interpreter.xot())
+                .next()
+                .transpose()?
+                .unwrap_or(atomic::Atomic::from(""));
+            keyed_groups.push((gk.clone(), sort_atomic));
+        }
+
+        let is_descending = matches!(sort_descending, "yes");
+        let is_numeric = matches!(sort_numeric, "yes");
+
+        keyed_groups.sort_by(|a, b| {
+            let ordering = {
+                let a_str = a.1.clone().into_canonical();
+                let b_str = b.1.clone().into_canonical();
+                if is_numeric {
+                    let a_num: f64 = a_str.parse().unwrap_or(f64::NAN);
+                    let b_num: f64 = b_str.parse().unwrap_or(f64::NAN);
+                    a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    a_str.cmp(&b_str)
+                }
+            };
+            if is_descending {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+
+        keyed_groups.into_iter().map(|(k, _)| k).collect()
+    } else {
+        group_keys
+    };
+
     // Iterate over groups in order, calling body with context item, position, last
     let mut result = Vec::new();
-    let total_groups: IBig = group_keys.len().into();
-    for (index, group_key) in group_keys.iter().enumerate() {
+    let total_groups: IBig = sorted_keys.len().into();
+    for (index, group_key) in sorted_keys.iter().enumerate() {
         let group_items: sequence::Sequence = groups
             .get(group_key)
             .cloned()
@@ -94,6 +144,124 @@ fn xslt_for_each_group_by(
         let position: IBig = (index + 1).into();
 
         interpreter.push_current_group(group_items, Some(group_key.clone()));
+        let body_result = interpreter.call_function_with_arguments(
+            &body_function,
+            &[
+                first_item,
+                atomic::Atomic::from(position).into(),
+                atomic::Atomic::from(total_groups.clone()).into(),
+            ],
+        );
+        interpreter.pop_current_group();
+
+        result.extend(body_result?.iter());
+    }
+
+    Ok(result.into())
+}
+
+#[xpath_fn(
+    "fn:xslt-for-each-group-adjacent($seq as item()*, $key as function(item()) as xs:anyAtomicType*, $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
+)]
+fn xslt_for_each_group_adjacent(
+    interpreter: &mut Interpreter,
+    seq: &sequence::Sequence,
+    key: sequence::Item,
+    body: sequence::Item,
+    sort_key: &sequence::Sequence,
+    sort_descending: &str,
+    sort_numeric: &str,
+) -> error::Result<sequence::Sequence> {
+    let key_function = key.to_function()?;
+    let body_function = body.to_function()?;
+
+    // Build groups of adjacent items with the same key
+    let mut group_keys: Vec<atomic::Atomic> = Vec::new();
+    let mut group_items_list: Vec<Vec<sequence::Item>> = Vec::new();
+
+    for item in seq.iter() {
+        let value =
+            interpreter.call_function_with_arguments(&key_function, &[item.clone().into()])?;
+        let k = value
+            .atomized(interpreter.xot())
+            .next()
+            .transpose()?
+            .unwrap_or(atomic::Atomic::from(""));
+
+        // Check if this key is the same as the previous group's key
+        if let Some(last_key) = group_keys.last() {
+            if *last_key == k {
+                // Same key as previous — add to current group
+                group_items_list.last_mut().unwrap().push(item.clone());
+                continue;
+            }
+        }
+        // New key — start a new group
+        group_keys.push(k);
+        group_items_list.push(vec![item.clone()]);
+    }
+
+    // Sort groups if a sort key function is provided
+    let sorted_indices: Vec<usize> = if !sort_key.is_empty() {
+        let sort_key_fn = sort_key.iter().next().unwrap().to_function()?;
+        let mut keyed: Vec<(usize, atomic::Atomic)> = Vec::new();
+        for (i, group) in group_items_list.iter().enumerate() {
+            let first_item: sequence::Sequence = group
+                .first()
+                .map(|item| item.clone().into())
+                .unwrap_or_default();
+            let sort_val = interpreter
+                .call_function_with_arguments(&sort_key_fn, &[first_item])?;
+            let sort_atomic = sort_val
+                .atomized(interpreter.xot())
+                .next()
+                .transpose()?
+                .unwrap_or(atomic::Atomic::from(""));
+            keyed.push((i, sort_atomic));
+        }
+
+        let is_descending = matches!(sort_descending, "yes");
+        let is_numeric = matches!(sort_numeric, "yes");
+
+        keyed.sort_by(|a, b| {
+            let ordering = {
+                let a_str = a.1.clone().into_canonical();
+                let b_str = b.1.clone().into_canonical();
+                if is_numeric {
+                    let a_num: f64 = a_str.parse().unwrap_or(f64::NAN);
+                    let b_num: f64 = b_str.parse().unwrap_or(f64::NAN);
+                    a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    a_str.cmp(&b_str)
+                }
+            };
+            if is_descending {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+
+        keyed.into_iter().map(|(i, _)| i).collect()
+    } else {
+        (0..group_keys.len()).collect()
+    };
+
+    // Iterate over groups in order
+    let mut result = Vec::new();
+    let total_groups: IBig = sorted_indices.len().into();
+    for (pos, &idx) in sorted_indices.iter().enumerate() {
+        let group_seq: sequence::Sequence = group_items_list[idx].clone().into();
+        let first_item: sequence::Sequence = group_seq
+            .iter()
+            .next()
+            .map(|item| item.clone().into())
+            .unwrap_or_default();
+
+        let position: IBig = (pos + 1).into();
+        let group_key = group_keys[idx].clone();
+
+        interpreter.push_current_group(group_seq, Some(group_key));
         let body_result = interpreter.call_function_with_arguments(
             &body_function,
             &[
@@ -1400,6 +1568,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
         wrap_xpath_fn!(xslt_for_each_group_by),
+        wrap_xpath_fn!(xslt_for_each_group_adjacent),
         wrap_xpath_fn!(current_group),
         wrap_xpath_fn!(current_grouping_key),
         wrap_xpath_fn!(xslt_try),

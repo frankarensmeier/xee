@@ -175,6 +175,99 @@ fn available_environment_variables(context: &DynamicContext) -> Vec<String> {
         .collect()
 }
 
+fn read_text_resource(
+    context: &DynamicContext,
+    href: &str,
+    encoding: Option<&str>,
+) -> error::Result<String> {
+    // Fragment identifiers are not allowed
+    if href.contains('#') {
+        return Err(error::Error::FOUT1170);
+    }
+
+    let iri_reference: &IriReferenceStr = href.try_into().map_err(|_| error::Error::FOUT1170)?;
+    let uri = absolute_uri(context, iri_reference).map_err(|_| error::Error::FOUT1170)?;
+    let url = url::Url::parse(uri.as_str()).map_err(|_| error::Error::FOUT1170)?;
+    let path = url.to_file_path().map_err(|_| error::Error::FOUT1170)?;
+    let bytes = fs::read(&path).map_err(|_| error::Error::FOUT1170)?;
+
+    let encoding_label = encoding.unwrap_or("utf-8");
+    let enc = encoding_rs::Encoding::for_label(encoding_label.as_bytes())
+        .ok_or(error::Error::FOUT1190)?;
+
+    if enc == encoding_rs::UTF_8 {
+        String::from_utf8(bytes).map_err(|_| error::Error::FOUT1190)
+    } else {
+        let (result, _, had_errors) = enc.decode(&bytes);
+        if had_errors {
+            return Err(error::Error::FOUT1190);
+        }
+        Ok(result.into_owned())
+    }
+}
+
+#[xpath_fn("fn:unparsed-text($href as xs:string?) as xs:string?")]
+fn unparsed_text1(context: &DynamicContext, href: Option<&str>) -> error::Result<Option<String>> {
+    match href {
+        Some(href) => read_text_resource(context, href, None).map(Some),
+        None => Ok(None),
+    }
+}
+
+#[xpath_fn("fn:unparsed-text($href as xs:string?, $encoding as xs:string) as xs:string?")]
+fn unparsed_text2(
+    context: &DynamicContext,
+    href: Option<&str>,
+    encoding: &str,
+) -> error::Result<Option<String>> {
+    match href {
+        Some(href) => read_text_resource(context, href, Some(encoding)).map(Some),
+        None => Ok(None),
+    }
+}
+
+#[xpath_fn("fn:unparsed-text-available($href as xs:string?) as xs:boolean")]
+fn unparsed_text_available1(context: &DynamicContext, href: Option<&str>) -> bool {
+    match href {
+        Some(href) => read_text_resource(context, href, None).is_ok(),
+        None => false,
+    }
+}
+
+#[xpath_fn("fn:unparsed-text-available($href as xs:string?, $encoding as xs:string) as xs:boolean")]
+fn unparsed_text_available2(context: &DynamicContext, href: Option<&str>, encoding: &str) -> bool {
+    match href {
+        Some(href) => read_text_resource(context, href, Some(encoding)).is_ok(),
+        None => false,
+    }
+}
+
+#[xpath_fn("fn:unparsed-text-lines($href as xs:string?) as xs:string*")]
+fn unparsed_text_lines1(context: &DynamicContext, href: Option<&str>) -> error::Result<Vec<String>> {
+    match href {
+        Some(href) => {
+            let text = read_text_resource(context, href, None)?;
+            Ok(text.lines().map(|s| s.to_string()).collect())
+        }
+        None => Ok(vec![]),
+    }
+}
+
+#[xpath_fn("fn:unparsed-text-lines($href as xs:string?, $encoding as xs:string) as xs:string*")]
+fn unparsed_text_lines2(
+    context: &DynamicContext,
+    href: Option<&str>,
+    encoding: &str,
+) -> error::Result<Vec<String>> {
+    match href {
+        Some(href) => {
+            let text = read_text_resource(context, href, Some(encoding))?;
+            Ok(text.lines().map(|s| s.to_string()).collect())
+        }
+        None => Ok(vec![]),
+    }
+}
+
 // https://www.w3.org/TR/xpath-functions-31/#fns-on-docs
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
@@ -187,5 +280,11 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(uri_collection_by_uri),
         wrap_xpath_fn!(environment_variable),
         wrap_xpath_fn!(available_environment_variables),
+        wrap_xpath_fn!(unparsed_text1),
+        wrap_xpath_fn!(unparsed_text2),
+        wrap_xpath_fn!(unparsed_text_available1),
+        wrap_xpath_fn!(unparsed_text_available2),
+        wrap_xpath_fn!(unparsed_text_lines1),
+        wrap_xpath_fn!(unparsed_text_lines2),
     ]
 }
