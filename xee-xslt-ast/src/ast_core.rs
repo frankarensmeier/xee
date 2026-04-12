@@ -1025,6 +1025,7 @@ pub struct Message {
     pub select: Option<Expression>,
     pub terminate: Option<ValueTemplate<bool>>,
     pub error_code: Option<ValueTemplate<EqName>>,
+    pub namespaces: Vec<LiteralNamespace>,
 
     pub sequence_constructor: SequenceConstructor,
 

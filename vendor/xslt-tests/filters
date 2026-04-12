@@ -822,7 +822,6 @@ error-1390c
 error-1400a
 error-1400b
 error-1400c
-error-1420a
 error-1428a
 error-1430a
 error-1440a
@@ -835,7 +834,6 @@ error-1460c
 error-1480a
 error-1480b
 error-1490c
-error-1495a
 error-1500a
 error-1535b
 error-1560a
@@ -1590,8 +1588,6 @@ merge-096
 merge-100
 merge-101
 = message
-message-0003
-message-0004
 message-0005
 message-0006
 message-0009
@@ -1617,7 +1613,6 @@ message-0313
 message-0314
 message-0315
 message-0316
-message-0317
 message-0401
 message-0402
 message-0403

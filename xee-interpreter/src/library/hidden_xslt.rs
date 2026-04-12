@@ -1277,6 +1277,25 @@ fn regex_group(interpreter: &mut Interpreter, group_number: IBig) -> error::Resu
     Ok(interpreter.regex_group(n))
 }
 
+#[xpath_fn("fn:xslt-message-terminate($namespace as xs:string, $local_name as xs:string, $prefix as xs:string) as item()*")]
+fn xslt_message_terminate(
+    namespace: &str,
+    local_name: &str,
+    prefix: &str,
+) -> error::Result<sequence::Sequence> {
+    let qname = OwnedName::new(
+        local_name.to_string(),
+        namespace.to_string(),
+        prefix.to_string(),
+    );
+    Err(error::Error::Application(Box::new(
+        error::ApplicationError::new(
+            qname,
+            "Processing terminated by xsl:message".to_string(),
+        ),
+    )))
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
@@ -1297,6 +1316,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(store_principal_result_document),
         wrap_xpath_fn!(xslt_analyze_string),
         wrap_xpath_fn!(regex_group),
+        wrap_xpath_fn!(xslt_message_terminate),
     ]
 }
 

@@ -1295,6 +1295,7 @@ impl InstructionParser for ast::MergeSource {
 impl InstructionParser for ast::Message {
     fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
         let names = &content.state.names;
+        let namespaces = content.context.literal_namespaces(content.state);
         Ok(ast::Message {
             select: attributes.optional(names.select, attributes.xpath())?,
             terminate: attributes.optional(
@@ -1305,6 +1306,7 @@ impl InstructionParser for ast::Message {
                 names.error_code,
                 attributes.value_template(attributes.eqname()),
             )?,
+            namespaces,
 
             span: content.span()?,
 

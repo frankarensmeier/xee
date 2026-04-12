@@ -1593,3 +1593,28 @@ Next blocker is `xsl:number` with `level="single"` — the node-counting form th
 Proceeding to find the next blocker after `xsl:number`.
 
 Next blocker is `xsl:number level="any"` with complex count/from patterns (predicates, path steps). This requires the full XSLT pattern matching infrastructure to be accessible from xsl:number's runtime, not just simple element name extraction.
+
+## 2026-04-12 09:20 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4582 passed / 0 failed / 0 error / 4211 filtered / 5802 unsupported (14595 total)
+- **+1132 new passes** over previous baseline (3450)
+
+### What was done (since last progress update)
+
+1. **`xsl:number level="any"`**: Implemented via pattern infrastructure. Counts all preceding nodes matching the count pattern, stopping at nodes matching the from pattern.
+
+2. **`xsl:number count/from` patterns**: Compiled count and from patterns through the full XSLT pattern compiler infrastructure instead of ad-hoc name matching.
+
+3. **`xsl:number level="multiple"`**: Implemented hierarchical numbering (e.g., "1.2.3") by walking ancestors and counting at each level.
+
+4. **Test-level params in XSLT testrunner** (+992): Supported `<test>` element `<environment>` params (stylesheet-params, source documents, etc.), unlocking the vast majority of previously-erroring test cases.
+
+5. **`fn:available-system-properties()`** (+26): Implemented with standard XSLT 3.0 system properties (version, vendor, vendor-url, product-name, product-version, is-schema-aware, supports-serialization, supports-backwards-compatibility, supports-namespace-axis, xpath-version, xsd-version).
+
+6. **`fn:regex-group()` and `xsl:message terminate`** (+20): regex-group() returns captured groups from xsl:analyze-string matching substrings. xsl:message with terminate="yes" raises XTMM9000.
+
+7. **`xsl:number` value rounding fix** (+2): Fixed float/double/decimal truncation — now rounds to nearest integer before formatting (e.g., 99.83 → 100 instead of 99).
+
+8. **`xsl:message error-code` attribute** (+5): Support for custom error codes on `xsl:message terminate="yes"`. Handles Q{ns}local, prefix:local, and plain local name formats via a hidden `xslt-message-terminate` runtime function. Also fixed testrunner's `assert_error` to parse Q{ns}local expected error codes.

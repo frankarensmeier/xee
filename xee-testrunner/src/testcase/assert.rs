@@ -828,9 +828,25 @@ impl AssertError {
         // all errors are officially a pass, but we check whether the error
         // code matches too
         let code = error.code_qname();
-        // FIXME: there is no checking for the correct namespace here, should
-        // there be?
-        if code.local_name() == self.0 {
+        // Parse expected code: may be Q{namespace}local-name or just local-name
+        let (expected_local, expected_ns) =
+            if let Some(rest) = self.0.strip_prefix("Q{") {
+                if let Some(close_brace) = rest.find('}') {
+                    let ns = &rest[..close_brace];
+                    let local = &rest[close_brace + 1..];
+                    (local, Some(ns))
+                } else {
+                    (self.0.as_str(), None)
+                }
+            } else {
+                (self.0.as_str(), None)
+            };
+        let local_matches = code.local_name() == expected_local;
+        let ns_matches = match expected_ns {
+            Some(ns) => code.namespace() == ns,
+            None => true,
+        };
+        if local_matches && ns_matches {
             TestOutcome::Passed
         } else {
             TestOutcome::UnexpectedError(UnexpectedError(code.local_name().to_string()))

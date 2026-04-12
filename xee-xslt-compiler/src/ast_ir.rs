@@ -2665,12 +2665,85 @@ impl<'a> IrConverter<'a> {
         };
 
         if should_terminate {
-            let error_bindings =
-                self.raise_error(RaisedError::XTMM9000);
+            // Check for custom error-code
+            let custom_error = if let Some(error_code) = &message.error_code {
+                if let Some(code_str) = self.static_value_template(error_code) {
+                    self.resolve_eqname_string(&code_str, &message.namespaces)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let error_bindings = if let Some((local_name, namespace, prefix)) = custom_error {
+                let ns_atom = Spanned::new(
+                    ir::Atom::Const(ir::Const::String(namespace)),
+                    (0..0).into(),
+                );
+                let local_atom = Spanned::new(
+                    ir::Atom::Const(ir::Const::String(local_name)),
+                    (0..0).into(),
+                );
+                let prefix_atom = Spanned::new(
+                    ir::Atom::Const(ir::Const::String(prefix)),
+                    (0..0).into(),
+                );
+                let call_expr = self.static_function_call_expr(
+                    "xslt-message-terminate",
+                    FN_NAMESPACE,
+                    3,
+                    vec![ns_atom, local_atom, prefix_atom],
+                );
+                Bindings::empty().bind_expr_no_span(&mut self.variables, call_expr)
+            } else {
+                self.raise_error(RaisedError::XTMM9000)
+            };
             Ok(message_bindings.concat(error_bindings))
         } else {
             Ok(message_bindings.bind_expr(&mut self.variables, empty_sequence))
         }
+    }
+
+    /// Resolve an EQName string (Q{ns}local or prefix:local or local) into
+    /// (local_name, namespace, prefix) triple.
+    fn resolve_eqname_string(
+        &self,
+        s: &str,
+        namespaces: &[ast::LiteralNamespace],
+    ) -> Option<(String, String, String)> {
+        let s = s.trim();
+        // Handle Q{namespace}local-name syntax
+        if let Some(rest) = s.strip_prefix("Q{") {
+            if let Some(close_brace) = rest.find('}') {
+                let namespace = &rest[..close_brace];
+                let local_name = &rest[close_brace + 1..];
+                if !local_name.is_empty() {
+                    return Some((
+                        local_name.to_string(),
+                        namespace.to_string(),
+                        String::new(),
+                    ));
+                }
+            }
+            return None;
+        }
+        // Handle prefix:local-name syntax
+        if let Some((prefix, local_name)) = s.split_once(':') {
+            // Check literal namespaces first (from the containing element)
+            let namespace = namespaces
+                .iter()
+                .find(|ns| ns.prefix == prefix)
+                .map(|ns| ns.uri.as_str())
+                .or_else(|| self.current_static_context().namespaces().by_prefix(prefix))?;
+            return Some((
+                local_name.to_string(),
+                namespace.to_string(),
+                prefix.to_string(),
+            ));
+        }
+        // Plain local name — no namespace
+        Some((s.to_string(), String::new(), String::new()))
     }
 
     fn result_document(
