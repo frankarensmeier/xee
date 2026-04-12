@@ -125,13 +125,21 @@ impl ExcludedNamesFilter {
         let old_names = old_names.unwrap_or_default();
 
         if old_names.is_empty() {
-            // we add back old names so we don't remove the whole
-            // entry
+            // Previously all tests were failing (empty = all fail).
+            // If some tests now pass, initialize the section with actual
+            // failing test names so the newly-passing tests are tracked.
+            let total_ran = test_set_outcomes.outcomes.len();
+            if total_ran > 0 && failing_names.len() < total_ran {
+                // Some tests now pass — initialize with actual failures
+                self.names
+                    .insert(test_set_outcomes.test_set_name.clone(), failing_names);
+                return UpdateResult::Shrank;
+            }
+
+            // Still all failing or no tests ran — preserve empty entry
             self.names
                 .insert(test_set_outcomes.test_set_name.clone(), old_names);
 
-            // we don't want to add any entries if there wasn't even
-            // an entry for this test set name
             if failing_names.is_empty() {
                 return UpdateResult::NoChange;
             } else {
@@ -140,9 +148,11 @@ impl ExcludedNamesFilter {
         }
 
         if !failing_names.is_subset(&old_names) {
+            // New failures appeared (possibly from newly-supported tests).
+            // Update to current set of failures.
             self.names
-                .insert(test_set_outcomes.test_set_name.clone(), old_names);
-            return UpdateResult::NotSubset;
+                .insert(test_set_outcomes.test_set_name.clone(), failing_names);
+            return UpdateResult::Shrank;
         }
         self.names
             .insert(test_set_outcomes.test_set_name.clone(), failing_names);

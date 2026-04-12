@@ -94,6 +94,10 @@ impl Language for XsltLanguage {
                 type_: "feature".to_string(),
                 value: "higherOrderFunctions".to_string(),
             },
+            DependencySpec {
+                type_: "feature".to_string(),
+                value: "serialization".to_string(),
+            },
         ];
         KnownDependencies::new(&specs)
     }
