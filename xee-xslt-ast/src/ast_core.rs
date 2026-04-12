@@ -1717,6 +1717,8 @@ pub struct Transform {
     // they're all standard attributes
     pub declarations: Declarations,
 
+    pub default_mode: DefaultMode,
+
     pub span: Span,
 }
 

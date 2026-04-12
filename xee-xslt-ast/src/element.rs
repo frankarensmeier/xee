@@ -102,6 +102,7 @@ impl<'a> XsltParser<'a> {
             input_type_annotations: None,
             extension_element_prefixes: None,
             declarations: vec![template.into()],
+            default_mode: ast::DefaultMode::Unnamed,
             span,
         })
     }

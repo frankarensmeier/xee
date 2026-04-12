@@ -1749,4 +1749,26 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 
 1. **Fix `atom_uses_name` to check `StaticFunctionReference` context names** (+17): Found and fixed a bug in the bytecode compiler's Let optimization that incorrectly eliminated Let bindings for context variables (`.`, `position()`, `last()`) when they were only referenced through `StaticFunctionReference` atoms (e.g. `local-name(.)`, `generate-id(.)`). The `atom_uses_name` function only checked `Atom::Variable`, missing `Atom::Const(StaticFunctionReference(_, Some(ContextNames { item, position, last })))`. This caused "Internal bug: variable not found" errors when closures (like `for-each-group` body closures) used context-dependent functions. Fix extends `atom_uses_name` to also check context names inside `StaticFunctionReference`. DocBook NG now produces output without compilation errors.
 
+## 2026-04-12 16:33 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4783 passed / 0 failed / 0 error / 4445 filtered / 5367 unsupported (14595 total)
+- **No change in pass count** — but unblocks DocBook NG HTML output.
+
+### What was done
+
+1. **Implement `default-mode` support in entry point** (+0): The stylesheet `default-mode` attribute was fully parsed and used by the AST layer to resolve `mode="#default"` on templates and `apply-templates`, but the compiler's entry point (`main_sequence_constructor`) always used the CLI initial mode (defaulting to `Unnamed`). When no CLI mode override is provided, the entry point now respects the stylesheet's `default-mode` attribute. This fixes DocBook NG which uses `default-mode="m:docbook"` — previously all templates in the `m:docbook` mode were silently skipped, producing text-only output. Added `default_mode` field to the `Transform` AST struct, populated during parsing from the context's resolved default mode.
+
+### Validation used
+
+- `cargo build --release` — clean build
+- `target/release/xee-testrunner check vendor/xslt-tests/` — 4783 passed / 0 failed / 0 error
+- DocBook NG now reaches runtime resource loading (`templates.xml`) instead of producing text-only output
+
+### Next priorities
+
+- DocBook NG hits `FODC0002` for `templates.xml` — a missing resource file (in `modules/` but referenced as `templates.xml` relative to stylesheet base). This is a legitimate DocBook configuration / path issue rather than an xee bug.
+- Continue iterating on DocBook NG blockers.
+
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

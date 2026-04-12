@@ -2014,6 +2014,8 @@ impl InstructionParser for ast::Transform {
             extension_element_prefixes: attributes
                 .optional(names.extension_element_prefixes, attributes.prefixes())?,
 
+            default_mode: content.context.default_mode.clone(),
+
             span: content.span()?,
 
             declarations: content.declarations()?,

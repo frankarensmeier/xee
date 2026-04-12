@@ -371,6 +371,8 @@ pub fn parse_with_base_dir_and_initial_mode(
         }
     };
 
+    let default_mode = transform.default_mode.clone();
+
     // Process xsl:import and xsl:include directives
     let declarations = process_imports_and_includes(
         transform.declarations,
@@ -380,6 +382,15 @@ pub fn parse_with_base_dir_and_initial_mode(
     )?;
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
+    // When no CLI initial mode is specified (defaults to Unnamed), use the
+    // stylesheet's default-mode attribute if present.
+    let initial_mode = match initial_mode {
+        ast::ApplyTemplatesModeValue::Unnamed => match default_mode {
+            ast::DefaultMode::EqName(name) => ast::ApplyTemplatesModeValue::EqName(name),
+            ast::DefaultMode::Unnamed => ast::ApplyTemplatesModeValue::Unnamed,
+        },
+        other => other,
+    };
     compile_preprocessed_declarations(xslt, declarations, static_context, initial_mode)
 }
 
