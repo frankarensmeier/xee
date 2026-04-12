@@ -4308,11 +4308,21 @@ impl<'a> IrConverter<'a> {
 
         // if it is an element or document,
         // execute sequence constructor
-        // TODO: work on document check
-        // let _is_document_expr = self.is_document_expr(context_atom.clone());
         let is_element_expr = self.is_element_expr(copy_atom.clone());
         let (is_element_atom, bindings) = bindings
             .bind_expr_no_span(&mut self.variables, is_element_expr)
+            .atom_bindings();
+        let is_document_expr = self.is_document_expr(copy_atom.clone());
+        let (is_document_atom, bindings) = bindings
+            .bind_expr_no_span(&mut self.variables, is_document_expr)
+            .atom_bindings();
+        let is_element_or_document_expr = ir::Expr::Binary(ir::Binary {
+            left: is_element_atom,
+            op: ir::BinaryOperator::Or,
+            right: is_document_atom,
+        });
+        let (is_element_or_document_atom, bindings) = bindings
+            .bind_expr_no_span(&mut self.variables, is_element_or_document_expr)
             .atom_bindings();
 
         let copy_expr = ir::Expr::Atom(copy_atom.clone());
@@ -4343,7 +4353,7 @@ impl<'a> IrConverter<'a> {
         });
 
         let if_expr = ir::Expr::If(ir::If {
-            condition: is_element_atom,
+            condition: is_element_or_document_atom,
             then: Box::new(Spanned::new(append, (0..0).into())),
             else_: Box::new(Spanned::new(copy_expr, (0..0).into())),
         });
@@ -4351,15 +4361,15 @@ impl<'a> IrConverter<'a> {
         Ok(bindings.bind_expr_no_span(&mut self.variables, if_expr))
     }
 
-    // fn is_document_expr(&self, atom: ir::AtomS) -> ir::Expr {
-    //     ir::Expr::InstanceOf(ir::InstanceOf {
-    //         atom,
-    //         sequence_type: xpath_ast::SequenceType::Item(xpath_ast::Item {
-    //             item_type: xpath_ast::ItemType::KindTest(xpath_ast::KindTest::Document(None)),
-    //             occurrence: xpath_ast::Occurrence::One,
-    //         }),
-    //     })
-    // }
+    fn is_document_expr(&self, atom: ir::AtomS) -> ir::Expr {
+        ir::Expr::InstanceOf(ir::InstanceOf {
+            atom,
+            sequence_type: xpath_ast::SequenceType::Item(xpath_ast::Item {
+                item_type: xpath_ast::ItemType::KindTest(xpath_ast::KindTest::Document(None)),
+                occurrence: xpath_ast::Occurrence::One,
+            }),
+        })
+    }
 
     fn is_element_expr(&self, atom: ir::AtomS) -> ir::Expr {
         ir::Expr::InstanceOf(ir::InstanceOf {
