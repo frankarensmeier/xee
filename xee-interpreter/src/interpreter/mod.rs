@@ -7,5 +7,5 @@ mod runnable;
 mod state;
 
 pub use interpret::Interpreter;
-pub use program::{DynamicXPathEvaluator, DynamicXPathRequest, FunctionInfo, Program};
+pub use program::{DynamicXPathEvaluator, DynamicXPathRequest, FunctionInfo, Program, TransformEvaluator, TransformRequest};
 pub use runnable::Runnable;

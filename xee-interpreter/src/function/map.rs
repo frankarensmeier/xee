@@ -16,7 +16,7 @@ pub enum Map {
 }
 
 impl Map {
-    pub(crate) fn new(entries: Vec<(atomic::Atomic, sequence::Sequence)>) -> error::Result<Self> {
+    pub fn new(entries: Vec<(atomic::Atomic, sequence::Sequence)>) -> error::Result<Self> {
         match entries.len() {
             0 => Ok(Self::Empty(EmptyMap)),
             1 => {
@@ -85,7 +85,7 @@ impl Map {
             Map::Many(map) => map.is_empty(),
         }
     }
-    pub(crate) fn get(&self, key: &atomic::Atomic) -> Option<&sequence::Sequence> {
+    pub fn get(&self, key: &atomic::Atomic) -> Option<&sequence::Sequence> {
         match self {
             Map::Empty(map) => map.get(key),
             Map::One(map) => map.get(key),

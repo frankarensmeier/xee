@@ -1296,6 +1296,23 @@ fn xslt_message_terminate(
     )))
 }
 
+#[xpath_fn("fn:transform($options as map(*)) as map(*)")]
+fn fn_transform(
+    context: &crate::context::DynamicContext,
+    interpreter: &mut Interpreter,
+    options: function::Map,
+) -> error::Result<function::Map> {
+    let evaluator = context.transform_evaluator().ok_or_else(|| {
+        error::Error::Unsupported("fn:transform is not configured for this program".to_string())
+    })?;
+
+    let request = crate::interpreter::TransformRequest { options };
+
+    evaluator
+        .transform(&request, context, interpreter)
+        .map_err(|error| error.error)
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
@@ -1317,6 +1334,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_analyze_string),
         wrap_xpath_fn!(regex_group),
         wrap_xpath_fn!(xslt_message_terminate),
+        wrap_xpath_fn!(fn_transform),
     ]
 }
 

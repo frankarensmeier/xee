@@ -309,6 +309,7 @@ fn compile_preprocessed_declarations(
     let declarations = ir_converter.transform(&declarations)?;
     let mut program = compile_xslt(declarations, static_context)?;
     program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
+    program.set_transform_evaluator(Box::new(crate::transform::XsltTransformEvaluator));
     program.set_source(xslt.to_string());
     Ok(program)
 }

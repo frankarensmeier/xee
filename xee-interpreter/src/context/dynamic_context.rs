@@ -206,6 +206,16 @@ impl<'a> DynamicContext<'a> {
         self.program.dynamic_xpath_evaluator()
     }
 
+    pub fn transform_evaluator(
+        &self,
+    ) -> Option<&dyn interpreter::TransformEvaluator> {
+        self.program.transform_evaluator()
+    }
+
+    pub fn secondary_result_documents(&self) -> HashMap<String, sequence::Sequence> {
+        self.secondary_result_documents.borrow().clone()
+    }
+
     pub(crate) fn arguments(&self) -> Result<Vec<sequence::Sequence>, Error> {
         let mut arguments = Vec::new();
         for variable_name in self.static_context().variable_names() {

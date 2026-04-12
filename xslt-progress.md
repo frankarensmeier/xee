@@ -1680,4 +1680,19 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 
 3. **Enabled `serialization` feature in testrunner** (+103): Added `"serialization"` to the XSLT testrunner's known dependencies. This unlocked 232 output declaration tests plus many individual serialization-dependent tests across other test sets (result-document, character-map, copy, lre, attribute, etc.). The newly-failing tests reflect areas where serialization needs more work (character maps, XHTML output method, HTML output method, `disable-output-escaping`, etc.) — not regressions.
 
+## 2026-04-12 12:12 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4721 passed / 0 failed / 0 error / 4507 filtered / 5367 unsupported (14595 total)
+- **+32 new passes** over previous entry (4689)
+
+### What was done
+
+1. **XPath namespace axis** (+32): Implemented `resolve_namespace_step()` in the interpreter and added the namespace axis to step resolution. Changed `resolve_step` to take `&mut Xot`. Committed as `ed5a4b3f`.
+
+2. **Backwards-compatible mode for XSLT 1.0** (no new passes): When `version="1.0"` is specified on the stylesheet, unknown function calls (e.g. Saxon extension functions guarded by `function-available()`) now defer to a runtime `XTDE1425` error instead of causing a static `XPST0017` compile failure. This unblocks DocBook 1.0 profiling stylesheets. Committed as `0c17be13`.
+
+3. **`fn:transform` implementation** (no new passes — vendor tests require `higher_order_functions`): Implemented `fn:transform($options as map(*)) as map(*)` using the trait injection pattern (mirrors `DynamicXPathEvaluator`). `TransformEvaluator` trait defined in `xee-interpreter`, `XsltTransformEvaluator` implemented in `xee-xslt-compiler`. Supports `stylesheet-location`, `source-node`, and `stylesheet-params` map keys. Nested/re-entrant transforms work via evaluator injection on sub-programs. Shares document pool across transforms via `Rc<RefCell<Documents>>`. DocBook NG `print.xsl` now gets past the `fn:transform` call (next blocker: `xsl:sort case-order`).
+
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

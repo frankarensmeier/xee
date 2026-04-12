@@ -26,6 +26,23 @@ pub trait DynamicXPathEvaluator: std::fmt::Debug {
     ) -> error::SpannedResult<sequence::Sequence>;
 }
 
+/// A request to evaluate fn:transform — run an XSLT transformation.
+#[derive(Debug, Clone)]
+pub struct TransformRequest {
+    pub options: function::Map,
+}
+
+/// Trait for evaluating fn:transform. Implemented in xee-xslt-compiler
+/// and injected into Program to break the dependency cycle.
+pub trait TransformEvaluator: std::fmt::Debug {
+    fn transform(
+        &self,
+        request: &TransformRequest,
+        context: &context::DynamicContext,
+        interpreter: &mut super::Interpreter<'_>,
+    ) -> error::SpannedResult<function::Map>;
+}
+
 #[derive(Debug)]
 pub struct Program {
     span: Span,
@@ -34,6 +51,7 @@ pub struct Program {
     pub declarations: Declarations,
     static_context: context::StaticContext,
     dynamic_xpath_evaluator: Option<Box<dyn DynamicXPathEvaluator>>,
+    transform_evaluator: Option<Box<dyn TransformEvaluator>>,
     map_signature: function::Signature,
     array_signature: function::Signature,
 }
@@ -47,6 +65,7 @@ impl Program {
             declarations: Declarations::new(),
             static_context,
             dynamic_xpath_evaluator: None,
+            transform_evaluator: None,
             map_signature: function::Signature::map_signature(),
             array_signature: function::Signature::array_signature(),
         }
@@ -65,6 +84,17 @@ impl Program {
 
     pub fn dynamic_xpath_evaluator(&self) -> Option<&dyn DynamicXPathEvaluator> {
         self.dynamic_xpath_evaluator.as_deref()
+    }
+
+    pub fn set_transform_evaluator(
+        &mut self,
+        evaluator: Box<dyn TransformEvaluator>,
+    ) {
+        self.transform_evaluator = Some(evaluator);
+    }
+
+    pub fn transform_evaluator(&self) -> Option<&dyn TransformEvaluator> {
+        self.transform_evaluator.as_deref()
     }
 
     pub fn dynamic_context_builder(&self) -> context::DynamicContextBuilder<'_> {
