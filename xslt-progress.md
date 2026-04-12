@@ -4,6 +4,29 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-12 06:45 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `fn:available-system-properties()` and `supports-namespace-axis` system property.
+- Added `fn:available-system-properties() as xs:QName*` returning all 14 XSLT system property QNames.
+- Added `supports-namespace-axis` to `system-property()` (returns "no" — namespace axis not supported).
+- Fixed regression: version-025 test failed because `supports-namespace-axis` was initially set to "yes", causing `use-when` to select a template using the unsupported `namespace::` axis (XPST0010).
+- Vendor tests: 4555 passed (+26 from this commit, +1100 from session start at 3455).
+
+### Progress made
+
+- New function: `available_system_properties()` in `context.rs` returns Vec of QNames for all supported system properties.
+- All 14 system properties now listed: version, vendor, vendor-url, product-name, product-version, is-schema-aware, supports-serialization, supports-backwards-compatibility, supports-dynamic-evaluation, supports-streaming, supports-namespace-axis, supports-higher-order-functions, xpath-version, xsd-version.
+- 27 of 29 available-system-properties tests pass (2 unsupported: schema-aware).
+- Failed attempt at `fn:document()` sequence overload reverted — `item()*` signature conflicts with `xs:string?` at same arity.
+
+### Next priorities
+
+- `xsl:on-empty` / `xsl:on-non-empty` / `xsl:where-populated` — ~133 tests blocked.
+- Number formatting edge cases — ~102 tests with format picture issues.
+- `fn:document()` sequence overload — needs different approach (29 tests).
+
 ## 2026-04-11 23:41 CEST
 
 ### Status snapshot

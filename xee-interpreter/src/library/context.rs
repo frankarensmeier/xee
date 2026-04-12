@@ -196,6 +196,36 @@ fn system_property(context: &DynamicContext, property_name: &str) -> String {
     resolve_system_property(context, property_name).unwrap_or_default()
 }
 
+#[xpath_fn("fn:available-system-properties() as xs:QName*")]
+fn available_system_properties() -> Vec<atomic::Atomic> {
+    let names = [
+        "version",
+        "vendor",
+        "vendor-url",
+        "product-name",
+        "product-version",
+        "is-schema-aware",
+        "supports-serialization",
+        "supports-backwards-compatibility",
+        "supports-dynamic-evaluation",
+        "supports-streaming",
+        "supports-namespace-axis",
+        "supports-higher-order-functions",
+        "xpath-version",
+        "xsd-version",
+    ];
+    names
+        .iter()
+        .map(|name| {
+            atomic::Atomic::from(xot::xmlname::OwnedName::new(
+                name.to_string(),
+                XSLT_NAMESPACE.to_string(),
+                "xsl".to_string(),
+            ))
+        })
+        .collect()
+}
+
 #[xpath_fn("fn:function-available($function_name as xs:string) as xs:boolean")]
 fn function_available(context: &DynamicContext, function_name: &str) -> bool {
     let Some(name) = resolve_function_name(context, function_name) else {
@@ -355,6 +385,7 @@ fn resolve_system_property(context: &DynamicContext, property_name: &str) -> Opt
         "supports-backwards-compatibility" => "yes".to_string(),
         "supports-dynamic-evaluation" => "no".to_string(),
         "supports-streaming" => "no".to_string(),
+        "supports-namespace-axis" => "no".to_string(),
         "supports-higher-order-functions" => "yes".to_string(),
         "xpath-version" => xpath_version.to_string(),
         "xsd-version" => "1.1".to_string(),
@@ -391,6 +422,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(default_collation),
         wrap_xpath_fn!(static_base_uri),
         wrap_xpath_fn!(system_property),
+        wrap_xpath_fn!(available_system_properties),
         wrap_xpath_fn!(function_available),
         wrap_xpath_fn!(function_available_with_arity),
         wrap_xpath_fn!(element_available),
