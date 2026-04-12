@@ -1618,3 +1618,20 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 7. **`xsl:number` value rounding fix** (+2): Fixed float/double/decimal truncation — now rounds to nearest integer before formatting (e.g., 99.83 → 100 instead of 99).
 
 8. **`xsl:message error-code` attribute** (+5): Support for custom error codes on `xsl:message terminate="yes"`. Handles Q{ns}local, prefix:local, and plain local name formats via a hidden `xslt-message-terminate` runtime function. Also fixed testrunner's `assert_error` to parse Q{ns}local expected error codes.
+
+## 2026-04-12 10:31 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4689 passed / 0 failed / 0 error / 4468 filtered / 5438 unsupported (14595 total)
+- **+107 new passes** over previous entry (4582)
+
+### What was done
+
+1. **`xsl:copy` document node fix** (+4): `xsl:copy` only processed its sequence constructor when the context was an element node. Document nodes were treated as leaf nodes, silently discarding the body (including `xsl:apply-templates`). Fixed by adding an `instance of document-node()` check alongside the existing element check.
+
+2. **CLI `xsl:output` support**: The `xee xslt` CLI was ignoring all `xsl:output` parameters (e.g. `omit-xml-declaration`, `method`, `indent`) and always using defaults. Refactored the CLI to compile the stylesheet via `parse_with_stylesheet_path`, then pass `program.declarations.serialization_params` to serialization. Also exported `evaluate_program` and `parse_with_stylesheet_path` from `xee-xslt-compiler`.
+
+3. **Enabled `serialization` feature in testrunner** (+103): Added `"serialization"` to the XSLT testrunner's known dependencies. This unlocked 232 output declaration tests plus many individual serialization-dependent tests across other test sets (result-document, character-map, copy, lre, attribute, etc.). The newly-failing tests reflect areas where serialization needs more work (character maps, XHTML output method, HTML output method, `disable-output-escaping`, etc.) — not regressions.
+
+4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.
