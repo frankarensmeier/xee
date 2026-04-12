@@ -250,9 +250,20 @@ fn xslt_number_value(
     format: Option<&str>,
 ) -> error::Result<String> {
     let atomic = sequence::one(value.atomized(interpreter.xot()))??;
-    let number = atomic
-        .cast_to_integer_value::<i64>()
-        .map_err(|_| error::Error::XPTY0004)?;
+    // Per XSLT spec, the value is rounded to the nearest integer
+    let number = match &atomic {
+        atomic::Atomic::Float(f) => f.round() as i64,
+        atomic::Atomic::Double(d) => d.round() as i64,
+        atomic::Atomic::Decimal(d) => {
+            let rounded = d.round();
+            i64::try_from(rounded).map_err(|_| error::Error::XPTY0004)?
+        }
+        atomic::Atomic::Integer(_, i) => i64::try_from(i.as_ref())
+            .map_err(|_| error::Error::XPTY0004)?,
+        _ => atomic
+            .cast_to_integer_value::<i64>()
+            .map_err(|_| error::Error::XPTY0004)?,
+    };
     if number < 0 {
         return Err(error::Error::Unsupported(
             "xsl:number value must be non-negative".to_string(),

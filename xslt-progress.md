@@ -4,6 +4,26 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-12 07:47 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `xsl:number` value rounding fix.
+- Fixed `xslt_number_value` to round instead of truncate for Float/Double/Decimal types.
+- Vendor tests: 4577 passed (+2 from this commit).
+
+### Progress made
+
+- `xslt_number_value` in `hidden_xslt.rs` now matches on Float → `f.round() as i64`, Double → `d.round() as i64`, Decimal → `d.round()` then `i64::try_from`, Integer → direct `i64::try_from`.
+- Previously used `cast_to_integer_value()` which truncates (e.g. 99.83 → 99 instead of 100).
+- number-0601 and number-0602 now pass.
+
+### Next priorities
+
+- `xsl:message error-code` attribute — 7 WrongE tests.
+- User-defined function tracking for `function-available()` — 4 tests.
+- `xsl:perform-sort` / `xsl:on-empty` / `xsl:where-populated` — many tests blocked.
+
 ## 2026-04-12 07:27 CEST
 
 ### Status snapshot
