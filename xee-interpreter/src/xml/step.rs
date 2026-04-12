@@ -12,11 +12,30 @@ pub struct Step {
     pub node_test: ast::NodeTest,
 }
 
-pub(crate) fn resolve_step(step: &Step, node: xot::Node, xot: &Xot) -> sequence::Sequence {
+pub(crate) fn resolve_step(step: &Step, node: xot::Node, xot: &mut Xot) -> sequence::Sequence {
+    if matches!(step.axis, ast::Axis::Namespace) {
+        return resolve_namespace_step(step, node, xot);
+    }
     let mut new_items = Vec::new();
     for axis_node in node_take_axis(&step.axis, xot, node) {
         if node_test(&step.node_test, &step.axis, xot, axis_node) {
             new_items.push(sequence::Item::Node(axis_node));
+        }
+    }
+    new_items.into()
+}
+
+fn resolve_namespace_step(step: &Step, node: xot::Node, xot: &mut Xot) -> sequence::Sequence {
+    // Namespace axis only applies to elements
+    if xot.value_type(node) != ValueType::Element {
+        return sequence::Sequence::default();
+    }
+    let ns_bindings: Vec<_> = xot.namespaces_in_scope(node).collect();
+    let mut new_items = Vec::new();
+    for (prefix_id, namespace_id) in ns_bindings {
+        let ns_node = xot.new_namespace_node(prefix_id, namespace_id);
+        if node_test(&step.node_test, &step.axis, xot, ns_node) {
+            new_items.push(sequence::Item::Node(ns_node));
         }
     }
     new_items.into()
@@ -36,7 +55,7 @@ fn convert_axis(axis: &ast::Axis) -> xot::Axis {
         ast::Axis::AncestorOrSelf => xot::Axis::AncestorOrSelf,
         ast::Axis::Self_ => xot::Axis::Self_,
         ast::Axis::Attribute => xot::Axis::Attribute,
-        ast::Axis::Namespace => unreachable!("Namespace axis should be forbidden at compile time"),
+        ast::Axis::Namespace => unreachable!("Namespace axis handled in resolve_namespace_step"),
     }
 }
 
@@ -64,6 +83,11 @@ fn node_test(node_test: &ast::NodeTest, axis: &ast::Axis, xot: &Xot, node: xot::
                         match xot.value(node) {
                             xot::Value::Element(element) => element.name() == name_id,
                             xot::Value::Attribute(attribute) => attribute.name() == name_id,
+                            xot::Value::Namespace(n) => {
+                                // For namespace axis, name test matches by prefix
+                                let (local_name, _) = xot.name_ns_str(name_id);
+                                xot.prefix_str(n.prefix()) == local_name
+                            }
                             _ => false,
                         }
                     } else {
@@ -82,6 +106,9 @@ fn node_test(node_test: &ast::NodeTest, axis: &ast::Axis, xot: &Xot, node: xot::
                     xot::Value::Attribute(attribute) => {
                         xot.local_name_str(attribute.name()) == local_name
                     }
+                    xot::Value::Namespace(n) => {
+                        xot.prefix_str(n.prefix()) == local_name.as_str()
+                    }
                     _ => false,
                 },
                 ast::NameTest::Namespace(uri) => match xot.value(node) {
@@ -93,6 +120,9 @@ fn node_test(node_test: &ast::NodeTest, axis: &ast::Axis, xot: &Xot, node: xot::
                     xot::Value::Attribute(attribute) => {
                         let namespace_str = xot.uri_str(attribute.name());
                         namespace_str == uri
+                    }
+                    xot::Value::Namespace(n) => {
+                        xot.namespace_str(n.namespace()) == uri.as_str()
                     }
                     _ => false,
                 },
@@ -141,7 +171,7 @@ mod tests {
             axis: ast::Axis::Child,
             node_test: ast::NodeTest::NameTest(ast::NameTest::Star),
         };
-        let value = resolve_step(&step, doc_el, &xot);
+        let value = resolve_step(&step, doc_el, &mut xot);
         assert_eq!(value, xot_nodes_to_value(&[a, b]));
         Ok(())
     }
@@ -159,7 +189,7 @@ mod tests {
                 ast::Name::name("a").with_empty_span(),
             )),
         };
-        let value = resolve_step(&step, doc_el, &xot);
+        let value = resolve_step(&step, doc_el, &mut xot);
         assert_eq!(value, xot_nodes_to_value(&[a]));
         Ok(())
     }

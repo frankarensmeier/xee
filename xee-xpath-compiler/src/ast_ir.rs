@@ -269,10 +269,6 @@ impl<'a> IrConverter<'a> {
         // get the current context
         let mut current_context_bindings = self.variables.context_item(span)?;
 
-        if matches!(ast.axis, ast::Axis::Namespace) {
-            return Err(Error::XPST0010.with_ast_span(span));
-        }
-
         let step = xml::Step {
             axis: ast.axis.clone(),
             node_test: ast.node_test.clone(),

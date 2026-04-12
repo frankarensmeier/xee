@@ -385,7 +385,7 @@ fn resolve_system_property(context: &DynamicContext, property_name: &str) -> Opt
         "supports-backwards-compatibility" => "yes".to_string(),
         "supports-dynamic-evaluation" => "no".to_string(),
         "supports-streaming" => "no".to_string(),
-        "supports-namespace-axis" => "no".to_string(),
+        "supports-namespace-axis" => "yes".to_string(),
         "supports-higher-order-functions" => "yes".to_string(),
         "xpath-version" => xpath_version.to_string(),
         "xsd-version" => "1.1".to_string(),

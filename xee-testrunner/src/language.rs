@@ -98,6 +98,10 @@ impl Language for XsltLanguage {
                 type_: "feature".to_string(),
                 value: "serialization".to_string(),
             },
+            DependencySpec {
+                type_: "feature".to_string(),
+                value: "namespace_axis".to_string(),
+            },
         ];
         KnownDependencies::new(&specs)
     }

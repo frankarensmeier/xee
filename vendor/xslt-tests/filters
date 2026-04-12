@@ -50,17 +50,21 @@ accept-914
 accept-915
 accept-916
 = accessor
+accessor-001
+accessor-003
+accessor-004
+accessor-005
 accessor-010
+accessor-013
+accessor-014
+accessor-015
+accessor-021
+accessor-022
 accessor-025
 accessor-026
 accessor-035
-accessor-050
-accessor-051
-accessor-052
-accessor-053
-accessor-054
-accessor-055
-accessor-056
+accessor-037
+accessor-038
 accessor-057
 accessor-058
 accessor-059
@@ -192,6 +196,7 @@ attribute-0701
 attribute-0803
 attribute-0804
 attribute-0805
+attribute-0806
 attribute-1101
 attribute-1302
 = attribute-set
@@ -214,6 +219,8 @@ axes-044
 axes-045
 axes-046
 axes-051
+axes-052
+axes-058
 axes-062
 axes-068
 axes-082
@@ -221,10 +228,15 @@ axes-087
 axes-088
 axes-089
 axes-092
+axes-120
+axes-132
 axes-133
 axes-140
 axes-142
 axes-146
+axes-164
+axes-166
+axes-170
 axes-171
 axes-176
 = backwards
@@ -264,11 +276,14 @@ base-uri-053
 = boolean
 = bug
 bug-0304
+bug-0501
+bug-0502
 bug-0701
 bug-1402
 bug-1405
 bug-1501
 bug-1601
+bug-2201
 bug-2401
 bug-2502
 bug-2601
@@ -1011,8 +1026,10 @@ expose-925
 expose-926
 expose-927
 = expression
+expression-0931
 expression-0932
 expression-0933
+expression-2101
 = extension-functions
 extension-functions-0103
 extension-functions-0104
@@ -1401,10 +1418,12 @@ key-038
 key-039
 key-040
 key-041
+key-042
 key-047
 key-049
 key-055
 key-056
+key-058
 key-064
 key-065
 key-069
@@ -1419,8 +1438,10 @@ key-080
 key-081
 key-082
 key-083
+key-087
 key-088
 key-089
+key-090
 key-092
 key-093
 key-094
@@ -1724,13 +1745,22 @@ mode-1904
 = namespace
 namespace-0101
 namespace-0201
+namespace-0701
+namespace-0901
+namespace-0902
+namespace-0907
+namespace-0908
+namespace-0910
 namespace-0911
 namespace-0913
 namespace-0914
 namespace-1102
+namespace-1103
 namespace-1502
 namespace-1601
 namespace-1602
+namespace-1801
+namespace-2001
 namespace-2101
 namespace-2401
 namespace-2608
@@ -1743,6 +1773,7 @@ namespace-2621
 namespace-2622
 namespace-2623
 namespace-2624
+namespace-2901
 namespace-3101
 namespace-3102
 namespace-3103
@@ -1772,6 +1803,9 @@ namespace-3314
 namespace-3315
 namespace-4302
 namespace-4401
+namespace-4601
+namespace-5201
+namespace-5601
 namespace-5901
 namespace-5902
 namespace-6003
@@ -1789,6 +1823,7 @@ next-match-036
 next-match-037
 next-match-040
 = node
+node-1601
 node-1802
 node-1905
 node-1906
@@ -2487,8 +2522,10 @@ position-3901
 position-4001
 position-4104
 position-4105
+position-4901
 position-6101
 position-6302
+position-6601
 position-6802
 position-7101
 position-8201
@@ -2750,6 +2787,7 @@ seqtor-040a
 seqtor-040d
 seqtor-101
 = sequence
+sequence-0113
 sequence-0122
 sequence-0125
 sequence-0133
@@ -4572,6 +4610,7 @@ version-020
 version-022
 version-023a
 version-024
+version-025
 version-028
 version-029
 version-030

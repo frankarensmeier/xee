@@ -4,6 +4,31 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-12 10:53 CEST
+
+### Status snapshot
+
+- Checkpoint focus: XPath namespace axis implementation.
+- Vendor tests: 4721 passed (+32 from namespace axis, +103 from serialization feature earlier this session).
+- 0 failures, 0 errors.
+
+### Progress made
+
+- Removed XPST0010 compile-time error for `Axis::Namespace` in `ast_ir.rs`.
+- Added `resolve_namespace_step()` in `step.rs`: uses `xot.namespaces_in_scope()` + `xot.new_namespace_node()` to create namespace nodes.
+- Changed `resolve_step` signature from `&Xot` to `&mut Xot` (needed for `new_namespace_node`). Updated call site in `interpret.rs` (clone step to avoid borrow conflict).
+- Added `Value::Namespace` handling to all three `NameTest` variants (`Name`, `LocalName`, `Namespace`) in `node_test`.
+- Updated `principal_node_kind` for Namespace axis to return `ValueType::Namespace`.
+- Changed `supports-namespace-axis` system property from `"no"` to `"yes"`.
+- Added `namespace_axis` to known test dependencies in testrunner.
+- Namespace test set: 140/207 supported tests passing.
+
+### Next priorities
+
+- Namespace axis pattern matching (currently returns empty Vec for `ForwardAxis::Namespace`).
+- Remaining 67 namespace test failures/errors.
+- `xsl:perform-sort` / `xsl:on-empty` / `xsl:where-populated` — many tests blocked.
+
 ## 2026-04-12 07:47 CEST
 
 ### Status snapshot

@@ -413,8 +413,8 @@ impl<'a> Interpreter<'a> {
                 EncodedInstruction::Step => {
                     let step_id = self.read_u16();
                     let node: xot::Node = self.state.pop()?.try_into()?;
-                    let step = &(self.current_inline_function().steps[step_id as usize]);
-                    let value = xml::resolve_step(step, node, self.state.xot());
+                    let step = self.current_inline_function().steps[step_id as usize].clone();
+                    let value = xml::resolve_step(&step, node, self.state.xot_mut());
                     self.state.push(value);
                 }
                 EncodedInstruction::Deduplicate => {
