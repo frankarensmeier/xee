@@ -1,7 +1,7 @@
 use ahash::{HashMap, HashMapExt, HashSetExt};
 use icu_properties::{maps, GeneralCategory};
 use iri_string::types::{IriAbsoluteString, IriReferenceStr};
-use xee_name::{Name, Namespaces, FN_NAMESPACE};
+use xee_name::{Name, Namespaces, FN_NAMESPACE, XS_NAMESPACE};
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -47,12 +47,14 @@ struct PreprocessedDeclaration {
     declaration: ast::Declaration,
     import_precedence: i64,
     module_path: Vec<usize>,
+    stylesheet_uri: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct PreprocessedModule {
-    declarations: ast::Declarations,
+    declarations: Vec<(ast::Declaration, Option<String>)>,
     module_path: Vec<usize>,
+    stylesheet_uri: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -379,6 +381,7 @@ pub fn parse_with_base_dir_and_initial_mode(
         base_dir,
         stylesheet_version,
         static_variables,
+        static_context.static_base_uri().map(|u| u.to_string()),
     )?;
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
@@ -521,6 +524,7 @@ fn process_imports_and_includes(
     base_dir: Option<std::path::PathBuf>,
     stylesheet_version: Option<u8>,
     module_static_variables: StaticVariables,
+    entry_stylesheet_uri: Option<String>,
 ) -> error::SpannedResult<Vec<PreprocessedDeclaration>> {
     let (modules, _) = process_stylesheet_module(
         declarations,
@@ -530,14 +534,16 @@ fn process_imports_and_includes(
         stylesheet_version,
         StaticVariables::new(),
         &module_static_variables,
+        entry_stylesheet_uri,
     )?;
     let mut result = Vec::new();
     for (import_precedence, module) in modules.into_iter().enumerate() {
-        for declaration in module.declarations {
+        for (declaration, decl_uri) in module.declarations {
             result.push(PreprocessedDeclaration {
                 declaration,
                 import_precedence: import_precedence as i64,
                 module_path: module.module_path.clone(),
+                stylesheet_uri: decl_uri.or(module.stylesheet_uri.clone()),
             });
         }
     }
@@ -552,8 +558,9 @@ fn process_stylesheet_module(
     _stylesheet_version: Option<u8>,
     initial_static_variables: StaticVariables,
     module_static_variables: &StaticVariables,
+    stylesheet_uri: Option<String>,
 ) -> error::SpannedResult<(Vec<PreprocessedModule>, StaticVariables)> {
-    let mut local_declarations = Vec::new();
+    let mut local_declarations: Vec<(ast::Declaration, Option<String>)> = Vec::new();
     let mut imports = Vec::new();
     let mut import_index = 0usize;
     let mut in_scope_static_variables = initial_static_variables;
@@ -568,6 +575,7 @@ fn process_stylesheet_module(
                     imported_base_dir,
                     imported_version,
                     imported_module_static_variables,
+                    imported_stylesheet_uri,
                 ) = load_stylesheet(
                     &import.href.to_string(),
                     base_dir.as_ref(),
@@ -589,6 +597,7 @@ fn process_stylesheet_module(
                     imported_version,
                     in_scope_static_variables.clone(),
                     &imported_module_static_variables,
+                    Some(imported_stylesheet_uri),
                 )?;
                 active_paths.pop();
                 merge_static_variables(&mut in_scope_static_variables, &imported_static_variables);
@@ -602,6 +611,7 @@ fn process_stylesheet_module(
                     included_base_dir,
                     included_version,
                     included_module_static_variables,
+                    included_stylesheet_uri,
                 ) = load_stylesheet(
                     &include.href.to_string(),
                     base_dir.as_ref(),
@@ -620,11 +630,20 @@ fn process_stylesheet_module(
                     included_version,
                     in_scope_static_variables.clone(),
                     &included_module_static_variables,
+                    Some(included_stylesheet_uri),
                 )?;
                 active_paths.pop();
                 in_scope_static_variables = included_static_variables;
+                // Merge included module declarations back into the parent's
+                // local list, but preserve each declaration's source URI for
+                // correct static-base-uri() resolution.
                 if let Some(included_local_module) = processed.pop() {
-                    local_declarations.extend(included_local_module.declarations);
+                    for (decl, decl_uri) in included_local_module.declarations {
+                        // Prefer the declaration's own URI (from nested includes),
+                        // fall back to the included module's URI.
+                        let uri = decl_uri.or(included_local_module.stylesheet_uri.clone());
+                        local_declarations.push((decl, uri));
+                    }
                 }
                 imports.extend(processed);
             }
@@ -634,7 +653,7 @@ fn process_stylesheet_module(
                     module_static_variables,
                     &mut in_scope_static_variables,
                 );
-                local_declarations.push(decl);
+                local_declarations.push((decl, None));
             }
         }
     }
@@ -643,6 +662,7 @@ fn process_stylesheet_module(
     result.push(PreprocessedModule {
         declarations: local_declarations,
         module_path,
+        stylesheet_uri,
     });
     Ok((result, in_scope_static_variables))
 }
@@ -657,6 +677,7 @@ fn load_stylesheet(
     Option<PathBuf>,
     Option<u8>,
     StaticVariables,
+    String,
 )> {
     // Resolve the file path
     let path = if let Some(base_dir) = base_dir {
@@ -683,7 +704,7 @@ fn load_stylesheet(
         Some(3),
         Some(31),
         next_base_dir.clone(),
-        Some(stylesheet_uri),
+        Some(stylesheet_uri.clone()),
         true,
     )
     .map_err(|e| {
@@ -700,6 +721,7 @@ fn load_stylesheet(
         next_base_dir,
         stylesheet_version,
         static_variables,
+        stylesheet_uri,
     ))
 }
 
@@ -807,6 +829,22 @@ impl<'a> IrConverter<'a> {
         }
     }
 
+    fn with_declaration_base_uri<T, F>(
+        &mut self,
+        declaration: &PreprocessedDeclaration,
+        f: F,
+    ) -> error::SpannedResult<T>
+    where
+        F: FnOnce(&mut Self) -> error::SpannedResult<T>,
+    {
+        if let Some(uri) = &declaration.stylesheet_uri {
+            let iri = IriAbsoluteString::try_from(uri.clone()).ok();
+            self.with_static_base_uri(iri, f)
+        } else {
+            f(self)
+        }
+    }
+
     fn raise_error(&mut self, error: RaisedError) -> Bindings {
         Bindings::empty().bind_expr_no_span(&mut self.variables, ir::Expr::RaiseError(error))
     }
@@ -903,7 +941,9 @@ impl<'a> IrConverter<'a> {
         ir_declarations.global_variables = global_vars;
 
         for declaration in declarations {
-            self.declaration(&mut ir_declarations, declaration)?;
+            self.with_declaration_base_uri(declaration, |this| {
+                this.declaration(&mut ir_declarations, declaration)
+            })?;
         }
 
         // Move accumulated number patterns into IR declarations
@@ -1325,16 +1365,18 @@ impl<'a> IrConverter<'a> {
                 ast::Declaration::Variable(var) => {
                     self.validate_variable(var)?;
                     let name = self.variables.lookup_var_name(&var.name).unwrap();
-                    let expr = self.with_hidden_global_name(&var.name, |this| {
-                        let context_names = this.variables.push_context();
-                        let params = Self::context_params(&context_names);
-                        let expr = this.global_variable_expr(
-                            var.select.as_ref(),
-                            &var.sequence_constructor,
-                            var.as_.as_ref(),
-                        )?;
-                        this.variables.pop_context();
-                        Ok((params, expr))
+                    let expr = self.with_declaration_base_uri(decl, |this| {
+                        this.with_hidden_global_name(&var.name, |this| {
+                            let context_names = this.variables.push_context();
+                            let params = Self::context_params(&context_names);
+                            let expr = this.global_variable_expr(
+                                var.select.as_ref(),
+                                &var.sequence_constructor,
+                                var.as_.as_ref(),
+                            )?;
+                            this.variables.pop_context();
+                            Ok((params, expr))
+                        })
                     })?;
                     globals.push(ir::GlobalVariable {
                         name,
@@ -1348,15 +1390,17 @@ impl<'a> IrConverter<'a> {
                 ast::Declaration::Param(param) => {
                     self.validate_param(param)?;
                     let name = self.variables.lookup_var_name(&param.name).unwrap();
-                    let expr = self.with_hidden_global_name(&param.name, |this| {
-                        let context_names = this.variables.push_context();
-                        let params = Self::context_params(&context_names);
-                        let expr = this.global_param_expr(
-                            param.select.as_ref(),
-                            &param.sequence_constructor,
-                        )?;
-                        this.variables.pop_context();
-                        Ok((params, expr))
+                    let expr = self.with_declaration_base_uri(decl, |this| {
+                        this.with_hidden_global_name(&param.name, |this| {
+                            let context_names = this.variables.push_context();
+                            let params = Self::context_params(&context_names);
+                            let expr = this.global_param_expr(
+                                param.select.as_ref(),
+                                &param.sequence_constructor,
+                            )?;
+                            this.variables.pop_context();
+                            Ok((params, expr))
+                        })
                     })?;
                     globals.push(ir::GlobalVariable {
                         name,
@@ -1378,14 +1422,17 @@ impl<'a> IrConverter<'a> {
                             error::Error::Unsupported("Unregistered XSLT function name".to_string())
                         })?;
                     let name = self.variables.lookup_var_name(hidden_name).unwrap();
-                    let context_names = self.variables.push_context();
-                    let params = Self::context_params(&context_names);
-                    let function_definition = self.xslt_function_definition(function)?;
-                    self.variables.pop_context();
-                    let expr = Spanned::new(
-                        ir::Expr::FunctionDefinition(function_definition),
-                        (function.span.start..function.span.end).into(),
-                    );
+                    let (params, expr) = self.with_declaration_base_uri(decl, |this| {
+                        let context_names = this.variables.push_context();
+                        let params = Self::context_params(&context_names);
+                        let function_definition = this.xslt_function_definition(function)?;
+                        this.variables.pop_context();
+                        let expr = Spanned::new(
+                            ir::Expr::FunctionDefinition(function_definition),
+                            (function.span.start..function.span.end).into(),
+                        );
+                        Ok((params, expr))
+                    })?;
                     globals.push(ir::GlobalVariable {
                         name,
                         original_name: None,
@@ -4999,42 +5046,7 @@ impl<'a> IrConverter<'a> {
     //     Ok(Bindings::new(self.variables.new_binding_no_span(expr)))
     // }
 
-    fn static_base_uri_literal(&self, expression: &ast::Expression) -> Option<String> {
-        let base_uri = self.current_static_context().static_base_uri()?.to_string();
-        let exprsingles = &expression.xpath.0.value.0;
-        let [exprsingle] = exprsingles.as_slice() else {
-            return None;
-        };
-        let xpath_ast::ExprSingle::Path(path) = &exprsingle.value else {
-            return None;
-        };
-        let [step] = path.steps.as_slice() else {
-            return None;
-        };
-        let xpath_ast::StepExpr::PrimaryExpr(primary) = &step.value else {
-            return None;
-        };
-        let xpath_ast::PrimaryExpr::FunctionCall(function_call) = &primary.value else {
-            return None;
-        };
-        if !function_call.arguments.is_empty() {
-            return None;
-        }
-        if function_call.name.value.local_name() != "static-base-uri" {
-            return None;
-        }
-        let namespace = function_call.name.value.namespace();
-        if !namespace.is_empty() && namespace != FN_NAMESPACE {
-            return None;
-        }
-        Some(base_uri)
-    }
-
     fn expression(&mut self, expression: &ast::Expression) -> error::SpannedResult<Bindings> {
-        if let Some(base_uri) = self.static_base_uri_literal(expression) {
-            let atom = Spanned::new(ir::Atom::Const(ir::Const::String(base_uri)), (0..0).into());
-            return Ok(Bindings::empty().bind_expr_no_span(&mut self.variables, ir::Expr::Atom(atom)));
-        }
         let mut rewritten_xpath = expression.xpath.0.clone();
         self.offset_xpath_spans_expr(&mut rewritten_xpath, expression.span.start);
         let current_focus = self.bind_current_focus_variable(&mut rewritten_xpath);
@@ -5577,6 +5589,50 @@ impl<'a> IrConverter<'a> {
     ) -> Vec<xpath_ast::Postfix> {
         match &mut primary.value {
             xpath_ast::PrimaryExpr::FunctionCall(function_call) => {
+                // Replace static-base-uri() with xs:anyURI("...") at compile time,
+                // using the current module's base URI. This ensures imported/included
+                // modules resolve relative URIs against their own location, and
+                // preserves the xs:anyURI type that static-base-uri() returns.
+                if function_call.arguments.is_empty()
+                    && function_call.name.value.local_name() == "static-base-uri"
+                    && (function_call.name.value.namespace().is_empty()
+                        || function_call.name.value.namespace() == FN_NAMESPACE)
+                {
+                    if let Some(base_uri) =
+                        self.current_static_context().static_base_uri()
+                    {
+                        let base_uri_str = base_uri.to_string();
+                        let empty_span = (0..0).into();
+                        // Build the string literal argument
+                        let string_literal = Spanned::new(
+                            xpath_ast::PrimaryExpr::Literal(
+                                xpath_ast::Literal::String(base_uri_str),
+                            ),
+                            empty_span,
+                        );
+                        let step = Spanned::new(
+                            xpath_ast::StepExpr::PrimaryExpr(string_literal),
+                            empty_span,
+                        );
+                        let path = xpath_ast::PathExpr { steps: vec![step] };
+                        let arg = Spanned::new(
+                            xpath_ast::ExprSingle::Path(path),
+                            empty_span,
+                        );
+                        // Rewrite to xs:anyURI("base_uri") constructor call
+                        function_call.name = Spanned::new(
+                            Name::new(
+                                "anyURI".to_string(),
+                                XS_NAMESPACE.to_string(),
+                                "xs".to_string(),
+                            ),
+                            empty_span,
+                        );
+                        function_call.arguments = vec![arg];
+                        return Vec::new();
+                    }
+                }
+
                 for argument in &mut function_call.arguments {
                     self.rewrite_user_function_references_expr_single(argument, namespaces);
                 }

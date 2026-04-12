@@ -306,6 +306,12 @@ fn xslt_try(
     let body = body.to_function()?;
     let rollback_output = matches!(rollback_output, "yes" | "true" | "1");
     let nonrecoverable_on_error = matches!(nonrecoverable_on_error, "yes" | "true" | "1");
+    // Track how many globals are resolving before the try body executes.
+    // If the error came from a NEW global resolution (count increased), it
+    // must not be caught (XSLT spec: errors during global variable evaluation
+    // are not caught). But if the count is unchanged, the try/catch is inside
+    // the global's own body and should work normally.
+    let resolving_before = interpreter.resolving_global_variable_count();
     match interpreter.call_function_with_arguments_catching_spanned_with_rollback(
         &body,
         &[],
@@ -313,7 +319,7 @@ fn xslt_try(
     ) {
         Ok(result) => Ok(result),
         Err(caught_error) => {
-            if interpreter.has_resolving_global_variable() {
+            if interpreter.resolving_global_variable_count() > resolving_before {
                 return Err(caught_error.error);
             }
             if nonrecoverable_on_error {

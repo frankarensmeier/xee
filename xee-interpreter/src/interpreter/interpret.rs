@@ -901,6 +901,13 @@ impl<'a> Interpreter<'a> {
             .any(|state| matches!(state, GlobalValueState::Resolving))
     }
 
+    pub(crate) fn resolving_global_variable_count(&self) -> usize {
+        self.global_variables
+            .iter()
+            .filter(|state| matches!(state, GlobalValueState::Resolving))
+            .count()
+    }
+
     pub(crate) fn function_name(&self, function: &function::Function) -> Option<Name> {
         self.runnable.function_info(function).name()
     }
