@@ -1695,4 +1695,17 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 
 3. **`fn:transform` implementation** (no new passes — vendor tests require `higher_order_functions`): Implemented `fn:transform($options as map(*)) as map(*)` using the trait injection pattern (mirrors `DynamicXPathEvaluator`). `TransformEvaluator` trait defined in `xee-interpreter`, `XsltTransformEvaluator` implemented in `xee-xslt-compiler`. Supports `stylesheet-location`, `source-node`, and `stylesheet-params` map keys. Nested/re-entrant transforms work via evaluator injection on sub-programs. Shares document pool across transforms via `Rc<RefCell<Documents>>`. DocBook NG `print.xsl` now gets past the `fn:transform` call (next blocker: `xsl:sort case-order`).
 
+## 2026-04-12 12:29 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4744 passed / 0 failed / 0 error / 4484 filtered / 5367 unsupported (14595 total)
+- **+23 new passes** over previous entry (4721)
+
+### What was done
+
+1. **`xsl:sort case-order` support** (some new passes via format-date tests): Removed the unsupported error for `case-order` attribute. When `case-order="upper-first"` or `"lower-first"` is specified, constructs a UCA collation URI with `caseFirst=upper` or `caseFirst=lower` parameter. Works with or without an explicit collation attribute. Unblocks DocBook NG stylesheets that use `case-order` in index sorting.
+
+2. **`fn:format-dateTime`, `fn:format-date`, `fn:format-time`** (+23): Implemented all 6 function variants (2-arg and 5-arg for each type). Picture format parser handles components: `Y` (year), `M` (month), `D` (day), `d` (day-of-year), `F` (day-of-week name), `W` (week), `H` (24h hour), `h` (12h hour), `P` (am/pm), `m` (minutes), `s` (seconds), `f` (fractional seconds), `Z`/`z` (timezone), `C` (calendar), `E` (era). Presentation modifier parsing extracts minimum width from digit patterns (e.g. `0001` → min width 4). The 5-arg variants accept but ignore `language`, `calendar`, and `place` parameters. 20/37 format-date vendor tests pass. DocBook NG now gets past format-dateTime (next blocker: `xsl:where-populated`).
+
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

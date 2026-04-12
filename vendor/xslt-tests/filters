@@ -1115,12 +1115,10 @@ for-each-group-091
 format-date-001
 format-date-002a
 format-date-003a
-format-date-004
 format-date-005
 format-date-006
 format-date-007
 format-date-008
-format-date-009
 format-date-010
 format-date-011
 format-date-012
@@ -1130,25 +1128,7 @@ format-date-015
 format-date-016
 format-date-017
 format-date-018
-format-date-019
-format-date-020
-format-date-021
-format-date-022
-format-date-023
-format-date-024
-format-date-025
-format-date-026
-format-date-027
-format-date-028
-format-date-029
-format-date-030
-format-date-031
-format-date-032
 format-date-033
-format-date-034
-format-date-035
-format-date-036
-format-date-037
 = format-date-en
 format-date-en-001
 format-date-en-002
@@ -1158,7 +1138,6 @@ format-date-en-005
 format-date-en-006
 format-date-en-007
 format-date-en-008
-format-date-en-009
 format-date-en-010
 format-date-en-011
 format-date-en-012
@@ -1179,8 +1158,6 @@ format-date-en-026
 format-date-en-027
 format-date-en-028
 format-date-en-029
-format-date-en-030
-format-date-en-031
 format-date-en-032
 format-date-en-033
 = format-number

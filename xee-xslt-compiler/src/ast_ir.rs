@@ -3539,8 +3539,34 @@ impl<'a> IrConverter<'a> {
         &mut self,
         sort: &ast::Sort,
     ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        let case_first_suffix = self.sort_case_order_suffix(sort)?;
         if let Some(collation) = &sort.collation {
-            Ok(self.attribute_value_template(collation)?.atom_bindings())
+            if let Some(suffix) = &case_first_suffix {
+                // Append caseFirst to the explicit collation URI
+                let base = self
+                    .literal_value_template(collation, "xsl:sort collation")?
+                    .unwrap_or_default();
+                let sep = if base.contains('?') { ";" } else { "?" };
+                let uri = format!("{}{}{}", base, sep, suffix);
+                Ok((
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(uri)),
+                        (0..0).into(),
+                    ),
+                    Bindings::empty(),
+                ))
+            } else {
+                Ok(self.attribute_value_template(collation)?.atom_bindings())
+            }
+        } else if let Some(suffix) = &case_first_suffix {
+            let uri = format!("http://www.w3.org/2013/collation/UCA?{}", suffix);
+            Ok((
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(uri)),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            ))
         } else {
             Ok((
                 Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (0..0).into()),
@@ -3549,16 +3575,32 @@ impl<'a> IrConverter<'a> {
         }
     }
 
+    fn sort_case_order_suffix(
+        &self,
+        sort: &ast::Sort,
+    ) -> error::SpannedResult<Option<String>> {
+        let Some(case_order) = &sort.case_order else {
+            return Ok(None);
+        };
+        match self
+            .literal_value_template(case_order, "xsl:sort case-order")?
+            .as_deref()
+        {
+            Some("upper-first") => Ok(Some("caseFirst=upper".to_string())),
+            Some("lower-first") => Ok(Some("caseFirst=lower".to_string())),
+            Some(value) => Err(error::Error::Unsupported(format!(
+                "xsl:sort case-order value {:?} is not supported",
+                value
+            ))
+            .into()),
+            None => Ok(None),
+        }
+    }
+
     fn ensure_supported_sort(&self, sort: &ast::Sort) -> error::SpannedResult<()> {
         if sort.lang.is_some() {
             return Err(error::Error::Unsupported(String::from(
                 "xsl:sort lang is not supported yet",
-            ))
-            .into());
-        }
-        if sort.case_order.is_some() {
-            return Err(error::Error::Unsupported(String::from(
-                "xsl:sort case-order is not supported yet",
             ))
             .into());
         }

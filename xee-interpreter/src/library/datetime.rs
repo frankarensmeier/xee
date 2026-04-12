@@ -338,6 +338,303 @@ fn parse_ietf_date(value: Option<&str>) -> error::Result<Option<NaiveDateTimeWit
     }
 }
 
+// format-dateTime, format-date, format-time
+// https://www.w3.org/TR/xpath-functions-31/#func-format-dateTime
+
+#[xpath_fn("fn:format-dateTime($value as xs:dateTime?, $picture as xs:string) as xs:string?")]
+fn format_date_time2(
+    value: Option<NaiveDateTimeWithOffset>,
+    picture: &str,
+) -> error::Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    format_datetime_picture(&value.date_time, value.offset.as_ref(), picture, DateTimeKind::DateTime)
+        .map(Some)
+}
+
+#[xpath_fn("fn:format-dateTime($value as xs:dateTime?, $picture as xs:string, $language as xs:string?, $calendar as xs:string?, $place as xs:string?) as xs:string?")]
+fn format_date_time5(
+    value: Option<NaiveDateTimeWithOffset>,
+    picture: &str,
+    _language: Option<&str>,
+    _calendar: Option<&str>,
+    _place: Option<&str>,
+) -> error::Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    format_datetime_picture(&value.date_time, value.offset.as_ref(), picture, DateTimeKind::DateTime)
+        .map(Some)
+}
+
+#[xpath_fn("fn:format-date($value as xs:date?, $picture as xs:string) as xs:string?")]
+fn format_date2(
+    value: Option<NaiveDateWithOffset>,
+    picture: &str,
+) -> error::Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    let dt = value.date.and_hms_opt(0, 0, 0).unwrap();
+    format_datetime_picture(&dt, value.offset.as_ref(), picture, DateTimeKind::Date).map(Some)
+}
+
+#[xpath_fn("fn:format-date($value as xs:date?, $picture as xs:string, $language as xs:string?, $calendar as xs:string?, $place as xs:string?) as xs:string?")]
+fn format_date5(
+    value: Option<NaiveDateWithOffset>,
+    picture: &str,
+    _language: Option<&str>,
+    _calendar: Option<&str>,
+    _place: Option<&str>,
+) -> error::Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    let dt = value.date.and_hms_opt(0, 0, 0).unwrap();
+    format_datetime_picture(&dt, value.offset.as_ref(), picture, DateTimeKind::Date).map(Some)
+}
+
+#[xpath_fn("fn:format-time($value as xs:time?, $picture as xs:string) as xs:string?")]
+fn format_time2(
+    value: Option<NaiveTimeWithOffset>,
+    picture: &str,
+) -> error::Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    let dt = chrono::NaiveDate::from_ymd_opt(2000, 1, 1)
+        .unwrap()
+        .and_time(value.time);
+    format_datetime_picture(&dt, value.offset.as_ref(), picture, DateTimeKind::Time).map(Some)
+}
+
+#[xpath_fn("fn:format-time($value as xs:time?, $picture as xs:string, $language as xs:string?, $calendar as xs:string?, $place as xs:string?) as xs:string?")]
+fn format_time5(
+    value: Option<NaiveTimeWithOffset>,
+    picture: &str,
+    _language: Option<&str>,
+    _calendar: Option<&str>,
+    _place: Option<&str>,
+) -> error::Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    let dt = chrono::NaiveDate::from_ymd_opt(2000, 1, 1)
+        .unwrap()
+        .and_time(value.time);
+    format_datetime_picture(&dt, value.offset.as_ref(), picture, DateTimeKind::Time).map(Some)
+}
+
+#[derive(Clone, Copy)]
+enum DateTimeKind {
+    DateTime,
+    Date,
+    Time,
+}
+
+fn format_datetime_picture(
+    dt: &chrono::NaiveDateTime,
+    offset: Option<&chrono::FixedOffset>,
+    picture: &str,
+    kind: DateTimeKind,
+) -> error::Result<String> {
+    let mut result = String::new();
+    let mut chars = picture.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '[' => {
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    result.push('[');
+                } else {
+                    let mut spec = String::new();
+                    loop {
+                        match chars.next() {
+                            Some(']') => break,
+                            Some(ch) => spec.push(ch),
+                            None => return Err(error::Error::FOFD1340),
+                        }
+                    }
+                    format_component(dt, offset, &spec, kind, &mut result)?;
+                }
+            }
+            ']' => {
+                if chars.peek() == Some(&']') {
+                    chars.next();
+                    result.push(']');
+                } else {
+                    return Err(error::Error::FOFD1340);
+                }
+            }
+            _ => result.push(c),
+        }
+    }
+
+    Ok(result)
+}
+
+fn format_component(
+    dt: &chrono::NaiveDateTime,
+    offset: Option<&chrono::FixedOffset>,
+    spec: &str,
+    kind: DateTimeKind,
+    result: &mut String,
+) -> error::Result<()> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Err(error::Error::FOFD1340);
+    }
+
+    let component = spec.chars().next().unwrap();
+    let presentation = &spec[component.len_utf8()..];
+
+    // Parse the presentation modifier to extract minimum width
+    let min_width = parse_min_width(presentation);
+
+    match component {
+        'Y' => {
+            // Year
+            check_date_component(kind, component)?;
+            let year = dt.year().unsigned_abs();
+            format_number_component(year, min_width.unwrap_or(4), result);
+        }
+        'M' => {
+            // Month
+            check_date_component(kind, component)?;
+            format_number_component(dt.month(), min_width.unwrap_or(1), result);
+        }
+        'D' => {
+            // Day of month
+            check_date_component(kind, component)?;
+            format_number_component(dt.day(), min_width.unwrap_or(1), result);
+        }
+        'd' => {
+            // Day of year
+            check_date_component(kind, component)?;
+            format_number_component(dt.ordinal(), min_width.unwrap_or(1), result);
+        }
+        'F' => {
+            // Day of week (name)
+            check_date_component(kind, component)?;
+            let day_names = [
+                "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+            ];
+            let day_idx = dt.weekday().num_days_from_monday() as usize;
+            result.push_str(day_names[day_idx]);
+        }
+        'W' => {
+            // Week of year
+            check_date_component(kind, component)?;
+            let week = dt.iso_week().week();
+            format_number_component(week, min_width.unwrap_or(1), result);
+        }
+        'H' => {
+            // Hour (0-23)
+            check_time_component(kind, component)?;
+            format_number_component(dt.hour(), min_width.unwrap_or(1), result);
+        }
+        'h' => {
+            // Hour (1-12)
+            check_time_component(kind, component)?;
+            let h = dt.hour() % 12;
+            let h = if h == 0 { 12 } else { h };
+            format_number_component(h, min_width.unwrap_or(1), result);
+        }
+        'P' => {
+            // AM/PM
+            check_time_component(kind, component)?;
+            if dt.hour() < 12 {
+                result.push_str("am");
+            } else {
+                result.push_str("pm");
+            }
+        }
+        'm' => {
+            // Minutes
+            check_time_component(kind, component)?;
+            format_number_component(dt.minute(), min_width.unwrap_or(2), result);
+        }
+        's' => {
+            // Seconds
+            check_time_component(kind, component)?;
+            format_number_component(dt.second(), min_width.unwrap_or(2), result);
+        }
+        'f' => {
+            // Fractional seconds
+            check_time_component(kind, component)?;
+            let nanos = dt.nanosecond() % 1_000_000_000;
+            let millis = nanos / 1_000_000;
+            format_number_component(millis, min_width.unwrap_or(1), result);
+        }
+        'Z' | 'z' => {
+            // Timezone
+            if let Some(offset) = offset {
+                use chrono::Offset;
+                let total_secs = offset.fix().local_minus_utc();
+                if total_secs == 0 {
+                    result.push('Z');
+                } else {
+                    let sign = if total_secs < 0 { '-' } else { '+' };
+                    let abs_secs = total_secs.unsigned_abs();
+                    let hours = abs_secs / 3600;
+                    let minutes = (abs_secs % 3600) / 60;
+                    result.push(sign);
+                    result.push_str(&format!("{:02}:{:02}", hours, minutes));
+                }
+            }
+        }
+        'C' => {
+            // Calendar (always ISO by default)
+            result.push_str("ISO");
+        }
+        'E' => {
+            // Era
+            check_date_component(kind, component)?;
+            if dt.year() > 0 {
+                result.push_str("AD");
+            } else {
+                result.push_str("BC");
+            }
+        }
+        _ => {
+            return Err(error::Error::FOFD1340);
+        }
+    }
+    Ok(())
+}
+
+fn parse_min_width(presentation: &str) -> Option<u32> {
+    // Parse presentation like "0001" (min-width = 4), "01" (min-width = 2),
+    // "1" (min-width = 1), or "Nn" / "n" / "N" for names
+    let presentation = presentation.trim();
+    if presentation.is_empty() {
+        return None;
+    }
+    // Count leading zeros + trailing digit to determine minimum width
+    let digits: String = presentation.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    Some(digits.len() as u32)
+}
+
+fn format_number_component(value: u32, min_width: u32, result: &mut String) {
+    let s = value.to_string();
+    let padding = if (s.len() as u32) < min_width {
+        min_width as usize - s.len()
+    } else {
+        0
+    };
+    for _ in 0..padding {
+        result.push('0');
+    }
+    result.push_str(&s);
+}
+
+fn check_date_component(kind: DateTimeKind, _component: char) -> error::Result<()> {
+    match kind {
+        DateTimeKind::Time => Err(error::Error::FOFD1350),
+        _ => Ok(()),
+    }
+}
+
+fn check_time_component(kind: DateTimeKind, _component: char) -> error::Result<()> {
+    match kind {
+        DateTimeKind::Date => Err(error::Error::FOFD1350),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(date_time),
@@ -363,5 +660,11 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(adjust_time_to_timezone1),
         wrap_xpath_fn!(adjust_time_to_timezone2),
         wrap_xpath_fn!(parse_ietf_date),
+        wrap_xpath_fn!(format_date_time2),
+        wrap_xpath_fn!(format_date_time5),
+        wrap_xpath_fn!(format_date2),
+        wrap_xpath_fn!(format_date5),
+        wrap_xpath_fn!(format_time2),
+        wrap_xpath_fn!(format_time5),
     ]
 }
