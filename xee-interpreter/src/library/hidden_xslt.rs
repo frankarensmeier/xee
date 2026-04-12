@@ -288,6 +288,28 @@ fn current_grouping_key(interpreter: &Interpreter) -> error::Result<sequence::Se
     Ok(interpreter.current_grouping_key())
 }
 
+// Returns the absolute URI of the resource being written to by the current
+// output destination. Returns empty sequence when the URI is not known.
+#[xpath_fn("fn:current-output-uri() as xs:anyURI?")]
+fn current_output_uri() -> error::Result<sequence::Sequence> {
+    // Stub: we don't track output URIs yet, so always return empty sequence.
+    Ok(sequence::Sequence::default())
+}
+
+// Returns the URI of an unparsed entity declared in the DTD.
+// Stub: always returns empty string since we don't track DTD entities.
+#[xpath_fn("fn:unparsed-entity-uri($entity as xs:string) as xs:anyURI")]
+fn unparsed_entity_uri(_entity: &str) -> error::Result<String> {
+    Ok(String::new())
+}
+
+// Returns the public identifier of an unparsed entity declared in the DTD.
+// Stub: always returns empty string since we don't track DTD entities.
+#[xpath_fn("fn:unparsed-entity-public-id($entity as xs:string) as xs:string")]
+fn unparsed_entity_public_id(_entity: &str) -> error::Result<String> {
+    Ok(String::new())
+}
+
 #[xpath_fn("fn:xslt-try($body as function(*), $catch_patterns as array(*), $catch_handlers as array(*), $rollback_output as xs:string, $nonrecoverable_on_error as xs:string) as item()*")]
 fn xslt_try(
     interpreter: &mut Interpreter,
@@ -1499,6 +1521,20 @@ fn regex_group(interpreter: &mut Interpreter, group_number: IBig) -> error::Resu
     Ok(interpreter.regex_group(n))
 }
 
+#[xpath_fn("fn:xslt-message($content as item()*) as item()*")]
+fn xslt_message(interpreter: &Interpreter, content: &sequence::Sequence) -> sequence::Sequence {
+    let xot = interpreter.xot();
+    let mut parts = Vec::new();
+    for item in content.iter() {
+        match item.string_value(xot) {
+            Ok(s) => parts.push(s),
+            Err(_) => parts.push("[error]".to_string()),
+        }
+    }
+    eprintln!("{}", parts.join(""));
+    sequence::Sequence::default()
+}
+
 #[xpath_fn("fn:xslt-message-terminate($namespace as xs:string, $local_name as xs:string, $prefix as xs:string) as item()*")]
 fn xslt_message_terminate(
     namespace: &str,
@@ -1577,6 +1613,9 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_for_each_group_adjacent),
         wrap_xpath_fn!(current_group),
         wrap_xpath_fn!(current_grouping_key),
+        wrap_xpath_fn!(current_output_uri),
+        wrap_xpath_fn!(unparsed_entity_uri),
+        wrap_xpath_fn!(unparsed_entity_public_id),
         wrap_xpath_fn!(xslt_try),
         wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(format_number_lexical2),
@@ -1593,6 +1632,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(store_principal_result_document),
         wrap_xpath_fn!(xslt_analyze_string),
         wrap_xpath_fn!(regex_group),
+        wrap_xpath_fn!(xslt_message),
         wrap_xpath_fn!(xslt_message_terminate),
         wrap_xpath_fn!(fn_transform),
         wrap_xpath_fn!(xslt_where_populated),

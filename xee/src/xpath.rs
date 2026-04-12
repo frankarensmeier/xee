@@ -52,7 +52,7 @@ pub(crate) fn execute_query(
     let sequence_query = match sequence_query {
         Ok(sequence_query) => sequence_query,
         Err(e) => {
-            render_error(xpath, e);
+            render_error("xpath", xpath, e);
             return Ok(());
         }
     };
@@ -66,7 +66,7 @@ pub(crate) fn execute_query(
     let sequence = match sequence {
         Ok(sequence) => sequence,
         Err(e) => {
-            render_error(xpath, e);
+            render_error("xpath", xpath, e);
             return Ok(());
         }
     };

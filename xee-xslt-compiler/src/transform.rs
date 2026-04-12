@@ -151,6 +151,14 @@ fn resolve_stylesheet_path(
     context: &DynamicContext,
     location: &str,
 ) -> error::SpannedResult<PathBuf> {
+    // Handle file:// URIs directly
+    if let Some(file_path) = location.strip_prefix("file://") {
+        let path = PathBuf::from(file_path);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
     // Try to resolve against static-base-uri
     if let Some(base_uri) = context.static_context().static_base_uri() {
         let base_str = base_uri.as_str();

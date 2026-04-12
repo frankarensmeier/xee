@@ -39,7 +39,7 @@ impl Xslt {
         ) {
             Ok(program) => program,
             Err(e) => {
-                render_error(&stylesheet, e);
+                render_error(&self.stylesheet.display().to_string(), &stylesheet, e);
                 return Ok(());
             }
         };
@@ -55,7 +55,7 @@ impl Xslt {
         let result = match xee_xslt_compiler::evaluate_program(&mut xot, &program, root) {
             Ok(result) => result,
             Err(e) => {
-                render_error(&stylesheet, e);
+                render_error(&self.stylesheet.display().to_string(), &stylesheet, e);
                 return Ok(());
             }
         };
