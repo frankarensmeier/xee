@@ -1708,4 +1708,15 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 
 2. **`fn:format-dateTime`, `fn:format-date`, `fn:format-time`** (+23): Implemented all 6 function variants (2-arg and 5-arg for each type). Picture format parser handles components: `Y` (year), `M` (month), `D` (day), `d` (day-of-year), `F` (day-of-week name), `W` (week), `H` (24h hour), `h` (12h hour), `P` (am/pm), `m` (minutes), `s` (seconds), `f` (fractional seconds), `Z`/`z` (timezone), `C` (calendar), `E` (era). Presentation modifier parsing extracts minimum width from digit patterns (e.g. `0001` → min width 4). The 5-arg variants accept but ignore `language`, `calendar`, and `place` parameters. 20/37 format-date vendor tests pass. DocBook NG now gets past format-dateTime (next blocker: `xsl:where-populated`).
 
+## 2026-04-12 12:46 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4744 passed / 0 failed / 0 error / 4480 filtered / 5367 unsupported (14595 total)
+- **+0 new passes** (filters updated; 4 where-populated tests unfiltered)
+
+### What was done
+
+1. **`xsl:where-populated` instruction** (no new passes — most vendor tests require `xsl:fork`): Implemented the XSLT 3.0 `xsl:where-populated` instruction. Compiles the sequence constructor body and passes the result to a runtime `xslt-where-populated` function that checks if the result is "populated" per spec §11.2.1: a sequence is vacuous if every item is a zero-length text node, or an element/document node whose children are all vacuous (recursive check). 1/27 vendor tests passes (22 blocked by unsupported `xsl:fork`). Compiler: added `WherePopulated` dispatch arm and `where_populated()` method in `ast_ir.rs`. Runtime: added `xslt_where_populated()`, `is_populated()`, and `is_item_populated()` in `hidden_xslt.rs`. Unblocks DocBook NG stylesheets that use `xsl:where-populated` to conditionally emit wrapper elements.
+
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

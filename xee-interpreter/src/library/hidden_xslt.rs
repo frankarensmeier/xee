@@ -1313,6 +1313,41 @@ fn fn_transform(
         .map_err(|error| error.error)
 }
 
+#[xpath_fn("fn:xslt-where-populated($content as item()*) as item()*")]
+fn xslt_where_populated(
+    interpreter: &Interpreter,
+    content: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    if is_populated(interpreter.xot(), content) {
+        Ok(content.clone())
+    } else {
+        Ok(sequence::Sequence::default())
+    }
+}
+
+/// Check whether a sequence is "populated" per XSLT 3.0 section 11.2.1.
+/// A sequence is vacuous if every item is a zero-length text node, or an
+/// element/document node whose children are all vacuous.
+fn is_populated(xot: &Xot, sequence: &sequence::Sequence) -> bool {
+    sequence.iter().any(|item| is_item_populated(xot, item))
+}
+
+fn is_item_populated(xot: &Xot, item: sequence::Item) -> bool {
+    match item {
+        sequence::Item::Node(node) => match xot.value(node) {
+            xot::Value::Text(text) => !text.get().is_empty(),
+            xot::Value::Element(_) | xot::Value::Document => {
+                xot.children(node)
+                    .any(|child| is_item_populated(xot, sequence::Item::Node(child)))
+            }
+            // PI, comment, attribute, namespace nodes count as populated
+            _ => true,
+        },
+        // Atomic values and functions count as populated
+        _ => true,
+    }
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
@@ -1335,6 +1370,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(regex_group),
         wrap_xpath_fn!(xslt_message_terminate),
         wrap_xpath_fn!(fn_transform),
+        wrap_xpath_fn!(xslt_where_populated),
     ]
 }
 

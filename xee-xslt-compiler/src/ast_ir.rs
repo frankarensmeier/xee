@@ -2191,6 +2191,7 @@ impl<'a> IrConverter<'a> {
             .into()),
             MapEntry(entry) => self.map_entry(entry),
             AnalyzeString(analyze_string) => self.analyze_string(analyze_string),
+            WherePopulated(where_populated) => self.where_populated(where_populated),
             _ => Err(error::Error::Unsupported(format!(
                 "Instruction not supported: {:?}",
                 instruction
@@ -2360,6 +2361,29 @@ impl<'a> IrConverter<'a> {
                 tunnel: false,
             }],
             body,
+        ))
+    }
+
+    fn where_populated(
+        &mut self,
+        where_populated: &ast::WherePopulated,
+    ) -> error::SpannedResult<Bindings> {
+        let (body_atom, body_bindings) = self
+            .sequence_constructor(&where_populated.sequence_constructor)?
+            .atom_bindings();
+
+        let expr = self.static_function_call_expr(
+            "xslt-where-populated",
+            FN_NAMESPACE,
+            1,
+            vec![body_atom],
+        );
+        Ok(body_bindings.bind_expr(
+            &mut self.variables,
+            Spanned::new(
+                expr,
+                (where_populated.span.start..where_populated.span.end).into(),
+            ),
         ))
     }
 
