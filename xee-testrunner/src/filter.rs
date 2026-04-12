@@ -148,10 +148,14 @@ impl ExcludedNamesFilter {
         }
 
         if !failing_names.is_subset(&old_names) {
-            // New failures appeared (possibly from newly-supported tests).
-            // Update to current set of failures.
+            // New failures appeared that weren't in the old filter.
+            // Only keep the intersection: tests that were already filtered
+            // AND still fail. Never add new failures — those are regressions
+            // that `check` should catch.
+            let kept: FxHashSet<String> =
+                old_names.intersection(&failing_names).cloned().collect();
             self.names
-                .insert(test_set_outcomes.test_set_name.clone(), failing_names);
+                .insert(test_set_outcomes.test_set_name.clone(), kept);
             return UpdateResult::Shrank;
         }
         self.names
@@ -348,7 +352,7 @@ test_case_2
         outcomes.add_outcome("test_case_2", TestOutcome::Unsupported);
         // and we do an update
         let r = filter.update_with_test_set_outcomes(&outcomes);
-        assert!(matches!(r, UpdateResult::NotSubset));
+        assert!(matches!(r, UpdateResult::Shrank));
 
         let serialized = filter.to_string();
         let expected = r#"= test_set_1
