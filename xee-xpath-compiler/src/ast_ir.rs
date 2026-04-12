@@ -1,3 +1,4 @@
+use xee_interpreter::interpreter::instruction::RaisedError;
 use xee_interpreter::{context, error, error::Error, function, xml};
 use xee_ir::{ir, ir::AtomS, Binding, Bindings, Variables};
 use xee_schema_type::Xs;
@@ -624,8 +625,22 @@ impl<'a> IrConverter<'a> {
         // advice: format!("Either the function name {:?} does not exist, or you are calling it with the wrong number of arguments ({})", ast.name, arity),
         let static_function_id = self
             .static_context
-            .function_id_by_name(&ast.name.value, arity as u8)
-            .ok_or(Error::XPST0017.with_ast_span(span))?;
+            .function_id_by_name(&ast.name.value, arity as u8);
+
+        let static_function_id = match static_function_id {
+            Some(id) => id,
+            None => {
+                // In backwards-compatible mode (e.g. version="1.0"), unknown
+                // function calls are deferred to runtime per XSLT spec §3.10.
+                // This allows function-available() guards to work.
+                if self.static_context.backwards_compatible() {
+                    let expr = ir::Expr::RaiseError(RaisedError::XTDE1425);
+                    let binding = self.variables.new_binding(expr, span);
+                    return Ok(Bindings::new(binding));
+                }
+                return Err(Error::XPST0017.with_ast_span(span));
+            }
+        };
         // TODO we don't know yet how to get the proper span here
         let empty_span = (0..0).into();
         let mut static_function_ref_bindings =

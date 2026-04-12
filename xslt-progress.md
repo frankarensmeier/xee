@@ -4,6 +4,27 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-12 11:17 CEST
+
+### Status snapshot
+
+- Checkpoint focus: defer unknown function errors in backwards-compatible mode.
+- Vendor tests: 4721 passed (no change in pass count, but unblocks XSLT 1.0 stylesheets).
+- 0 failures, 0 errors.
+
+### Progress made
+
+- Added `XTDE1425` runtime error variant to `RaisedError` enum and error dispatch.
+- Added `backwards_compatible()` method to `StaticContext` (stylesheet version < processor version).
+- In XPath compiler `function_call()`: when function is unknown and backwards-compatible mode is active, emit `RaiseError(XTDE1425)` IR instead of static `XPST0017`. This defers the error to runtime, allowing `function-available()` guards to prevent execution.
+- DocBook profiling stylesheets (version="1.0") now compile and run — `saxon:systemId()` and `NodeInfo:systemId()` calls guarded by `function-available()` no longer cause compile errors.
+- Design decision: full XSLT 1.0 backwards compatibility mode is out of scope. Instead, targeted fixes for real-world blockers (extension function guards, surplus template params) using the `backwards_compatible()` gate.
+
+### Next priorities
+
+- Remaining namespace axis test failures (67 of 207).
+- `xsl:perform-sort` / `xsl:on-empty` / `xsl:where-populated` — many tests blocked.
+
 ## 2026-04-12 10:53 CEST
 
 ### Status snapshot

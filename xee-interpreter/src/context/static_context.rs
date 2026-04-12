@@ -219,6 +219,15 @@ impl StaticContext {
         self.stylesheet_xslt_version
     }
 
+    /// Returns true if the stylesheet is in backwards-compatible mode
+    /// (stylesheet version < processor version, typically version="1.0").
+    pub fn backwards_compatible(&self) -> bool {
+        match (self.stylesheet_xslt_version, self.processor_xslt_version) {
+            (Some(sv), Some(pv)) => sv < pv,
+            _ => false,
+        }
+    }
+
     pub fn set_stylesheet_xslt_version(&mut self, xslt_version: Option<u8>) {
         self.stylesheet_xslt_version = xslt_version;
     }

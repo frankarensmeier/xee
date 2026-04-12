@@ -657,6 +657,12 @@ pub enum Error {
     ///
     /// It is a dynamic error if a required template parameter is not supplied.
     XTDE0700,
+    /// Unknown function in backwards-compatible mode.
+    ///
+    /// It is a dynamic error if a function call is evaluated and the function
+    /// is not available in the static context (deferred from XPST0017 in
+    /// backwards-compatible mode).
+    XTDE1425,
     /// Variable value does not match declared type.
     ///
     /// It is a type error if the value of a variable does not match the

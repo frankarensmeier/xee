@@ -4,6 +4,7 @@ use num::{FromPrimitive, ToPrimitive};
 pub enum RaisedError {
     XTDE0560,
     XTDE0700,
+    XTDE1425,
     XTTE0570,
     XTTE0590,
     XTMM9000,
@@ -17,6 +18,7 @@ impl RaisedError {
             RaisedError::XTTE0570 => 2,
             RaisedError::XTTE0590 => 3,
             RaisedError::XTMM9000 => 4,
+            RaisedError::XTDE1425 => 5,
         }
     }
 
@@ -27,6 +29,7 @@ impl RaisedError {
             2 => RaisedError::XTTE0570,
             3 => RaisedError::XTTE0590,
             4 => RaisedError::XTMM9000,
+            5 => RaisedError::XTDE1425,
             _ => panic!("unknown raised error id: {value}"),
         }
     }
