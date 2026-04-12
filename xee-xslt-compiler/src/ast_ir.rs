@@ -2653,7 +2653,24 @@ impl<'a> IrConverter<'a> {
             )
         };
 
-        Ok(message_bindings.bind_expr(&mut self.variables, empty_sequence))
+        // Check if terminate is set
+        let should_terminate = if let Some(terminate) = &message.terminate {
+            if let Some(value) = self.static_value_template(terminate) {
+                matches!(value.trim(), "yes" | "true" | "1")
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if should_terminate {
+            let error_bindings =
+                self.raise_error(RaisedError::XTMM9000);
+            Ok(message_bindings.concat(error_bindings))
+        } else {
+            Ok(message_bindings.bind_expr(&mut self.variables, empty_sequence))
+        }
     }
 
     fn result_document(

@@ -830,6 +830,11 @@ pub enum Error {
     /// method is of length greater than one.
     SERE0023,
 
+    /// Terminate by xsl:message.
+    ///
+    /// Processing terminated by xsl:message with terminate="yes".
+    XTMM9000,
+
     /// An application generated error
     Application(Box<ApplicationError>),
 }

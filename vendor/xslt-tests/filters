@@ -135,24 +135,12 @@ accumulator-090
 accumulator-091
 = analyze-string
 analyze-string-001
-analyze-string-008
 analyze-string-033
 analyze-string-034
-analyze-string-037
 analyze-string-042
-analyze-string-072
-analyze-string-073
-analyze-string-074
-analyze-string-075
 analyze-string-076
 analyze-string-077
-analyze-string-078
-analyze-string-079
-analyze-string-080
-analyze-string-081
-analyze-string-082
 analyze-string-083
-analyze-string-084
 analyze-string-085
 analyze-string-090b
 analyze-string-091b
@@ -160,8 +148,6 @@ analyze-string-092
 analyze-string-093
 analyze-string-094
 analyze-string-095
-analyze-string-096
-analyze-string-099
 analyze-string-100
 = apply-imports
 = apply-templates
@@ -935,7 +921,6 @@ error-3490a
 error-3500a
 error-3510a
 error-3520a
-error-9000a
 error-9001a
 error-FODC0002a-ignore
 error-XPST0003a
@@ -1605,13 +1590,10 @@ merge-096
 merge-100
 merge-101
 = message
-message-0002
 message-0003
 message-0004
 message-0005
 message-0006
-message-0007
-message-0008
 message-0009
 message-0010
 message-0101
@@ -1640,7 +1622,6 @@ message-0401
 message-0402
 message-0403
 message-0404
-message-0406
 message-0501
 = mode
 mode-0801c
@@ -2315,7 +2296,6 @@ position-8202
 = predicate
 predicate-056
 = regex
-regex-018
 = regex-classes
 regex-classes-001
 regex-classes-002

@@ -465,6 +465,7 @@ impl<'a> Interpreter<'a> {
                             RaisedError::XTDE0700 => error::Error::XTDE0700,
                             RaisedError::XTTE0570 => error::Error::XTTE0570,
                             RaisedError::XTTE0590 => error::Error::XTTE0590,
+                            RaisedError::XTMM9000 => error::Error::XTMM9000,
                         })?;
                     self.state.push(sequence);
                 }
@@ -769,6 +770,7 @@ impl<'a> Interpreter<'a> {
                         RaisedError::XTDE0700 => error::Error::XTDE0700,
                         RaisedError::XTTE0570 => error::Error::XTTE0570,
                         RaisedError::XTTE0590 => error::Error::XTTE0590,
+                        RaisedError::XTMM9000 => error::Error::XTMM9000,
                     };
                     return Err(error);
                 }
@@ -1455,6 +1457,18 @@ impl<'a> Interpreter<'a> {
 
     pub fn xot_mut(&mut self) -> &mut Xot {
         self.state.xot_mut()
+    }
+
+    pub(crate) fn push_regex_groups(&mut self, groups: Vec<String>) {
+        self.state.push_regex_groups(groups);
+    }
+
+    pub(crate) fn pop_regex_groups(&mut self) {
+        self.state.pop_regex_groups();
+    }
+
+    pub(crate) fn regex_group(&self, n: usize) -> String {
+        self.state.regex_group(n)
     }
 
     fn xml_append(

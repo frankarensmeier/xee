@@ -51,6 +51,7 @@ pub struct State<'a> {
     mutation_count: usize,
     frames: ArrayVec<Frame, FRAMES_MAX>,
     regex_cache: RefCell<HashMap<RegexKey, Rc<regexml::Regex>>>,
+    regex_groups: Vec<Vec<String>>,
     pub(crate) xot: &'a mut Xot,
 }
 
@@ -99,6 +100,7 @@ impl<'a> State<'a> {
             mutation_count: 0,
             frames: ArrayVec::new(),
             regex_cache: RefCell::new(HashMap::new()),
+            regex_groups: vec![],
             xot,
         }
     }
@@ -337,5 +339,21 @@ impl<'a> State<'a> {
 
     pub fn xot_mut(&mut self) -> &mut Xot {
         self.xot
+    }
+
+    pub(crate) fn push_regex_groups(&mut self, groups: Vec<String>) {
+        self.regex_groups.push(groups);
+    }
+
+    pub(crate) fn pop_regex_groups(&mut self) {
+        self.regex_groups.pop();
+    }
+
+    pub(crate) fn regex_group(&self, n: usize) -> String {
+        if let Some(groups) = self.regex_groups.last() {
+            groups.get(n).cloned().unwrap_or_default()
+        } else {
+            String::new()
+        }
     }
 }

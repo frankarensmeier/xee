@@ -1176,17 +1176,26 @@ fn xslt_analyze_string(
 
     let mut result = Vec::new();
     for entry in analyze_results {
-        let (substring, function) = match &entry {
+        let (substring, function, is_match) = match &entry {
             AnalyzeEntry::Match(match_entries) => {
                 let mut s = String::new();
                 collect_match_text(match_entries, &mut s);
-                (s, &match_function)
+                (s, &match_function, true)
             }
-            AnalyzeEntry::NonMatch(s) => (s.clone(), &non_match_function),
+            AnalyzeEntry::NonMatch(s) => (s.clone(), &non_match_function, false),
         };
         let arg: sequence::Sequence =
             sequence::Item::Atomic(atomic::Atomic::from(substring)).into();
+        if is_match {
+            if let AnalyzeEntry::Match(match_entries) = &entry {
+                let groups = extract_regex_groups(match_entries);
+                interpreter.push_regex_groups(groups);
+            }
+        }
         let items = interpreter.call_function_with_arguments(function, &[arg])?;
+        if is_match {
+            interpreter.pop_regex_groups();
+        }
         for item in items.iter() {
             result.push(item.clone());
         }
@@ -1201,6 +1210,60 @@ fn collect_match_text(entries: &[regexml::MatchEntry], out: &mut String) {
             regexml::MatchEntry::Group { value, .. } => collect_match_text(value, out),
         }
     }
+}
+
+/// Extract regex group strings from match entries.
+/// Group 0 = entire match, groups 1..N = capture groups by number.
+fn extract_regex_groups(entries: &[regexml::MatchEntry]) -> Vec<String> {
+    // First collect the full match text as group 0
+    let mut full_match = String::new();
+    collect_match_text(entries, &mut full_match);
+
+    // Find the maximum group number
+    let max_group = max_group_nr(entries);
+
+    // Build groups vector: index 0 = full match, index N = group N
+    let mut groups = vec![String::new(); max_group + 1];
+    groups[0] = full_match;
+
+    // Collect text for each numbered group
+    for entry in entries {
+        collect_group_texts(entry, &mut groups);
+    }
+
+    groups
+}
+
+fn max_group_nr(entries: &[regexml::MatchEntry]) -> usize {
+    let mut max = 0;
+    for entry in entries {
+        if let regexml::MatchEntry::Group { nr, value } = entry {
+            max = max.max(*nr);
+            max = max.max(max_group_nr(value));
+        }
+    }
+    max
+}
+
+fn collect_group_texts(entry: &regexml::MatchEntry, groups: &mut [String]) {
+    if let regexml::MatchEntry::Group { nr, value } = entry {
+        let mut text = String::new();
+        collect_match_text(value, &mut text);
+        if *nr < groups.len() {
+            groups[*nr] = text;
+        }
+        for sub in value {
+            collect_group_texts(sub, groups);
+        }
+    }
+}
+
+#[xpath_fn("fn:regex-group($group_number as xs:integer) as xs:string")]
+fn regex_group(interpreter: &mut Interpreter, group_number: IBig) -> error::Result<String> {
+    let n: usize = (&group_number)
+        .try_into()
+        .map_err(|_| error::Error::FOAR0002)?;
+    Ok(interpreter.regex_group(n))
 }
 
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
@@ -1222,6 +1285,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),
         wrap_xpath_fn!(xslt_analyze_string),
+        wrap_xpath_fn!(regex_group),
     ]
 }
 

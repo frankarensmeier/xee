@@ -4,6 +4,32 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-12 07:27 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `fn:regex-group()` implementation and `xsl:message terminate="yes"` support.
+- Added `fn:regex-group($n)` function for use inside `xsl:matching-substring` of `xsl:analyze-string`.
+- Regex groups stored as stack in interpreter State, pushed/popped around matching closure calls.
+- Added XTMM9000 error code for `xsl:message terminate="yes"` — handles static "yes", "true", "1" (with whitespace trimming).
+- Vendor tests: 4575 passed (+20 from this commit, +1120 from session start at 3455).
+
+### Progress made
+
+- New function: `regex_group()` in `hidden_xslt.rs` reads from interpreter regex group stack.
+- `extract_regex_groups()` flattens `MatchEntry` tree into `Vec<String>` (group 0 = full match, group N = capture group N).
+- `push_regex_groups/pop_regex_groups` on State/Interpreter for nested analyze-string support.
+- Added `XTMM9000` error variant to Error enum and RaisedError bytecode enum.
+- Message compiler checks static terminate value and emits RaiseError(XTMM9000).
+- 38/53 analyze-string tests pass (up from 24), 10/43 message tests pass (up from 6).
+
+### Next priorities
+
+- `xsl:on-empty` / `xsl:on-non-empty` / `xsl:where-populated` — ~133 tests blocked.
+- Number formatting edge cases — ~102 tests with format picture issues.
+- `xsl:message error-code` — 7 tests need Application error support.
+- Strip-space improvements — 19 failures all behavioral.
+
 ## 2026-04-12 06:45 CEST
 
 ### Status snapshot
