@@ -4,7 +4,6 @@ use crate::common::input_xml;
 use crate::error::render_error;
 use anyhow::Context;
 use clap::Parser;
-use xee_interpreter::sequence::SerializationParameters;
 use xot::Xot;
 
 #[derive(Debug, Parser)]
@@ -33,14 +32,27 @@ impl Xslt {
         // Read the input XML
         let xml = input_xml(&self.infile)?;
 
-        // Perform the XSLT transformation
-        let mut xot = Xot::new();
-        let result = match xee_xslt_compiler::evaluate_with_stylesheet_path(
-            &mut xot,
-            &xml,
+        // Compile the stylesheet
+        let program = match xee_xslt_compiler::parse_with_stylesheet_path(
             &stylesheet,
             &self.stylesheet,
         ) {
+            Ok(program) => program,
+            Err(e) => {
+                render_error(&stylesheet, e);
+                return Ok(());
+            }
+        };
+
+        // Get serialization parameters from xsl:output
+        let serialization_params = program.declarations.serialization_params.clone();
+
+        // Perform the XSLT transformation
+        let mut xot = Xot::new();
+        let root = xot
+            .parse(&xml)
+            .map_err(|e| anyhow::anyhow!("Failed to parse input XML: {}", e))?;
+        let result = match xee_xslt_compiler::evaluate_program(&mut xot, &program, root) {
             Ok(result) => result,
             Err(e) => {
                 render_error(&stylesheet, e);
@@ -48,8 +60,8 @@ impl Xslt {
             }
         };
 
-        // Convert result to string
-        let output_str = result.serialize(SerializationParameters::new(), &mut xot)?; //serialize_result(&mut xot, result)?;
+        // Convert result to string using xsl:output parameters
+        let output_str = result.serialize(serialization_params, &mut xot)?;
 
         // Output the result
         if let Some(output_path) = &self.output {

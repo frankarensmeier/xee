@@ -4,4 +4,7 @@ mod priority;
 mod run;
 
 pub use ast_ir::{parse, parse_with_base_dir, parse_with_base_dir_and_initial_mode};
-pub use run::{evaluate, evaluate_with_base_dir, evaluate_with_stylesheet_path};
+pub use run::{
+    evaluate, evaluate_program, evaluate_with_base_dir, evaluate_with_stylesheet_path,
+    parse_with_stylesheet_path,
+};

@@ -36,6 +36,15 @@ pub fn evaluate_with_stylesheet_path(
     xslt: &str,
     stylesheet_path: &Path,
 ) -> error::SpannedResult<sequence::Sequence> {
+    let program = parse_with_stylesheet_path(xslt, stylesheet_path)?;
+    let root = xot.parse(xml).unwrap();
+    evaluate_program(xot, &program, root)
+}
+
+pub fn parse_with_stylesheet_path(
+    xslt: &str,
+    stylesheet_path: &Path,
+) -> error::SpannedResult<Program> {
     let canonical = stylesheet_path
         .canonicalize()
         .unwrap_or_else(|_| stylesheet_path.to_path_buf());
@@ -48,7 +57,13 @@ pub fn evaluate_with_stylesheet_path(
         .try_into()
         .ok();
 
-    evaluate_with_base_dir(xot, xml, xslt, base_dir, static_base_uri)
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(static_base_uri);
+    let static_context = static_context_builder.build();
+    match base_dir {
+        Some(base_dir) => parse_with_base_dir(static_context, xslt, Some(base_dir)),
+        None => parse(static_context, xslt),
+    }
 }
 
 pub fn evaluate_with_base_dir(
