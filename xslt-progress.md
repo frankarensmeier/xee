@@ -1736,6 +1736,17 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 
 3. **`fn:unparsed-text`, `fn:unparsed-text-available`, `fn:unparsed-text-lines`** (+14): Implemented all 6 function variants (1-arg and 2-arg for each). URI resolution follows the same pattern as `fn:doc()`. The 2-arg form accepts an encoding parameter (`utf-8`, `iso-8859-1`, etc.) via `encoding_rs`. Error codes: `FOUT1170` for bad URIs/missing files, `FOUT1190` for encoding errors.
 
-4. **`xsl:for-each-group group-adjacent`** (+2): Implemented adjacent grouping — consecutive items with the same key value are grouped together. Runtime function `xslt-for-each-group-adjacent` iterates the input sequence, starts a new group when the key changes. Same sort/closure/position infrastructure as `group-by`. 21/78 for-each-group vendor tests pass. DocBook NG now gets past `group-adjacent` (next blocker: variable scope resolution in closures).
+4. **`xsl:for-each-group group-adjacent`** (+2): Implemented adjacent grouping — consecutive items with the same key value are grouped together. Runtime function `xslt-for-each-group-adjacent` iterates the input sequence, starts a new group when the key changes. Same sort/closure/position infrastructure as `group-by`. 21/78 for-each-group vendor tests pass.
+
+## 2026-04-12 13:52 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 4783 passed / 0 failed / 0 error / 4445 filtered / 5367 unsupported (14595 total)
+- **+17 new passes** over previous entry (4766)
+
+### What was done
+
+1. **Fix `atom_uses_name` to check `StaticFunctionReference` context names** (+17): Found and fixed a bug in the bytecode compiler's Let optimization that incorrectly eliminated Let bindings for context variables (`.`, `position()`, `last()`) when they were only referenced through `StaticFunctionReference` atoms (e.g. `local-name(.)`, `generate-id(.)`). The `atom_uses_name` function only checked `Atom::Variable`, missing `Atom::Const(StaticFunctionReference(_, Some(ContextNames { item, position, last })))`. This caused "Internal bug: variable not found" errors when closures (like `for-each-group` body closures) used context-dependent functions. Fix extends `atom_uses_name` to also check context names inside `StaticFunctionReference`. DocBook NG now produces output without compilation errors.
 
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

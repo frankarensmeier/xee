@@ -1529,7 +1529,15 @@ fn expr_value_is_effect_free(expr: &ir::Expr) -> bool {
 }
 
 fn atom_uses_name(atom: &ir::AtomS, name: &ir::Name) -> bool {
-    matches!(&atom.value, ir::Atom::Variable(variable_name) if variable_name == name)
+    match &atom.value {
+        ir::Atom::Variable(variable_name) => variable_name == name,
+        ir::Atom::Const(ir::Const::StaticFunctionReference(_, Some(context_names))) => {
+            context_names.item == *name
+                || context_names.position == *name
+                || context_names.last == *name
+        }
+        _ => false,
+    }
 }
 
 fn function_definition_uses_name(
