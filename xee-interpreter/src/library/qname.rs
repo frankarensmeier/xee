@@ -124,14 +124,10 @@ fn local_name_from_qname(arg: Option<Name>) -> error::Result<Option<atomic::Atom
 fn namespace_uri_from_qname(arg: Option<Name>) -> error::Result<Option<atomic::Atomic>> {
     if let Some(arg) = arg {
         let namespace = arg.namespace();
-        if !namespace.is_empty() {
-            Ok(Some(atomic::Atomic::String(
-                atomic::StringType::AnyURI,
-                namespace.to_string().into(),
-            )))
-        } else {
-            Ok(None)
-        }
+        Ok(Some(atomic::Atomic::String(
+            atomic::StringType::AnyURI,
+            namespace.to_string().into(),
+        )))
     } else {
         Ok(None)
     }

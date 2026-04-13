@@ -1,5 +1,7 @@
 use xot::{ValueType, Xot};
+use xot::xmlname::NameStrInfo;
 
+use ahash::HashMap;
 use xee_xpath_ast::ast;
 
 use crate::sequence;
@@ -12,9 +14,18 @@ pub struct Step {
     pub node_test: ast::NodeTest,
 }
 
-pub(crate) fn resolve_step(step: &Step, node: xot::Node, xot: &mut Xot) -> sequence::Sequence {
+pub(crate) fn resolve_step(
+    step: &Step,
+    node: xot::Node,
+    xot: &mut Xot,
+    namespace_parents: &mut HashMap<xot::Node, xot::Node>,
+) -> sequence::Sequence {
     if matches!(step.axis, ast::Axis::Namespace) {
-        return resolve_namespace_step(step, node, xot);
+        return resolve_namespace_step(step, node, xot, namespace_parents);
+    }
+    // For namespace nodes, handle parent/ancestor axes via our mapping
+    if matches!(xot.value(node), xot::Value::Namespace(_)) {
+        return resolve_step_from_namespace_node(step, node, xot, namespace_parents);
     }
     let mut new_items = Vec::new();
     for axis_node in node_take_axis(&step.axis, xot, node) {
@@ -25,7 +36,90 @@ pub(crate) fn resolve_step(step: &Step, node: xot::Node, xot: &mut Xot) -> seque
     new_items.into()
 }
 
-fn resolve_namespace_step(step: &Step, node: xot::Node, xot: &mut Xot) -> sequence::Sequence {
+fn resolve_step_from_namespace_node(
+    step: &Step,
+    ns_node: xot::Node,
+    xot: &mut Xot,
+    namespace_parents: &HashMap<xot::Node, xot::Node>,
+) -> sequence::Sequence {
+    let parent = namespace_parents.get(&ns_node).copied();
+    match step.axis {
+        ast::Axis::Parent => {
+            if let Some(parent) = parent {
+                if node_test(&step.node_test, &step.axis, xot, parent) {
+                    return vec![sequence::Item::Node(parent)].into();
+                }
+            }
+            sequence::Sequence::default()
+        }
+        ast::Axis::Ancestor => {
+            let mut items = Vec::new();
+            if let Some(parent) = parent {
+                for anc in xot.ancestors(parent) {
+                    if node_test(&step.node_test, &step.axis, xot, anc) {
+                        items.push(sequence::Item::Node(anc));
+                    }
+                }
+            }
+            // xot.ancestors returns nearest-first; XPath needs document order
+            items.reverse();
+            items.into()
+        }
+        ast::Axis::AncestorOrSelf => {
+            let mut items = Vec::new();
+            if let Some(parent) = parent {
+                for anc in xot.ancestors(parent) {
+                    if node_test(&step.node_test, &step.axis, xot, anc) {
+                        items.push(sequence::Item::Node(anc));
+                    }
+                }
+            }
+            // xot.ancestors returns nearest-first; XPath needs document order
+            items.reverse();
+            // self goes after ancestors in document order
+            if node_test(&step.node_test, &step.axis, xot, ns_node) {
+                items.push(sequence::Item::Node(ns_node));
+            }
+            items.into()
+        }
+        ast::Axis::Self_ => {
+            if node_test(&step.node_test, &step.axis, xot, ns_node) {
+                vec![sequence::Item::Node(ns_node)].into()
+            } else {
+                sequence::Sequence::default()
+            }
+        }
+        // Following/preceding from namespace node: delegate to parent element
+        ast::Axis::Following | ast::Axis::FollowingSibling
+        | ast::Axis::Preceding | ast::Axis::PrecedingSibling => {
+            if let Some(parent) = parent {
+                let mut items = Vec::new();
+                for axis_node in node_take_axis(&step.axis, xot, parent) {
+                    if node_test(&step.node_test, &step.axis, xot, axis_node) {
+                        items.push(sequence::Item::Node(axis_node));
+                    }
+                }
+                // xot returns reverse axes (Preceding, PrecedingSibling) in
+                // reverse document order; XPath 2.0+ needs document order
+                if matches!(step.axis, ast::Axis::Preceding | ast::Axis::PrecedingSibling) {
+                    items.reverse();
+                }
+                items.into()
+            } else {
+                sequence::Sequence::default()
+            }
+        }
+        // Namespace nodes don't have children, attributes, descendants, etc.
+        _ => sequence::Sequence::default(),
+    }
+}
+
+fn resolve_namespace_step(
+    step: &Step,
+    node: xot::Node,
+    xot: &mut Xot,
+    namespace_parents: &mut HashMap<xot::Node, xot::Node>,
+) -> sequence::Sequence {
     // Namespace axis only applies to elements
     if xot.value_type(node) != ValueType::Element {
         return sequence::Sequence::default();
@@ -34,6 +128,8 @@ fn resolve_namespace_step(step: &Step, node: xot::Node, xot: &mut Xot) -> sequen
     let mut new_items = Vec::new();
     for (prefix_id, namespace_id) in ns_bindings {
         let ns_node = xot.new_namespace_node(prefix_id, namespace_id);
+        // Track parent so parent/ancestor axes work from namespace nodes
+        namespace_parents.insert(ns_node, node);
         if node_test(&step.node_test, &step.axis, xot, ns_node) {
             new_items.push(sequence::Item::Node(ns_node));
         }
@@ -77,17 +173,17 @@ fn node_test(node_test: &ast::NodeTest, axis: &ast::Axis, xot: &Xot, node: xot::
             }
             match name_test {
                 ast::NameTest::Name(name) => {
+                    // For namespace axis, compare local name directly to prefix
+                    if let xot::Value::Namespace(n) = xot.value(node) {
+                        let local_name = name.value.local_name();
+                        return xot.prefix_str(n.prefix()) == local_name;
+                    }
                     let name = name.value.maybe_to_ref(xot);
                     if let Some(name) = name {
                         let name_id = name.name_id();
                         match xot.value(node) {
                             xot::Value::Element(element) => element.name() == name_id,
                             xot::Value::Attribute(attribute) => attribute.name() == name_id,
-                            xot::Value::Namespace(n) => {
-                                // For namespace axis, name test matches by prefix
-                                let (local_name, _) = xot.name_ns_str(name_id);
-                                xot.prefix_str(n.prefix()) == local_name
-                            }
                             _ => false,
                         }
                     } else {
@@ -148,6 +244,7 @@ fn principal_node_kind(axis: &ast::Axis) -> ValueType {
 
 #[cfg(test)]
 mod tests {
+    use ahash::HashMapExt;
     use xee_xpath_ast::{ast, WithSpan};
 
     use super::*;
@@ -171,7 +268,7 @@ mod tests {
             axis: ast::Axis::Child,
             node_test: ast::NodeTest::NameTest(ast::NameTest::Star),
         };
-        let value = resolve_step(&step, doc_el, &mut xot);
+        let value = resolve_step(&step, doc_el, &mut xot, &mut HashMap::new());
         assert_eq!(value, xot_nodes_to_value(&[a, b]));
         Ok(())
     }
@@ -189,7 +286,7 @@ mod tests {
                 ast::Name::name("a").with_empty_span(),
             )),
         };
-        let value = resolve_step(&step, doc_el, &mut xot);
+        let value = resolve_step(&step, doc_el, &mut xot, &mut HashMap::new());
         assert_eq!(value, xot_nodes_to_value(&[a]));
         Ok(())
     }

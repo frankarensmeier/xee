@@ -17,7 +17,17 @@ fn node_name(
     arg: Option<xot::Node>,
 ) -> error::Result<Option<ast::Name>> {
     Ok(if let Some(node) = arg {
-        interpreter.xot().node_name_ref(node)?.map(|n| n.to_owned())
+        let xot = interpreter.xot();
+        if let xot::Value::Namespace(ns) = xot.value(node) {
+            let prefix = xot.prefix_str(ns.prefix());
+            if prefix.is_empty() {
+                None
+            } else {
+                Some(ast::Name::new(prefix.to_string(), "".to_string(), "".to_string()))
+            }
+        } else {
+            xot.node_name_ref(node)?.map(|n| n.to_owned())
+        }
     } else {
         None
     })
@@ -75,6 +85,19 @@ fn base_uri(
     })
 }
 
+#[xpath_fn("fn:nilled($arg as node()?) as xs:boolean?", context_first)]
+fn nilled(interpreter: &Interpreter, arg: Option<xot::Node>) -> Option<bool> {
+    // Without schema validation, nilled() always returns false for elements
+    // and empty for non-element nodes
+    arg.and_then(|node| {
+        if matches!(interpreter.xot().value(node), xot::Value::Element(_)) {
+            Some(false)
+        } else {
+            None
+        }
+    })
+}
+
 #[xpath_fn("fn:document-uri($arg as node()?) as xs:anyURI?", context_first)]
 fn document_uri(
     context: &context::DynamicContext,
@@ -106,5 +129,6 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(data),
         wrap_xpath_fn!(base_uri),
         wrap_xpath_fn!(document_uri),
+        wrap_xpath_fn!(nilled),
     ]
 }

@@ -50,9 +50,6 @@ accept-914
 accept-915
 accept-916
 = accessor
-accessor-010
-accessor-025
-accessor-026
 accessor-035
 accessor-057
 accessor-058
@@ -61,7 +58,6 @@ accessor-060
 accessor-061
 accessor-062
 accessor-063
-accessor-064
 = accumulator
 accumulator-001
 accumulator-003
@@ -179,10 +175,14 @@ assert-010
 = attribute
 attribute-0002
 attribute-0004
+attribute-0301
 attribute-0601
+attribute-0701
 attribute-0803
 attribute-0804
 attribute-0805
+attribute-0806
+attribute-1101
 attribute-1302
 = attribute-set
 = available-system-properties
@@ -203,6 +203,7 @@ axes-044
 axes-045
 axes-046
 axes-051
+axes-058
 axes-062
 axes-068
 axes-082
@@ -252,19 +253,24 @@ base-uri-052
 base-uri-053
 = boolean
 = bug
+bug-0304
 bug-0701
 bug-1402
+bug-1405
 bug-1501
 bug-1601
+bug-2201
 bug-2401
 bug-2502
 bug-2601
 bug-2701
 bug-2801
+bug-3001
 bug-3701
 bug-4401
 bug-4501
 bug-5101
+bug-5601
 bug-6401
 = built-in-templates
 built-in-templates-0201
@@ -392,9 +398,6 @@ context-item-911
 context-item-912
 = copy
 copy-0104
-copy-0609
-copy-0610
-copy-0611
 copy-0612
 copy-0613
 copy-0614
@@ -677,6 +680,7 @@ error-0280c
 error-0280d
 error-0280e
 error-0280f
+error-0290a
 error-0340b
 error-0340c
 error-0340d
@@ -840,6 +844,7 @@ error-1450b
 error-1460a
 error-1460b
 error-1460c
+error-1460d
 error-1480a
 error-1480b
 error-1490c
@@ -987,6 +992,7 @@ expose-927
 = expression
 expression-0932
 expression-0933
+expression-2101
 = extension-functions
 extension-functions-0103
 extension-functions-0104
@@ -1188,6 +1194,7 @@ import-1301
 = import-schema
 import-schema-191
 = include
+include-0101
 include-0102
 include-0103
 = initial-function
@@ -1333,10 +1340,12 @@ key-038
 key-039
 key-040
 key-041
+key-042
 key-047
 key-049
 key-055
 key-056
+key-058
 key-064
 key-065
 key-069
@@ -1365,7 +1374,6 @@ key-098
 lre-011
 lre-019
 lre-022
-lre-027
 lre-028
 lre-104
 lre-105
@@ -1653,16 +1661,17 @@ mode-1902
 mode-1904
 = namespace
 namespace-0101
-namespace-0201
+namespace-0902
 namespace-0911
 namespace-0913
+namespace-0914
 namespace-1102
 namespace-1502
 namespace-1601
 namespace-1602
-namespace-2101
+namespace-2001
 namespace-2401
-namespace-2612
+namespace-2608
 namespace-2614
 namespace-2615
 namespace-2617
@@ -1671,6 +1680,7 @@ namespace-2621
 namespace-2622
 namespace-2623
 namespace-2624
+namespace-2901
 namespace-3101
 namespace-3102
 namespace-3103
@@ -1698,7 +1708,6 @@ namespace-3311
 namespace-3313
 namespace-3314
 namespace-3315
-namespace-4302
 namespace-4401
 namespace-5901
 namespace-5902
@@ -2328,6 +2337,7 @@ package-004
 package-005
 package-006
 package-007
+package-008
 package-009
 package-010
 package-011
@@ -2414,6 +2424,7 @@ position-3901
 position-4001
 position-4104
 position-4105
+position-4901
 position-6101
 position-6302
 position-6802
@@ -2563,11 +2574,45 @@ resolve-uri-022
 resolve-uri-023
 resolve-uri-024
 = result-document
+result-document-0263
+result-document-0264
+result-document-0265
+result-document-0266
+result-document-0267
+result-document-0268
+result-document-0269
+result-document-0270
+result-document-0272
+result-document-0274
+result-document-0276
+result-document-0277
+result-document-0278
+result-document-0279
+result-document-0280
+result-document-0281
+result-document-0282
+result-document-0283
+result-document-0284
+result-document-0285
+result-document-0286
+result-document-0287
+result-document-0301
+result-document-0302
+result-document-0305
+result-document-0401
+result-document-0501
+result-document-0601
+result-document-0701
+result-document-0702
+result-document-0703
+result-document-0801
+result-document-0901
 result-document-1001
 result-document-1002
 result-document-1003
 result-document-1004
 result-document-1005
+result-document-1006
 result-document-1131
 result-document-1132
 result-document-1133
@@ -2582,14 +2627,31 @@ result-document-1141
 result-document-1142
 result-document-1143
 result-document-1144
+result-document-1201
+result-document-1202
+result-document-1203
+result-document-1204
+result-document-1205
+result-document-1206
+result-document-1401
+result-document-1403
+result-document-1404
+result-document-1405
+result-document-1406
+result-document-1408
+result-document-1409
+result-document-1410
+result-document-1411
 result-document-1501
 result-document-1502
 = root
 = select
+select-0701
 select-1401
 select-1402
 select-2006
 select-2305
+select-6101
 = seqtor
 seqtor-001
 seqtor-002
@@ -2626,6 +2688,7 @@ seqtor-040a
 seqtor-040d
 seqtor-101
 = sequence
+sequence-0113
 sequence-0122
 sequence-0125
 sequence-0133
@@ -2878,7 +2941,6 @@ tunnel-0219
 tunnel-0226
 = type
 type-0135
-type-0137
 type-0150
 type-0155
 type-0156

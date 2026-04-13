@@ -151,7 +151,16 @@ pub struct AtomizedNodeIter {
 impl AtomizedNodeIter {
     fn new(node: xot::Node, xot: &Xot) -> Self {
         let s = xot.string_value(node);
-        let typed_value = vec![atomic::Atomic::Untyped(s.into())];
+        // Per XDM spec: PI, comment, and namespace nodes have typed value xs:string;
+        // all other nodes (element, attribute, text, document) have xs:untypedAtomic
+        let typed_value = match xot.value(node) {
+            xot::Value::ProcessingInstruction(_)
+            | xot::Value::Comment(_)
+            | xot::Value::Namespace(_) => {
+                vec![atomic::Atomic::String(atomic::StringType::String, s.into())]
+            }
+            _ => vec![atomic::Atomic::Untyped(s.into())],
+        };
         Self {
             typed_value,
             typed_value_index: 0,

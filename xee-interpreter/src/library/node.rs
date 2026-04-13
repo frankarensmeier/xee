@@ -13,11 +13,16 @@ use crate::wrap_xpath_fn;
 #[xpath_fn("fn:name($arg as node()?) as xs:string", context_first)]
 fn name(interpreter: &Interpreter, arg: Option<xot::Node>) -> error::Result<String> {
     Ok(if let Some(node) = arg {
-        let name = interpreter.xot().node_name(node);
-        if let Some(name) = name {
-            interpreter.xot().full_name(node, name)?
+        let xot = interpreter.xot();
+        if let xot::Value::Namespace(ns) = xot.value(node) {
+            xot.prefix_str(ns.prefix()).to_string()
         } else {
-            "".to_string()
+            let name = xot.node_name(node);
+            if let Some(name) = name {
+                xot.full_name(node, name)?
+            } else {
+                "".to_string()
+            }
         }
     } else {
         "".to_string()
@@ -27,11 +32,16 @@ fn name(interpreter: &Interpreter, arg: Option<xot::Node>) -> error::Result<Stri
 #[xpath_fn("fn:local-name($arg as node()?) as xs:string", context_first)]
 fn local_name(interpreter: &Interpreter, arg: Option<xot::Node>) -> String {
     if let Some(arg) = arg {
-        let name = interpreter.xot().node_name(arg);
-        if let Some(name) = name {
-            interpreter.xot().local_name_str(name).to_string()
+        let xot = interpreter.xot();
+        if let xot::Value::Namespace(ns) = xot.value(arg) {
+            xot.prefix_str(ns.prefix()).to_string()
         } else {
-            "".to_string()
+            let name = xot.node_name(arg);
+            if let Some(name) = name {
+                xot.local_name_str(name).to_string()
+            } else {
+                "".to_string()
+            }
         }
     } else {
         "".to_string()
@@ -41,11 +51,17 @@ fn local_name(interpreter: &Interpreter, arg: Option<xot::Node>) -> String {
 #[xpath_fn("fn:namespace-uri($arg as node()?) as xs:anyURI", context_first)]
 fn namespace_uri(interpreter: &Interpreter, arg: Option<xot::Node>) -> atomic::Atomic {
     let uri = if let Some(arg) = arg {
-        let name = interpreter.xot().node_name(arg);
-        if let Some(name) = name {
-            interpreter.xot().uri_str(name).to_string()
-        } else {
+        let xot = interpreter.xot();
+        if let xot::Value::Namespace(_) = xot.value(arg) {
+            // Namespace nodes have no namespace URI per XDM
             "".to_string()
+        } else {
+            let name = xot.node_name(arg);
+            if let Some(name) = name {
+                xot.uri_str(name).to_string()
+            } else {
+                "".to_string()
+            }
         }
     } else {
         "".to_string()

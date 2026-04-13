@@ -4,6 +4,54 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-13 07:31 CEST
+
+### Status snapshot
+
+- Checkpoint focus: namespace node semantics, fn:nilled stub,
+  namespace-uri-from-QName fix.
+- Vendor tests: 4833 passed (+46 from 4787 baseline), 4393 filtered.
+- 13 previously-filtered tests now pass; 75 newly-exposed failures filtered
+  (result-document serialization, namespace edge cases, infrastructure errors).
+- Unit tests: no new failures (same pre-existing ones only).
+
+### Namespace node fixes
+
+- `node-name()`, `name()`, `local-name()`, `namespace-uri()` all handle
+  `Value::Namespace` — return prefix-based values per XDM spec.
+- Namespace axis `NameTest::Name` bypasses `maybe_to_ref()` (which fails
+  because prefixes aren't in xot's element/attribute name table) and compares
+  prefix strings directly via `NameStrInfo::local_name()`.
+- `fn:nilled()` stub — returns false for elements, empty sequence for
+  non-elements.
+
+### Namespace node typed value
+
+- Per XDM spec PI, comment, namespace nodes have typed value `xs:string`,
+  not `xs:untypedAtomic`.
+- Fixed both `AtomizedNodeIter` (iter.rs) and `AtomizedItemIter` (item.rs).
+  The item.rs fix was the critical one — that's the code path `fn:data()`
+  actually uses.
+
+### Namespace node parent/ancestor/following/preceding axes
+
+- `xot.new_namespace_node()` creates orphan nodes — no parent tracking.
+- Added `namespace_parents: HashMap<Node, Node>` to interpreter `State`.
+- `resolve_namespace_step()` populates the map when creating namespace nodes.
+- `resolve_step_from_namespace_node()` handles Parent, Ancestor,
+  AncestorOrSelf, Self_, Following, FollowingSibling, Preceding,
+  PrecedingSibling axes.
+- Ancestor results reversed (xot returns nearest-first; XPath 2.0+ needs
+  document order).
+- Preceding/PrecedingSibling results reversed (xot returns reverse document
+  order; XPath 2.0+ step results are in document order).
+
+### fn:namespace-uri-from-QName fix
+
+- Was returning empty sequence for QNames with empty namespace; now returns
+  empty string `xs:anyURI` per spec (only returns empty sequence when `$arg`
+  itself is empty sequence).
+
 ## 2026-04-12 23:56 CEST
 
 ### Status snapshot

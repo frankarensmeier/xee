@@ -300,7 +300,16 @@ impl<'a> AtomizedItemIter<'a> {
             Item::Atomic(a) => Self::Atomic(std::iter::once(a.clone())),
             Item::Node(n) => {
                 let s = xot.string_value(*n);
-                let value = atomic::Atomic::Untyped(s.into());
+                // Per XDM spec: PI, comment, and namespace nodes have typed value xs:string;
+                // all other nodes (element, attribute, text, document) have xs:untypedAtomic
+                let value = match xot.value(*n) {
+                    xot::Value::ProcessingInstruction(_)
+                    | xot::Value::Comment(_)
+                    | xot::Value::Namespace(_) => {
+                        atomic::Atomic::String(atomic::StringType::String, s.into())
+                    }
+                    _ => atomic::Atomic::Untyped(s.into()),
+                };
                 Self::Node(std::iter::once(value))
             }
             Item::Function(function) => match function {

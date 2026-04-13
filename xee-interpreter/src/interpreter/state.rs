@@ -56,6 +56,10 @@ pub struct State<'a> {
     current_group_stack: Vec<sequence::Sequence>,
     current_grouping_key_stack: Vec<Option<atomic::Atomic>>,
     pub(crate) xot: &'a mut Xot,
+    /// Maps namespace nodes to their parent element node.
+    /// Populated when namespace axis is traversed; needed because xot
+    /// namespace nodes created via new_namespace_node() are orphaned.
+    pub(crate) namespace_parents: HashMap<xot::Node, xot::Node>,
 }
 
 #[derive(Debug)]
@@ -107,6 +111,7 @@ impl<'a> State<'a> {
             current_group_stack: vec![],
             current_grouping_key_stack: vec![],
             xot,
+            namespace_parents: HashMap::new(),
         }
     }
 
