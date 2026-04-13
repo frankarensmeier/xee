@@ -601,6 +601,10 @@ pub enum Error {
     /// It is a static error if two xsl:param declarations within the same
     /// template specify the same name.
     XTSE0580,
+    /// Variable-binding element has non-empty content with incompatible attributes.
+    ///
+    /// It is a static error if a variable-binding element has a select attribute
+    /// and is not empty, or has both a select attribute and an as attribute.
     XTSE0630,
     /// Conflicting xsl:decimal-format declarations.
     ///
