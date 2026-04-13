@@ -1,4 +1,5 @@
 use ahash::HashSetExt;
+use iri_string::types::{IriAbsoluteString, IriReferenceStr};
 use xee_interpreter::{
     context::{self, DynamicContext},
     error, function,
@@ -24,9 +25,13 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
             interpreter.xot_mut(),
         )?;
         let (variables, variable_names) = variables_for_request(request.with_params.as_ref())?;
-        let static_context = context
+        let mut static_context = context
             .static_context()
             .clone_with_namespaces_and_variables(namespaces, variable_names);
+        if let Some(base_uri) = request.base_uri.as_deref() {
+            let base_uri = resolve_dynamic_xpath_base_uri(context, base_uri)?;
+            static_context = static_context.clone_with_static_base_uri(Some(base_uri));
+        }
         let xpath = static_context
             .parse_xpath(&request.xpath)
             .map_err(|error| error::SpannedError {
@@ -45,6 +50,30 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
             .runnable(&dynamic_context)
             .many(interpreter.xot_mut())
     }
+}
+
+fn resolve_dynamic_xpath_base_uri(
+    context: &DynamicContext,
+    base_uri: &str,
+) -> error::Result<IriAbsoluteString> {
+    let base_uri: &IriReferenceStr = base_uri.try_into().map_err(|_| error::Error::FOXT0002)?;
+    Ok(match base_uri.to_iri() {
+        Ok(uri) => uri
+            .to_string()
+            .try_into()
+            .map_err(|_| error::Error::FOXT0002)?,
+        Err(relative_uri) => {
+            let base = context
+                .static_context()
+                .static_base_uri()
+                .ok_or(error::Error::FOXT0002)?;
+            relative_uri
+                .resolve_against(base)
+                .to_string()
+                .try_into()
+                .map_err(|_| error::Error::FOXT0002)?
+        }
+    })
 }
 
 fn variables_for_request(

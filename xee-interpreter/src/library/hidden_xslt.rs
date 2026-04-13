@@ -4,7 +4,7 @@ use ahash::{HashMap, HashMapExt};
 
 use ibig::IBig;
 use iri_string::types::{IriReferenceStr, IriString};
-use xee_name::Namespaces;
+use xee_name::{Name, Namespaces};
 use xee_xpath_ast::parse_name;
 use xee_xpath_macros::xpath_fn;
 use xot::xmlname::{NameStrInfo, OwnedName};
@@ -1244,7 +1244,33 @@ fn store_principal_result_document(
 }
 
 #[xpath_fn(
-    "fn:xslt-evaluate($xpath as xs:string?, $context_item as item()*, $namespace_context as item()*, $with_params as item()*) as item()*"
+    "fn:xslt-evaluate-put-param($with_params as item()*, $key as xs:QName, $value as item()*) as map(*)"
+)]
+fn xslt_evaluate_put_param(
+    with_params: &sequence::Sequence,
+    key: Name,
+    value: &sequence::Sequence,
+) -> error::Result<function::Map> {
+    let map = match with_params.clone().option()? {
+        None => function::Map::new(Vec::new())?,
+        Some(sequence::Item::Function(function::Function::Map(map))) => map,
+        Some(_) => {
+            return Err(error::Error::type_error(
+                "xsl:evaluate with-params must be a map",
+            ))
+        }
+    };
+
+    let key_atomic: atomic::Atomic = key.into();
+    if map.get(&key_atomic).is_some() {
+        Ok(map)
+    } else {
+        map.put(key_atomic, value)
+    }
+}
+
+#[xpath_fn(
+    "fn:xslt-evaluate($xpath as xs:string?, $context_item as item()*, $namespace_context as item()*, $with_params as item()*, $base_uri as xs:string?) as item()*"
 )]
 fn xslt_evaluate(
     context: &crate::context::DynamicContext,
@@ -1253,6 +1279,7 @@ fn xslt_evaluate(
     context_item: &sequence::Sequence,
     namespace_context: &sequence::Sequence,
     with_params: &sequence::Sequence,
+    base_uri: Option<&str>,
 ) -> error::Result<sequence::Sequence> {
     let evaluator = context.dynamic_xpath_evaluator().ok_or_else(|| {
         error::Error::Unsupported("xsl:evaluate is not configured for this program".to_string())
@@ -1278,6 +1305,7 @@ fn xslt_evaluate(
         context_item: context_item.clone().option()?,
         namespace_context,
         with_params,
+        base_uri: base_uri.map(str::to_string),
     };
 
     evaluator
@@ -1652,6 +1680,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_number_count_any_pattern),
         wrap_xpath_fn!(xslt_number_count_multiple),
         wrap_xpath_fn!(xslt_number_count_multiple_pattern),
+        wrap_xpath_fn!(xslt_evaluate_put_param),
         wrap_xpath_fn!(xslt_evaluate),
         wrap_xpath_fn!(store_result_document),
         wrap_xpath_fn!(store_principal_result_document),

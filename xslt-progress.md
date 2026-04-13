@@ -4,6 +4,49 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-13 13:41 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `xsl:evaluate` child `xsl:with-param` support and `base-uri`
+  plumbing.
+- Focused vendor suite: `insn/evaluate` improved from 20 passing executed
+  cases to 22 passing executed cases after the `base-uri` tranche.
+- Current measured evaluate baseline (with `dynamic_evaluation` temporarily
+  advertised in the testrunner for measurement only): 22 passed / 6 failed /
+  7 error / 6 wrong-error / 16 unsupported.
+
+### xsl:evaluate child params
+
+- Implemented child `xsl:with-param` lowering for `xsl:evaluate` instead of
+  rejecting it at compile time.
+- Added hidden helper `xslt-evaluate-put-param` so child params are inserted
+  only when the same QName key is absent from `@with-params`.
+- This preserves the vendor-required precedence rule: `@with-params` wins over
+  child `xsl:with-param` on duplicates.
+- Fixed vendor cases: `evaluate-002`, `evaluate-004`, `evaluate-018`,
+  `evaluate-018b`, `evaluate-018c`, `evaluate-041`, `evaluate-052`.
+
+### xsl:evaluate base-uri
+
+- Threaded `base-uri` through the hidden `xslt-evaluate` helper into the
+  dynamic XPath request and cloned static context.
+- Relative base URIs are resolved against the current static base URI before
+  parsing the dynamic XPath.
+- Fixed vendor cases: `evaluate-020`, `evaluate-030`.
+- `evaluate-015` is no longer blocked on unsupported `base-uri`; it now
+  exposes the next real issue, public stylesheet function handling inside
+  dynamic evaluation.
+
+### Next priorities
+
+- Dynamic calls to public stylesheet functions inside `xsl:evaluate`
+  (`evaluate-001`, `006`, `015`, `044`, `045`, `051`).
+- Context-item validation and error-code correctness (`evaluate-023` to
+  `026`, `043`).
+- Remaining static-context details: default namespace and collation
+  behavior (`evaluate-021`, `049`).
+
 ## 2026-04-13 09:10 CEST
 
 ### Status snapshot

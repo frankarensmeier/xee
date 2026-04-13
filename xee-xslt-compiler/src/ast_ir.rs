@@ -2549,21 +2549,11 @@ impl<'a> IrConverter<'a> {
     }
 
     fn evaluate(&mut self, evaluate: &ast::Evaluate) -> error::SpannedResult<Bindings> {
-        if evaluate.base_uri.is_some() || evaluate.schema_aware.is_some() {
+        if evaluate.schema_aware.is_some() {
             return Err(error::Error::Unsupported(format!(
                 "Instruction not supported: {:?}",
                 evaluate
             ))
-            .into());
-        }
-        if evaluate
-            .content
-            .iter()
-            .any(|item| matches!(item, ast::EvaluateContent::WithParam(_)))
-        {
-            return Err(error::Error::Unsupported(
-                "xsl:evaluate with child xsl:with-param is not supported yet".to_string(),
-            )
             .into());
         }
 
@@ -2579,27 +2569,83 @@ impl<'a> IrConverter<'a> {
         let (namespace_context_atom, namespace_context_bindings) =
             self.optional_evaluate_argument(evaluate.namespace_context.as_ref())?;
         let (with_params_atom, with_params_bindings) =
-            self.optional_evaluate_argument(evaluate.with_params.as_ref())?;
+            self.evaluate_with_params_argument(evaluate)?;
+        let (base_uri_atom, base_uri_bindings) =
+            self.optional_evaluate_base_uri_argument(evaluate.base_uri.as_ref())?;
 
         let expr = self.static_function_call_expr(
             "xslt-evaluate",
             FN_NAMESPACE,
-            4,
+            5,
             vec![
                 xpath_atom,
                 context_item_atom,
                 namespace_context_atom,
                 with_params_atom,
+                base_uri_atom,
             ],
         );
         Ok(xpath_bindings
             .concat(context_item_bindings)
             .concat(namespace_context_bindings)
             .concat(with_params_bindings)
+            .concat(base_uri_bindings)
             .bind_expr(
                 &mut self.variables,
                 Spanned::new(expr, (evaluate.span.start..evaluate.span.end).into()),
             ))
+    }
+
+    fn evaluate_with_params_argument(
+        &mut self,
+        evaluate: &ast::Evaluate,
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        let (mut with_params_atom, mut with_params_bindings) =
+            self.optional_evaluate_argument(evaluate.with_params.as_ref())?;
+
+        for item in &evaluate.content {
+            let ast::EvaluateContent::WithParam(with_param) = item else {
+                continue;
+            };
+
+            let (param, value_bindings) = self.with_param(with_param)?;
+            let value_atom = param
+                .select
+                .expect("xsl:with-param lowering should always yield a select atom");
+            let (key_atom, key_bindings) = self.xml_name(&with_param.name)?.atom_bindings();
+
+            let put_if_absent = self.static_function_call_expr(
+                "xslt-evaluate-put-param",
+                FN_NAMESPACE,
+                3,
+                vec![with_params_atom, key_atom, value_atom],
+            );
+
+            let (next_atom, next_bindings) = with_params_bindings
+                .concat(key_bindings)
+                .concat(value_bindings)
+                .bind_expr_no_span(&mut self.variables, put_if_absent)
+                .atom_bindings();
+
+            with_params_atom = next_atom;
+            with_params_bindings = next_bindings;
+        }
+
+        Ok((with_params_atom, with_params_bindings))
+    }
+
+    fn optional_evaluate_base_uri_argument(
+        &mut self,
+        value_template: Option<&ast::ValueTemplate<ast::Uri>>,
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        if let Some(value_template) = value_template {
+            return Ok(self.attribute_value_template(value_template)?.atom_bindings());
+        }
+
+        let empty_sequence = self.empty_sequence();
+        Ok(Bindings::empty()
+            .bind_expr_no_span(&mut self.variables, empty_sequence.value)
+            .atom_bindings())
     }
 
     fn optional_evaluate_argument(

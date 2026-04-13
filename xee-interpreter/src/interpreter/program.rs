@@ -15,6 +15,7 @@ pub struct DynamicXPathRequest {
     pub context_item: Option<sequence::Item>,
     pub namespace_context: Option<sequence::Item>,
     pub with_params: Option<function::Map>,
+    pub base_uri: Option<String>,
 }
 
 pub trait DynamicXPathEvaluator: std::fmt::Debug {
