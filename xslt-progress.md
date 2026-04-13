@@ -4,6 +4,55 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-13 22:13 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `xsl:evaluate` static-context inheritance for
+  `xpath-default-namespace` and `default-collation`.
+- Filtered vendor regression sweep: 4838 passed, 0 failed, 0 error — clean.
+- Filter baseline change: none.
+- Focused validation: 14 `xsl:evaluate` compiler tests passing, including
+  direct regressions for vendor `evaluate-021` and `evaluate-049`.
+
+### xsl:evaluate static defaults
+
+- Recorded the effective `xpath-default-namespace` and default-collation on
+  each `xsl:evaluate` AST node while the parser still has the full inherited
+  static context.
+- Threaded those values through the hidden `xslt-evaluate` runtime helper into
+  the dynamic XPath request, rather than trying to reconstruct them later from
+  the stylesheet root.
+
+### xsl:evaluate xpath-default-namespace
+
+- Dynamic XPath evaluation now applies the captured
+  `xpath-default-namespace` as the default element namespace before parsing
+  the supplied expression string.
+- Fixed the remaining vendor namespace-default case (`evaluate-021`).
+- Added both a minimal local regression and a regression that executes the
+  real vendor stylesheet `evaluate-021.xsl`.
+
+### xsl:evaluate default-collation
+
+- `StaticContext` now carries an overridable default collation URI instead of
+  always hardcoding the codepoint collation.
+- Dynamic XPath evaluation now installs the captured default collation before
+  parsing and executing the requested expression.
+- Fixed the remaining vendor collation case (`evaluate-049`).
+- Added both a minimal local regression and a regression that executes the
+  real vendor stylesheet `evaluate-049.xsl`.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_xsl_evaluate_` passed.
+- `cargo run -p xee-testrunner -- -v check vendor/xslt-tests` passed with a
+  clean filtered sweep.
+- `cargo test -p xee-interpreter --lib` still has one unrelated existing
+  failure: `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+- `cargo test -p xee-xslt-compiler` still reports unrelated existing failures
+  outside the `xsl:evaluate` tranche.
+
 ## 2026-04-13 20:43 CEST
 
 ### Status snapshot

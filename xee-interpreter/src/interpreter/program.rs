@@ -14,6 +14,8 @@ pub struct DynamicXPathRequest {
     pub xpath: String,
     pub context_item: Option<sequence::Item>,
     pub context_item_supplied: bool,
+    pub xpath_default_namespace: String,
+    pub default_collation: String,
     pub namespace_context: Option<sequence::Item>,
     pub with_params: Option<function::Map>,
     pub base_uri: Option<String>,

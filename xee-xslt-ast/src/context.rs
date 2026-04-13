@@ -236,4 +236,12 @@ impl Context {
         let namespaces = self.namespaces(state);
         XPathParserContext::new(namespaces, self.variable_names.clone())
     }
+
+    pub(crate) fn default_collation(&self) -> &[ast::Uri] {
+        &self.default_collation
+    }
+
+    pub(crate) fn xpath_default_namespace(&self) -> &ast::Uri {
+        &self.xpath_default_namespace
+    }
 }

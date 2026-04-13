@@ -1,6 +1,5 @@
 use ahash::{HashMap, HashMapExt, HashSetExt};
-use iri_string::types::{IriAbsoluteString, IriReferenceStr};
-use xee_ir::{FunctionBuilder, FunctionCompiler, ModeIds, Scopes, TemplateIds, TemplateParams, Variables};
+use iri_string::types::{IriAbsoluteString, IriReferenceStr, IriReferenceString};
 use xee_interpreter::{
     context::{self, DynamicContext},
     error, function,
@@ -9,10 +8,13 @@ use xee_interpreter::{
     },
     sequence,
 };
+use xee_ir::{
+    FunctionBuilder, FunctionCompiler, ModeIds, Scopes, TemplateIds, TemplateParams, Variables,
+};
 use xee_name::{Name, Namespaces, VariableNames};
 use xee_xpath_ast::ast as xpath_ast;
-use xot::Xot;
 use xot::xmlname::OwnedName;
+use xot::Xot;
 
 #[derive(Debug, Default)]
 pub(crate) struct XsltDynamicXPathEvaluator;
@@ -24,15 +26,22 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
         context: &DynamicContext,
         interpreter: &mut Interpreter<'_>,
     ) -> error::SpannedResult<sequence::Sequence> {
-        let namespaces = namespaces_for_request(
+        let mut namespaces = namespaces_for_request(
             context,
             request.namespace_context.as_ref(),
             interpreter.xot_mut(),
         )?;
+        namespaces.default_element_namespace = request.xpath_default_namespace.clone();
         let (variables, variable_names) = variables_for_request(request.with_params.as_ref())?;
         let mut static_context = context
             .static_context()
             .clone_with_namespaces_and_variables(namespaces, variable_names);
+        let default_collation: IriReferenceString = request
+            .default_collation
+            .clone()
+            .try_into()
+            .map_err(|_| error::Error::FOCH0002)?;
+        static_context.set_default_collation_uri(default_collation);
         if let Some(base_uri) = request.base_uri.as_deref() {
             let base_uri = resolve_dynamic_xpath_base_uri(context, base_uri)?;
             static_context = static_context.clone_with_static_base_uri(Some(base_uri));
@@ -41,15 +50,10 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
             .parse_xpath(&request.xpath)
             .map_err(map_dynamic_xpath_parse_error)?;
         let stylesheet_functions = stylesheet_functions(context, &mut xpath);
-        let mut program = compile_dynamic_xpath(
-            context,
-            static_context,
-            xpath,
-            stylesheet_functions,
-        )
-        .map_err(map_dynamic_xpath_static_error)?;
-        program
-            .set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
+        let mut program =
+            compile_dynamic_xpath(context, static_context, xpath, stylesheet_functions)
+                .map_err(map_dynamic_xpath_static_error)?;
+        program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
         program.set_transform_evaluator(Box::new(crate::transform::XsltTransformEvaluator));
         program.set_initial_focus_mode(if request.context_item_supplied {
             InitialFocusMode::Full
@@ -184,7 +188,13 @@ fn stylesheet_functions(
     let mut by_public_name = HashMap::new();
     let mut bindings = Vec::new();
 
-    for (index, global) in context.program().declarations.global_variables.iter().enumerate() {
+    for (index, global) in context
+        .program()
+        .declarations
+        .global_variables
+        .iter()
+        .enumerate()
+    {
         let (Some(public_name), Some(public_arity)) = (&global.public_name, global.public_arity)
         else {
             continue;
@@ -320,10 +330,8 @@ fn rewrite_stylesheet_function_references_step_expr(
 ) {
     match &mut step.value {
         xpath_ast::StepExpr::PrimaryExpr(primary) => {
-            let extra_postfixes = rewrite_stylesheet_function_references_primary_expr(
-                primary,
-                stylesheet_functions,
-            );
+            let extra_postfixes =
+                rewrite_stylesheet_function_references_primary_expr(primary, stylesheet_functions);
             if !extra_postfixes.is_empty() {
                 step.value = xpath_ast::StepExpr::PostfixExpr {
                     primary: primary.clone(),
@@ -332,10 +340,8 @@ fn rewrite_stylesheet_function_references_step_expr(
             }
         }
         xpath_ast::StepExpr::PostfixExpr { primary, postfixes } => {
-            let extra_postfixes = rewrite_stylesheet_function_references_primary_expr(
-                primary,
-                stylesheet_functions,
-            );
+            let extra_postfixes =
+                rewrite_stylesheet_function_references_primary_expr(primary, stylesheet_functions);
             for postfix in postfixes.iter_mut() {
                 rewrite_stylesheet_function_references_postfix(postfix, stylesheet_functions);
             }
@@ -368,7 +374,9 @@ fn rewrite_stylesheet_function_references_primary_expr(
                 Err(_) => return Vec::new(),
             };
 
-            if let Some(rewrite_name) = stylesheet_functions.get(&(function_call.name.value.clone(), arity)) {
+            if let Some(rewrite_name) =
+                stylesheet_functions.get(&(function_call.name.value.clone(), arity))
+            {
                 let arguments = function_call.arguments.clone();
                 primary.value = xpath_ast::PrimaryExpr::VarRef(rewrite_name.clone());
                 vec![xpath_ast::Postfix::ArgumentList(arguments)]
@@ -377,9 +385,10 @@ fn rewrite_stylesheet_function_references_primary_expr(
             }
         }
         xpath_ast::PrimaryExpr::NamedFunctionRef(named_function_ref) => {
-            if let Some(rewrite_name) =
-                stylesheet_functions.get(&(named_function_ref.name.value.clone(), named_function_ref.arity))
-            {
+            if let Some(rewrite_name) = stylesheet_functions.get(&(
+                named_function_ref.name.value.clone(),
+                named_function_ref.arity,
+            )) {
                 primary.value = xpath_ast::PrimaryExpr::VarRef(rewrite_name.clone());
             }
             Vec::new()
@@ -414,13 +423,19 @@ fn rewrite_stylesheet_function_references_primary_expr(
                     rewrite_stylesheet_function_references_expr(expr, stylesheet_functions);
                 }
                 xpath_ast::ArrayConstructor::Curly(expr) => {
-                    rewrite_stylesheet_function_references_expr_or_empty(expr, stylesheet_functions);
+                    rewrite_stylesheet_function_references_expr_or_empty(
+                        expr,
+                        stylesheet_functions,
+                    );
                 }
             }
             Vec::new()
         }
         xpath_ast::PrimaryExpr::UnaryLookup(key_specifier) => {
-            rewrite_stylesheet_function_references_key_specifier(key_specifier, stylesheet_functions);
+            rewrite_stylesheet_function_references_key_specifier(
+                key_specifier,
+                stylesheet_functions,
+            );
             Vec::new()
         }
         xpath_ast::PrimaryExpr::Literal(_)
@@ -443,7 +458,10 @@ fn rewrite_stylesheet_function_references_postfix(
             }
         }
         xpath_ast::Postfix::Lookup(key_specifier) => {
-            rewrite_stylesheet_function_references_key_specifier(key_specifier, stylesheet_functions);
+            rewrite_stylesheet_function_references_key_specifier(
+                key_specifier,
+                stylesheet_functions,
+            );
         }
     }
 }

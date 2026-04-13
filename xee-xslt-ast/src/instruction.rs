@@ -851,6 +851,12 @@ impl InstructionParser for ast::Evaluate {
                 names.schema_aware,
                 attributes.value_template(attributes.boolean()),
             )?,
+            static_default_collation: attributes.content.context.default_collation().to_vec(),
+            static_xpath_default_namespace: attributes
+                .content
+                .context
+                .xpath_default_namespace()
+                .clone(),
 
             span: content.span()?,
 

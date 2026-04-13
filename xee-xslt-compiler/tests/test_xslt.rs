@@ -5985,8 +5985,8 @@ fn test_xsl_evaluate_calls_public_stylesheet_function() {
     .unwrap();
 
     assert_eq!(
-      xml(&xot, output),
-      "<out xmlns:my=\"http://example.com/my\">42</out>"
+        xml(&xot, output),
+        "<out xmlns:my=\"http://example.com/my\">42</out>"
     );
 }
 
@@ -6014,10 +6014,10 @@ fn test_xsl_evaluate_calls_final_stylesheet_function_with_reserved_local_name() 
     )
     .unwrap();
 
-  assert_eq!(
-    xml(&xot, output),
-    "<out xmlns:eval=\"http://example.com/eval\">item</out>"
-  );
+    assert_eq!(
+        xml(&xot, output),
+        "<out xmlns:eval=\"http://example.com/eval\">item</out>"
+    );
 }
 
 #[test]
@@ -6044,7 +6044,7 @@ fn test_xsl_evaluate_reports_xtde3160_for_private_stylesheet_function() {
     )
     .unwrap_err();
 
-  assert_eq!(error.value(), error::Error::XTDE3160);
+    assert_eq!(error.value(), error::Error::XTDE3160);
 }
 
 #[test]
@@ -6123,7 +6123,7 @@ fn test_xsl_evaluate_reports_xtte3210_for_context_item_sequence() {
 #[test]
 fn test_xsl_evaluate_reports_xtte3165_for_non_qname_with_param_keys() {
     let mut xot = Xot::new();
-  let error = evaluate(
+    let error = evaluate(
         &mut xot,
         "<doc/>",
         r#"
@@ -6142,6 +6142,92 @@ fn test_xsl_evaluate_reports_xtte3165_for_non_qname_with_param_keys() {
     .unwrap_err();
 
     assert_eq!(error.error, error::Error::XTTE3165);
+}
+
+#[test]
+fn test_xsl_evaluate_uses_xpath_default_namespace() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<document xmlns=\"http://example.com/doc\"><data>ok</data></document>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                version="3.0"
+                xpath-default-namespace="http://example.com/doc">
+  <xsl:template match="/">
+    <out>
+      <xsl:evaluate xpath="'string(/document/data)'" context-item="/"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>ok</out>");
+}
+
+#[test]
+fn test_xsl_evaluate_uses_template_default_collation() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:param name="expr">"XYZ" eq "xyz"</xsl:param>
+  <xsl:template match="/"
+                default-collation="http://www.w3.org/2013/collation/UCA?strength=secondary">
+    <out>
+      <xsl:evaluate xpath="$expr"/>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true</out>");
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_021() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-021.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        r#"
+<document xmlns="http://saxon097.uri/">
+  <path>following-sibling::data</path>
+  <data>Saxon is great</data>
+</document>"#,
+        &xslt,
+        &stylesheet_path,
+    )
+    .unwrap();
+
+    assert!(output
+        .string_value(&xot)
+        .unwrap()
+        .contains("evaluate : Saxon is great"));
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_049() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-049.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &xslt,
+        &stylesheet_path,
+        "initial-template",
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true</out>");
 }
 
 #[test]

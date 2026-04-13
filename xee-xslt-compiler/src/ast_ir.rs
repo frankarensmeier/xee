@@ -2594,6 +2594,26 @@ impl<'a> IrConverter<'a> {
                     .bind_expr_no_span(&mut self.variables, empty_sequence.value)
                     .atom_bindings()
             };
+        let xpath_default_namespace_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(
+                evaluate.static_xpath_default_namespace.clone(),
+            )),
+            (0..0).into(),
+        );
+        let default_collation_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(
+                evaluate
+                    .static_default_collation
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        self.current_static_context()
+                            .default_collation_uri()
+                            .to_string()
+                    }),
+            )),
+            (0..0).into(),
+        );
         let (namespace_context_atom, namespace_context_bindings) =
             self.optional_evaluate_argument(evaluate.namespace_context.as_ref())?;
         let (with_params_atom, with_params_bindings) =
@@ -2604,11 +2624,13 @@ impl<'a> IrConverter<'a> {
         let expr = self.static_function_call_expr(
             "xslt-evaluate",
             FN_NAMESPACE,
-            6,
+            8,
             vec![
                 xpath_atom,
                 context_item_atom,
                 context_item_supplied_atom,
+                xpath_default_namespace_atom,
+                default_collation_atom,
                 namespace_context_atom,
                 with_params_atom,
                 base_uri_atom,
@@ -2669,7 +2691,9 @@ impl<'a> IrConverter<'a> {
         value_template: Option<&ast::ValueTemplate<ast::Uri>>,
     ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
         if let Some(value_template) = value_template {
-            return Ok(self.attribute_value_template(value_template)?.atom_bindings());
+            return Ok(self
+                .attribute_value_template(value_template)?
+                .atom_bindings());
         }
 
         let empty_sequence = self.empty_sequence();

@@ -651,6 +651,8 @@ pub struct Evaluate {
     pub context_item: Option<Expression>,
     pub namespace_context: Option<Expression>,
     pub schema_aware: Option<ValueTemplate<bool>>,
+    pub static_default_collation: Vec<Uri>,
+    pub static_xpath_default_namespace: Uri,
 
     pub content: Vec<EvaluateContent>,
 

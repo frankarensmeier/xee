@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use iri_string::types::IriAbsoluteStr;
 use iri_string::types::IriAbsoluteString;
 use iri_string::types::IriReferenceStr;
+use iri_string::types::IriReferenceString;
 use xee_name::{Namespaces, VariableNames};
 use xee_xpath_ast::ast;
 use xee_xpath_ast::XPathParserContext;
@@ -67,6 +68,7 @@ pub struct StaticContext {
     // TODO: try to make collations static
     collations: RefCell<Collations>,
     static_base_uri: Option<IriAbsoluteString>,
+    default_collation_uri: IriReferenceString,
     default_decimal_format: DecimalFormatSymbols,
     decimal_formats: HashMap<OwnedName, DecimalFormatSymbols>,
     stylesheet_xslt_version: Option<u8>,
@@ -93,6 +95,7 @@ impl From<XPathParserContext> for StaticContext {
             disabled_functions: HashSet::default(),
             collations: RefCell::new(Collations::new()),
             static_base_uri: None,
+            default_collation_uri: DEFAULT_COLLATION.to_string().try_into().unwrap(),
             default_decimal_format: DecimalFormatSymbols::default(),
             decimal_formats: HashMap::default(),
             stylesheet_xslt_version: None,
@@ -115,6 +118,7 @@ impl StaticContext {
             disabled_functions,
             collations: RefCell::new(Collations::new()),
             static_base_uri,
+            default_collation_uri: DEFAULT_COLLATION.to_string().try_into().unwrap(),
             default_decimal_format: DecimalFormatSymbols::default(),
             decimal_formats: HashMap::default(),
             stylesheet_xslt_version: None,
@@ -142,6 +146,7 @@ impl StaticContext {
             disabled_functions: self.disabled_functions.clone(),
             collations: RefCell::new(Collations::new()),
             static_base_uri: self.static_base_uri.clone(),
+            default_collation_uri: self.default_collation_uri.clone(),
             default_decimal_format: self.default_decimal_format.clone(),
             decimal_formats: self.decimal_formats.clone(),
             stylesheet_xslt_version: self.stylesheet_xslt_version,
@@ -161,6 +166,7 @@ impl StaticContext {
             disabled_functions: self.disabled_functions.clone(),
             collations: RefCell::new(Collations::new()),
             static_base_uri: self.static_base_uri.clone(),
+            default_collation_uri: self.default_collation_uri.clone(),
             default_decimal_format: self.default_decimal_format.clone(),
             decimal_formats: self.decimal_formats.clone(),
             stylesheet_xslt_version: self.stylesheet_xslt_version,
@@ -179,6 +185,7 @@ impl StaticContext {
             disabled_functions: self.disabled_functions.clone(),
             collations: RefCell::new(Collations::new()),
             static_base_uri,
+            default_collation_uri: self.default_collation_uri.clone(),
             default_decimal_format: self.default_decimal_format.clone(),
             decimal_formats: self.decimal_formats.clone(),
             stylesheet_xslt_version: self.stylesheet_xslt_version,
@@ -253,7 +260,11 @@ impl StaticContext {
     }
 
     pub fn default_collation_uri(&self) -> &IriReferenceStr {
-        DEFAULT_COLLATION.as_ref()
+        self.default_collation_uri.as_ref()
+    }
+
+    pub fn set_default_collation_uri(&mut self, default_collation_uri: IriReferenceString) {
+        self.default_collation_uri = default_collation_uri;
     }
 
     pub(crate) fn resolve_collation_str(

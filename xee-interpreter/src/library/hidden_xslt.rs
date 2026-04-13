@@ -1270,7 +1270,7 @@ fn xslt_evaluate_put_param(
 }
 
 #[xpath_fn(
-    "fn:xslt-evaluate($xpath as xs:string?, $context_item as item()*, $context_item_supplied as item()*, $namespace_context as item()*, $with_params as item()*, $base_uri as xs:string?) as item()*"
+    "fn:xslt-evaluate($xpath as xs:string?, $context_item as item()*, $context_item_supplied as item()*, $xpath_default_namespace as xs:string, $default_collation as xs:string, $namespace_context as item()*, $with_params as item()*, $base_uri as xs:string?) as item()*"
 )]
 fn xslt_evaluate(
     context: &crate::context::DynamicContext,
@@ -1278,6 +1278,8 @@ fn xslt_evaluate(
     xpath: Option<&str>,
     context_item: &sequence::Sequence,
     context_item_supplied: &sequence::Sequence,
+    xpath_default_namespace: &str,
+    default_collation: &str,
     namespace_context: &sequence::Sequence,
     with_params: &sequence::Sequence,
     base_uri: Option<&str>,
@@ -1314,6 +1316,8 @@ fn xslt_evaluate(
             .to_string(),
         context_item,
         context_item_supplied,
+        xpath_default_namespace: xpath_default_namespace.to_string(),
+        default_collation: default_collation.to_string(),
         namespace_context,
         with_params,
         base_uri: base_uri.map(str::to_string),
