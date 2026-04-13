@@ -3,6 +3,7 @@ use xee_xpath::error::Error;
 pub(crate) fn render_error(filename: &str, src: &str, e: Error) {
     let red = ariadne::Color::Red;
     let message = e.error.message().to_string();
+    let detail = e.error.detail().map(|s| s.to_string());
     let note = e.error.note().to_string();
 
     let mut report = ariadne::Report::build(ariadne::ReportKind::Error, (filename, (0..0)))
@@ -12,9 +13,12 @@ pub(crate) fn render_error(filename: &str, src: &str, e: Error) {
     }
 
     if let Some(span) = e.span {
+        // Use the detail string as the inline label if available, otherwise
+        // fall back to the general message.
+        let label_text = detail.as_deref().unwrap_or(&message).to_string();
         report = report.with_label(
             ariadne::Label::new((filename, span.range()))
-                .with_message(e.error.message())
+                .with_message(label_text)
                 .with_color(red),
         )
     }
@@ -22,8 +26,11 @@ pub(crate) fn render_error(filename: &str, src: &str, e: Error) {
         .finish()
         .eprint((filename, ariadne::Source::from(src)))
         .unwrap();
-    if e.span.is_none() && !message.is_empty() {
-        println!("{}", message);
+    // When there is no span, print detail as a sub-note under the title.
+    if e.span.is_none() {
+        if let Some(detail) = &detail {
+            println!("  detail: {}", detail);
+        }
     }
     if !note.is_empty() {
         println!("{}", note);

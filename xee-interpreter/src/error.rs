@@ -906,12 +906,22 @@ impl Error {
         }
     }
 
+    /// Short human-readable title for this error code (the first doc-comment
+    /// line). Always describes the error *kind*, e.g. "Type error."
     pub fn message(&self) -> &str {
         match self {
             Error::Application(app_error) => app_error.description(),
             Error::Unsupported(reason) => reason,
-            Error::XPTY0004(Some(context)) => context,
             _ => self.documentation_pieces().0,
+        }
+    }
+
+    /// Specific context string attached to this error instance, if any.
+    /// For example, "expected zero or one item, got more" on an XPTY0004.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Error::XPTY0004(Some(context)) => Some(context.as_str()),
+            _ => None,
         }
     }
 
