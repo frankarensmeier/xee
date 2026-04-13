@@ -32,7 +32,7 @@ fn abs(arg: Option<Atomic>) -> error::Result<Option<Atomic>> {
             Atomic::Decimal(d) => Ok(Some(d.abs().into())),
             Atomic::Float(f) => Ok(Some(f.abs().into())),
             Atomic::Double(d) => Ok(Some(d.abs().into())),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("fn:abs requires a numeric argument")),
         }
     } else {
         Ok(None)
@@ -47,7 +47,7 @@ fn ceiling(arg: Option<Atomic>) -> error::Result<Option<Atomic>> {
             Atomic::Decimal(d) => Ok(Some(d.ceil().into())),
             Atomic::Float(f) => Ok(Some(f.ceil().into())),
             Atomic::Double(d) => Ok(Some(d.ceil().into())),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("fn:ceiling requires a numeric argument")),
         }
     } else {
         Ok(None)
@@ -62,7 +62,7 @@ fn floor(arg: Option<Atomic>) -> error::Result<Option<Atomic>> {
             Atomic::Decimal(d) => Ok(Some(d.floor().into())),
             Atomic::Float(f) => Ok(Some(f.floor().into())),
             Atomic::Double(d) => Ok(Some(d.floor().into())),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("fn:floor requires a numeric argument")),
         }
     } else {
         Ok(None)

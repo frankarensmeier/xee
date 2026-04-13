@@ -500,13 +500,13 @@ fn xslt_number_value(
         atomic::Atomic::Double(d) => d.round() as i64,
         atomic::Atomic::Decimal(d) => {
             let rounded = d.round();
-            i64::try_from(rounded).map_err(|_| error::Error::XPTY0004)?
+            i64::try_from(rounded).map_err(|_| error::Error::XPTY0004(None))?
         }
         atomic::Atomic::Integer(_, i) => i64::try_from(i.as_ref())
-            .map_err(|_| error::Error::XPTY0004)?,
+            .map_err(|_| error::Error::XPTY0004(None))?,
         _ => atomic
             .cast_to_integer_value::<i64>()
-            .map_err(|_| error::Error::XPTY0004)?,
+            .map_err(|_| error::Error::XPTY0004(None))?,
     };
     if number < 0 {
         return Err(error::Error::Unsupported(
@@ -642,8 +642,8 @@ fn xslt_number_count_single_pattern(
     from_index: IBig,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004)?;
-    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
+    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
     let count = count_single_level_pattern(interpreter, node, count_index, from_index);
     format_xslt_number_value(count, format.unwrap_or("1"))
 }
@@ -718,8 +718,8 @@ fn xslt_number_count_any_pattern(
     from_index: IBig,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004)?;
-    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
+    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
     let count = count_any_level_pattern(interpreter, node, count_index, from_index);
     format_xslt_number_value(count, format.unwrap_or("1"))
 }
@@ -823,8 +823,8 @@ fn xslt_number_count_multiple_pattern(
     from_index: IBig,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004)?;
-    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004)?;
+    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
+    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
     let numbers = count_multiple_level_pattern(interpreter, node, count_index, from_index);
     format_xslt_number_values(&numbers, format.unwrap_or("1"))
 }
@@ -1075,7 +1075,7 @@ fn format_alphabetic_number(number: i64, uppercase: bool) -> error::Result<Strin
         return Ok("0".to_string());
     }
 
-    let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004)?;
+    let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004(None))?;
     let mut result = String::new();
     while value > 0 {
         value -= 1;
@@ -1091,7 +1091,7 @@ fn format_roman_number(number: i64, uppercase: bool) -> error::Result<String> {
         return Ok("0".to_string());
     }
 
-    let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004)?;
+    let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004(None))?;
     let numerals = [
         (1000, "M"),
         (900, "CM"),
@@ -1241,11 +1241,11 @@ fn xslt_evaluate(
     let with_params = match with_params.clone().option()? {
         None => None,
         Some(sequence::Item::Function(function::Function::Map(map))) => Some(map),
-        Some(_) => return Err(error::Error::XPTY0004),
+        Some(_) => return Err(error::Error::type_error("xsl:evaluate with-params must be a map")),
     };
 
     let request = crate::interpreter::DynamicXPathRequest {
-        xpath: xpath.ok_or(error::Error::XPTY0004)?.to_string(),
+        xpath: xpath.ok_or(error::Error::type_error("xsl:evaluate xpath expression is empty"))?.to_string(),
         context_item: context_item.clone().option()?,
         namespace_context,
         with_params,

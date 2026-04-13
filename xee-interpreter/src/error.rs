@@ -65,7 +65,8 @@ pub enum Error {
     /// in which the expression occurs, or during the dynamic evaluation phase,
     /// the dynamic type of a value does not match a required type as specified
     /// by the matching rules in 2.5.5 SequenceType Matching.
-    XPTY0004,
+    #[strum(to_string = "XPTY0004")]
+    XPTY0004(Option<String>),
     /// Empty Sequence type error.
     ///
     /// During the analysis phase, it is a static error if the static type
@@ -870,6 +871,11 @@ impl ApplicationError {
 }
 
 impl Error {
+    /// Create a type error with a descriptive context message.
+    pub fn type_error(context: impl Into<String>) -> Self {
+        Error::XPTY0004(Some(context.into()))
+    }
+
     pub fn with_span(self, span: SourceSpan) -> SpannedError {
         SpannedError {
             error: self,
@@ -904,6 +910,7 @@ impl Error {
         match self {
             Error::Application(app_error) => app_error.description(),
             Error::Unsupported(reason) => reason,
+            Error::XPTY0004(Some(context)) => context,
             _ => self.documentation_pieces().0,
         }
     }

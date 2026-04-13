@@ -30,7 +30,7 @@ impl Item {
     pub fn to_atomic(&self) -> error::Result<atomic::Atomic> {
         match self {
             Item::Atomic(a) => Ok(a.clone()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected atomic value")),
         }
     }
 
@@ -38,7 +38,7 @@ impl Item {
     pub fn to_node(&self) -> error::Result<xot::Node> {
         match self {
             Item::Node(n) => Ok(*n),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected a node")),
         }
     }
 
@@ -46,7 +46,7 @@ impl Item {
     pub fn to_function(&self) -> error::Result<function::Function> {
         match self {
             Item::Function(f) => Ok(f.clone()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected a function")),
         }
     }
 
@@ -55,7 +55,7 @@ impl Item {
         if let Item::Function(function::Function::Map(map)) = self {
             Ok(map.clone())
         } else {
-            Err(error::Error::XPTY0004)
+            Err(error::Error::type_error("expected a map"))
         }
     }
 
@@ -64,7 +64,7 @@ impl Item {
         if let Item::Function(function::Function::Array(array)) = self {
             Ok(array.clone())
         } else {
-            Err(error::Error::XPTY0004)
+            Err(error::Error::type_error("expected an array"))
         }
     }
 
@@ -100,7 +100,7 @@ impl Item {
         match self {
             Item::Atomic(a) => a.clone().try_into(),
             // atomic::Atomic::try_from(a.clone()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected atomic value")),
         }
     }
 
@@ -202,7 +202,7 @@ impl TryFrom<Item> for atomic::Atomic {
     fn try_from(item: Item) -> error::Result<atomic::Atomic> {
         match item {
             Item::Atomic(a) => Ok(a),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected atomic value")),
         }
     }
 }
@@ -213,7 +213,7 @@ impl TryFrom<&Item> for atomic::Atomic {
     fn try_from(item: &Item) -> error::Result<atomic::Atomic> {
         match item {
             Item::Atomic(a) => Ok(a.clone()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected atomic value")),
         }
     }
 }
@@ -230,7 +230,7 @@ impl TryFrom<Item> for xot::Node {
     fn try_from(item: Item) -> error::Result<Self> {
         match item {
             Item::Node(node) => Ok(node),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected a node")),
         }
     }
 }
@@ -241,7 +241,7 @@ impl TryFrom<&Item> for xot::Node {
     fn try_from(item: &Item) -> error::Result<Self> {
         match item {
             Item::Node(node) => Ok(*node),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected a node")),
         }
     }
 }
@@ -252,7 +252,7 @@ impl TryFrom<Item> for function::Function {
     fn try_from(item: Item) -> error::Result<Self> {
         match item {
             Item::Function(f) => Ok(f.clone()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected a function")),
         }
     }
 }
@@ -263,7 +263,7 @@ impl TryFrom<&Item> for function::Function {
     fn try_from(item: &Item) -> error::Result<Self> {
         match item {
             Item::Function(f) => Ok(f.clone()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected a function")),
         }
     }
 }

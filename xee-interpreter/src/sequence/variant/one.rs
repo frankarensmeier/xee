@@ -108,7 +108,7 @@ where
     fn one_node(&self) -> error::Result<xot::Node> {
         match &self.item {
             Item::Node(n) => Ok(*n),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("expected a node")),
         }
     }
 }

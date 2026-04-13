@@ -94,12 +94,12 @@ impl<'a> SequenceCore<'a, RangeIterator> for Range {
     #[inline]
     fn one(self) -> error::Result<Item> {
         match self.len() {
-            0 => Err(error::Error::XPTY0004),
+            0 => Err(error::Error::type_error("expected exactly one item, got empty range")),
             1 => {
                 let i: IBig = self.start.as_ref().clone();
                 Ok(i.into())
             }
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error(format!("expected exactly one item, got range of {}", self.len()))),
         }
     }
 
@@ -111,7 +111,7 @@ impl<'a> SequenceCore<'a, RangeIterator> for Range {
                 let i: IBig = self.start.as_ref().clone();
                 Ok(Some(i.into()))
             }
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error(format!("expected zero or one item, got range of {}", self.len()))),
         }
     }
 
@@ -138,7 +138,7 @@ impl<'a> SequenceCore<'a, RangeIterator> for Range {
         match self.len() {
             0 => Ok(String::new()),
             1 => Ok(self.start.to_string()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error(format!("string value requires a single item, got range of {}", self.len()))),
         }
     }
 }
@@ -202,6 +202,6 @@ where
 {
     fn one_node(&self) -> error::Result<xot::Node> {
         // a range never contains nodes
-        Err(error::Error::XPTY0004)
+        Err(error::Error::type_error("expected a node, got integer range"))
     }
 }

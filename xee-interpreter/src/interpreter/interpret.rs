@@ -492,7 +492,7 @@ impl<'a> Interpreter<'a> {
                     } else if cast_type.empty_sequence_allowed {
                         self.state.push(sequence::Sequence::default());
                     } else {
-                        Err(error::Error::XPTY0004)?;
+                        Err(error::Error::type_error(format!("cast requires a value, got empty sequence (target type: {:?})", cast_type.xs)))?;
                     }
                 }
                 EncodedInstruction::Castable => {
@@ -580,7 +580,9 @@ impl<'a> Interpreter<'a> {
                     let index = self.pop_atomic()?;
                     let index = index.cast_to_integer_value::<i64>()? as usize;
                     // substract 1 as Xpath is 1-indexed
-                    let item = value.get(index - 1).ok_or(error::Error::XPTY0004)?;
+                    let item = value.get(index - 1).ok_or(error::Error::type_error(
+                        format!("sequence index {} out of bounds (length {})", index, value.len())
+                    ))?;
                     let sequence: sequence::Sequence = item.into();
                     self.state.push(sequence)
                 }
@@ -1090,7 +1092,7 @@ impl<'a> Interpreter<'a> {
     ) -> error::Result<()> {
         let static_function = self.runnable.program().static_function(static_function_id);
         if arity as usize != static_function.arity() {
-            return Err(error::Error::XPTY0004);
+            return Err(error::Error::type_error(format!("function expects {} argument(s), got {}", static_function.arity(), arity)));
         }
         let parameter_types = static_function.signature().parameter_types();
         let arguments = self.coerce_arguments(parameter_types, arity)?;
@@ -1111,7 +1113,7 @@ impl<'a> Interpreter<'a> {
         let function = self.runnable.program().inline_function(function_id);
         let parameter_types = &function.signature.parameter_types();
         if arity as usize != parameter_types.len() {
-            return Err(error::Error::XPTY0004);
+            return Err(error::Error::type_error(format!("function expects {} argument(s), got {}", parameter_types.len(), arity)));
         }
 
         let arguments = self.coerce_inline_arguments(parameter_types, arity)?;
@@ -1197,7 +1199,7 @@ impl<'a> Interpreter<'a> {
 
     fn call_array(&mut self, array: &function::Array, arity: usize) -> error::Result<()> {
         if arity != 1 {
-            return Err(error::Error::XPTY0004);
+            return Err(error::Error::type_error(format!("array lookup expects 1 argument, got {}", arity)));
         }
         // the argument
         let position = self.pop_atomic()?;
@@ -1215,7 +1217,7 @@ impl<'a> Interpreter<'a> {
     ) -> error::Result<sequence::Sequence> {
         let position = position
             .cast_to_integer_value::<i64>()
-            .map_err(|_| error::Error::XPTY0004)?;
+            .map_err(|_| error::Error::type_error("array index must be an integer"))?;
         let position = position as usize;
         if position == 0 {
             return Err(error::Error::FOAY0001);
@@ -1227,7 +1229,7 @@ impl<'a> Interpreter<'a> {
 
     fn call_map(&mut self, map: &function::Map, arity: usize) -> error::Result<()> {
         if arity != 1 {
-            return Err(error::Error::XPTY0004);
+            return Err(error::Error::type_error(format!("map lookup expects 1 argument, got {}", arity)));
         }
         let key = self.pop_atomic()?;
         let value = map.get(&key);
@@ -1259,7 +1261,7 @@ impl<'a> Interpreter<'a> {
         match function {
             function::Function::Map(map) => self.lookup_map(map, key_specifier),
             function::Function::Array(array) => self.lookup_array(array, key_specifier),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("lookup requires a map or array")),
         }
     }
 
@@ -1280,7 +1282,7 @@ impl<'a> Interpreter<'a> {
     ) -> error::Result<Vec<sequence::Item>> {
         self.lookup_helper(key_specifier, array, |array, atomic| match atomic {
             atomic::Atomic::Integer(..) => Self::array_get(array, atomic),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("array lookup key must be an integer")),
         })
     }
 
@@ -1325,7 +1327,7 @@ impl<'a> Interpreter<'a> {
                 }
                 result
             }
-            _ => return Err(error::Error::XPTY0004),
+            _ => return Err(error::Error::type_error("wildcard lookup requires a map or array")),
         };
         let sequence: sequence::Sequence = value.into();
         self.state.push(sequence);
@@ -1966,7 +1968,7 @@ impl<'a> Interpreter<'a> {
     ) -> error::Result<sequence::Sequence> {
         let function_id = match function {
             function::Function::Inline(data) => data.id,
-            _ => return Err(error::Error::XPTY0004),
+            _ => return Err(error::Error::type_error("expected a template function")),
         };
 
         let mut effective_tunnel_params = self.current_tunnel_params().clone();

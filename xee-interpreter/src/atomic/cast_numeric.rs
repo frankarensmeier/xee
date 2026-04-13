@@ -117,7 +117,7 @@ impl atomic::Atomic {
     pub(crate) fn cast_to_float(self) -> error::Result<atomic::Atomic> {
         match self {
             atomic::Atomic::Untyped(s) => Self::parse_atomic::<f32>(&s),
-            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004),
+            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
             atomic::Atomic::String(_, s) => Self::parse_atomic::<f32>(&s),
             atomic::Atomic::Float(_) => Ok(self.clone()),
             // TODO: this should implement the rule in 19.1.2.1
@@ -143,14 +143,14 @@ impl atomic::Atomic {
                     Ok(atomic::Atomic::Float(OrderedFloat(0.0)))
                 }
             }
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::XPTY0004(None)),
         }
     }
 
     pub(crate) fn cast_to_double(self) -> error::Result<atomic::Atomic> {
         match self {
             atomic::Atomic::Untyped(s) => Self::parse_atomic::<f64>(s.trim()),
-            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004),
+            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
             atomic::Atomic::String(_, s) => Self::parse_atomic::<f64>(s.trim()),
             atomic::Atomic::Float(OrderedFloat(f)) => {
                 Ok(atomic::Atomic::Double(OrderedFloat(f as f64)))
@@ -166,14 +166,14 @@ impl atomic::Atomic {
                     Ok(atomic::Atomic::Double(OrderedFloat(0.0)))
                 }
             }
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::XPTY0004(None)),
         }
     }
 
     pub(crate) fn cast_to_decimal(self) -> error::Result<atomic::Atomic> {
         match self {
             atomic::Atomic::Untyped(s) => Self::parse_atomic::<Decimal>(&s),
-            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004),
+            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
             atomic::Atomic::String(_, s) => Self::parse_atomic::<Decimal>(&s),
             atomic::Atomic::Float(OrderedFloat(f)) => {
                 if f.is_nan() || f.is_infinite() {
@@ -217,7 +217,7 @@ impl atomic::Atomic {
                     Ok(atomic::Atomic::Decimal(Decimal::from(0).into()))
                 }
             }
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::XPTY0004(None)),
         }
     }
 
@@ -354,7 +354,7 @@ impl atomic::Atomic {
                 .parse::<Parsed<V>>()
                 .map_err(|_| error::Error::FORG0001)?
                 .into_inner()),
-            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004),
+            atomic::Atomic::String(StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
             atomic::Atomic::String(_, s) => Ok(s
                 .parse::<Parsed<V>>()
                 .map_err(|_| error::Error::FORG0001)?
@@ -400,7 +400,7 @@ impl atomic::Atomic {
                 };
                 Ok(v)
             }
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::XPTY0004(None)),
         }
     }
 

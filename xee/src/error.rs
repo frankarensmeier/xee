@@ -7,6 +7,9 @@ pub(crate) fn render_error(filename: &str, src: &str, e: Error) {
 
     let mut report = ariadne::Report::build(ariadne::ReportKind::Error, (filename, (0..0)))
         .with_code(e.error.code());
+    if !message.is_empty() {
+        report = report.with_message(&message);
+    }
 
     if let Some(span) = e.span {
         report = report.with_label(

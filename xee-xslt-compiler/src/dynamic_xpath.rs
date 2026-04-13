@@ -72,7 +72,7 @@ fn namespaces_for_request(
     match namespace_context {
         None => Ok(context.static_context().namespaces().clone()),
         Some(sequence::Item::Node(node)) => Ok(namespaces_for_node(*node, xot)),
-        Some(_) => Err(error::Error::XPTY0004),
+        Some(_) => Err(error::Error::type_error("xsl:evaluate namespace-context must be a node")),
     }
 }
 

@@ -177,13 +177,13 @@ impl atomic::Atomic {
             let b = other.cast_to_schema_type_of(&self, context)?;
             Ok((self, b))
         } else {
-            Err(error::Error::XPTY0004)
+            Err(error::Error::XPTY0004(None))
         }
     }
 
     pub(crate) fn cast_to_boolean(self) -> error::Result<atomic::Atomic> {
         match self {
-            atomic::Atomic::String(atomic::StringType::AnyURI, _) => Err(error::Error::XPTY0004),
+            atomic::Atomic::String(atomic::StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
             atomic::Atomic::Untyped(s) | atomic::Atomic::String(_, s) => {
                 Self::parse_atomic::<bool>(&s)
             }
@@ -192,7 +192,7 @@ impl atomic::Atomic {
             atomic::Atomic::Integer(_, i) => Ok(atomic::Atomic::Boolean(!i.is_zero())),
             atomic::Atomic::Double(d) => Ok(atomic::Atomic::Boolean(!(d.is_nan() || d.is_zero()))),
             atomic::Atomic::Boolean(_) => Ok(self.clone()),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::XPTY0004(None)),
         }
     }
 
@@ -214,7 +214,7 @@ impl atomic::Atomic {
         F: Fn(&str) -> error::Result<Vec<u8>>,
     {
         match self {
-            atomic::Atomic::String(atomic::StringType::AnyURI, _) => Err(error::Error::XPTY0004),
+            atomic::Atomic::String(atomic::StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
             atomic::Atomic::String(_, s) | atomic::Atomic::Untyped(s) => {
                 let s = s.as_ref();
                 let s = whitespace_remove(s);
@@ -222,7 +222,7 @@ impl atomic::Atomic {
                 Ok(atomic::Atomic::Binary(binary_type, data.into()))
             }
             atomic::Atomic::Binary(_, data) => Ok(atomic::Atomic::Binary(binary_type, data)),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::XPTY0004(None)),
         }
     }
 

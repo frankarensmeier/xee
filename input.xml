@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article xmlns="http://docbook.org/ns/docbook"
+         xmlns:xlink="http://www.w3.org/1999/xlink"
+         version="5.0" xml:id="test-article" xml:lang="en">
+
+  <info>
+    <title>Test Article</title>
+    <subtitle>A Minimal DocBook 5 Test Document</subtitle>
+    <author>
+      <personname>
+        <firstname>Test</firstname>
+        <surname>Author</surname>
+      </personname>
+      <email>test@example.com</email>
+    </author>
+    <pubdate>2026-04-13</pubdate>
+    <abstract>
+      <para>This document is a minimal but structurally complete DocBook 5 article
+      for testing the DocBook XSL-NG transformation.</para>
+    </abstract>
+  </info>
+
+  <section xml:id="intro">
+    <title>Introduction</title>
+    <para>This is an introductory paragraph with some <emphasis>emphasized</emphasis>
+    and <emphasis role="strong">strongly emphasized</emphasis> text, as well as
+    a <link xlink:href="https://docbook.org/">hyperlink</link>.</para>
+    <para>Here is an inline <code>code snippet</code> and a
+    <literal>literal value</literal>.</para>
+  </section>
+
+  <section xml:id="lists">
+    <title>Lists</title>
+    <itemizedlist>
+      <listitem><para>First unordered item</para></listitem>
+      <listitem><para>Second unordered item</para></listitem>
+      <listitem><para>Third unordered item with <emphasis>inline markup</emphasis></para></listitem>
+    </itemizedlist>
+    <orderedlist>
+      <listitem><para>First ordered item</para></listitem>
+      <listitem><para>Second ordered item</para></listitem>
+    </orderedlist>
+    <variablelist>
+      <varlistentry>
+        <term>Term one</term>
+        <listitem><para>Definition of term one.</para></listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Term two</term>
+        <listitem><para>Definition of term two.</para></listitem>
+      </varlistentry>
+    </variablelist>
+  </section>
+
+  <section xml:id="admonitions">
+    <title>Admonitions</title>
+    <note><para>This is a note admonition.</para></note>
+    <warning><para>This is a warning admonition.</para></warning>
+    <tip><para>This is a tip admonition.</para></tip>
+  </section>
+
+  <section xml:id="code">
+    <title>Code</title>
+    <programlisting language="xml"><![CDATA[<root>
+  <child>value</child>
+</root>]]></programlisting>
+  </section>
+
+  <section xml:id="table">
+    <title>Table</title>
+    <informaltable>
+      <thead>
+        <tr><th>Column A</th><th>Column B</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Cell A1</td><td>Cell B1</td></tr>
+        <tr><td>Cell A2</td><td>Cell B2</td></tr>
+      </tbody>
+    </informaltable>
+  </section>
+
+</article>

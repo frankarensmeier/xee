@@ -18,7 +18,7 @@ pub(crate) fn round_atomic(arg: atomic::Atomic, precision: i32) -> error::Result
         // make do with doing the operation directly on f32 and f64
         atomic::Atomic::Float(OrderedFloat(f)) => Ok(round_float(f, precision)?.into()),
         atomic::Atomic::Double(OrderedFloat(d)) => Ok(round_float(d, precision)?.into()),
-        _ => Err(error::Error::XPTY0004),
+        _ => Err(error::Error::XPTY0004(None)),
     }
 }
 
@@ -156,7 +156,7 @@ pub(crate) fn round_half_to_even_atomic(
                 Err(error::Error::FOCA0001)
             }
         }
-        _ => Err(error::Error::XPTY0004),
+        _ => Err(error::Error::XPTY0004(None)),
     }
 }
 

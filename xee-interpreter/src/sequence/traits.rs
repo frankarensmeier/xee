@@ -111,7 +111,7 @@ where
                 if xot.is_element(n) {
                     Ok(n)
                 } else {
-                    Err(error::Error::XPTY0004)
+                    Err(error::Error::type_error("expected an element node"))
                 }
             }
             Err(n) => Err(n),

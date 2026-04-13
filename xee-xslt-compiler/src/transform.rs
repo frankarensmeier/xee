@@ -96,7 +96,7 @@ fn get_string_option(
     match item {
         sequence::Item::Atomic(atomic::Atomic::String(_, s)) => Ok(s.to_string()),
         _ => Err(error::SpannedError {
-            error: error::Error::XPTY0004,
+            error: error::Error::type_error(format!("fn:transform: option '{}' must be a string", key)),
             span: None,
         }),
     }
@@ -117,7 +117,7 @@ fn get_node_option(
     match item {
         sequence::Item::Node(node) => Ok(Some(node)),
         _ => Err(error::SpannedError {
-            error: error::Error::XPTY0004,
+            error: error::Error::type_error(format!("fn:transform: option '{}' must be a node", key)),
             span: None,
         }),
     }
@@ -141,7 +141,7 @@ fn get_map_option(
     match item {
         sequence::Item::Function(function::Function::Map(map)) => Ok(Some(map)),
         _ => Err(error::SpannedError {
-            error: error::Error::XPTY0004,
+            error: error::Error::type_error(format!("fn:transform: option '{}' must be a map", key)),
             span: None,
         }),
     }
@@ -198,7 +198,7 @@ fn build_variables(
 
     for (key, value) in params.entries() {
         let name: xee_name::Name = key.clone().try_into().map_err(|_| error::SpannedError {
-            error: error::Error::XPTY0004,
+            error: error::Error::type_error("fn:transform: stylesheet-params key must be a QName"),
             span: None,
         })?;
         variables.insert(name, value.clone());

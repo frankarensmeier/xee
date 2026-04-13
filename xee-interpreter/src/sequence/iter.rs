@@ -249,10 +249,10 @@ pub(crate) fn one<'a, T>(mut iter: impl Iterator<Item = T> + 'a) -> error::Resul
         if iter.next().is_none() {
             Ok(one)
         } else {
-            Err(error::Error::XPTY0004)
+            Err(error::Error::type_error("expected exactly one item, got more"))
         }
     } else {
-        Err(error::Error::XPTY0004)
+        Err(error::Error::type_error("expected exactly one item, got empty sequence"))
     }
 }
 
@@ -261,7 +261,7 @@ pub(crate) fn option<'a, T>(mut iter: impl Iterator<Item = T> + 'a) -> error::Re
         if iter.next().is_none() {
             Ok(Some(one))
         } else {
-            Err(error::Error::XPTY0004)
+            Err(error::Error::type_error("expected zero or one item, got more"))
         }
     } else {
         Ok(None)

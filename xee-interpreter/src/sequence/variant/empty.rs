@@ -29,7 +29,7 @@ impl SequenceCore<'_, std::iter::Empty<Item>> for Empty {
 
     #[inline]
     fn one(self) -> error::Result<Item> {
-        Err(error::Error::XPTY0004)
+        Err(error::Error::type_error("expected exactly one item, got empty sequence"))
     }
 
     #[inline]
@@ -70,7 +70,7 @@ where
 
     /// Get just one atomized value from the sequence
     fn atomized_one(&'a self, _xot: &'a Xot) -> error::Result<atomic::Atomic> {
-        Err(error::Error::XPTY0004)
+        Err(error::Error::type_error("expected exactly one atomic value, got empty sequence"))
     }
 
     /// Get an optional atomized value from the sequence
@@ -92,6 +92,6 @@ where
     Empty: SequenceCore<'a, I>,
 {
     fn one_node(&self) -> error::Result<xot::Node> {
-        Err(error::Error::XPTY0004)
+        Err(error::Error::type_error("expected exactly one node, got empty sequence"))
     }
 }

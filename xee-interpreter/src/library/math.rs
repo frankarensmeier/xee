@@ -66,7 +66,7 @@ fn pow(x: Option<f64>, y: Atomic) -> error::Result<Option<f64>> {
             }
             Atomic::Float(OrderedFloat(f)) => Ok(Some(x.powf(f as f64))),
             Atomic::Double(OrderedFloat(d)) => Ok(Some(x.powf(d))),
-            _ => Err(error::Error::XPTY0004),
+            _ => Err(error::Error::type_error("math:pow requires a numeric exponent")),
         }
     } else {
         Ok(None)

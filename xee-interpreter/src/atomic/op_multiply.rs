@@ -55,7 +55,7 @@ pub(crate) fn op_multiply(a: atomic::Atomic, b: atomic::Atomic) -> error::Result
         | (Atomic::Double(OrderedFloat(b)), Atomic::DayTimeDuration(a)) => {
             Ok(op_multiply_day_time_duration_by_double(a, b)?)
         }
-        _ => Err(error::Error::XPTY0004),
+        _ => Err(error::Error::XPTY0004(None)),
     }
 }
 
