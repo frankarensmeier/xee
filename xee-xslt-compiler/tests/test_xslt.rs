@@ -6427,3 +6427,171 @@ fn test_xsl_number_level_any_union_from() {
     // Numbering resets at each part or chapter boundary
     assert_eq!(xml(&xot, output), "<out>1 2 1 2 </out>");
 }
+
+#[test]
+fn test_iterate_multi_param_conditional_next_iteration() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:iterate select="1 to 5">
+        <xsl:param name="a" as="xs:boolean" select="true()"/>
+        <xsl:param name="b" as="xs:boolean" select="true()"/>
+        <r n="{.}" a="{$a}" b="{$b}"/>
+        <xsl:choose>
+          <xsl:when test=". = 2">
+            <xsl:next-iteration>
+              <xsl:with-param name="a" select="false()"/>
+              <xsl:with-param name="b" select="false()"/>
+            </xsl:next-iteration>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:next-iteration/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:iterate>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    // After iteration 2, both a and b should be false
+    let result = xml(&xot, output);
+    assert!(result.contains(r#"n="3" a="false" b="false""#),
+        "Expected both a and b to be false after iteration 2, got: {}", result);
+}
+
+#[test]
+fn test_iterate_multi_param_each_branch_has_next_iteration() {
+    // Both branches of xsl:choose have xsl:next-iteration with different values
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:iterate select="1 to 5">
+        <xsl:param name="a" as="xs:string" select="'T'"/>
+        <xsl:param name="b" as="xs:string" select="'T'"/>
+        <r n="{.}" a="{$a}" b="{$b}"/>
+        <xsl:choose>
+          <xsl:when test=". mod 2 = 0">
+            <xsl:next-iteration>
+              <xsl:with-param name="a" select="'F'"/>
+              <xsl:with-param name="b" select="'F'"/>
+            </xsl:next-iteration>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:next-iteration>
+              <xsl:with-param name="a" select="'T'"/>
+              <xsl:with-param name="b" select="'T'"/>
+            </xsl:next-iteration>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:iterate>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let result = xml(&xot, output);
+    // iteration 1: a=T b=T (initial), iteration 2: a=T b=T (from odd branch)
+    // iteration 3: a=F b=F (from even branch), iteration 4: a=T b=T (from odd branch)
+    // iteration 5: a=F b=F (from even branch)
+    assert!(result.contains(r#"n="3" a="F" b="F""#),
+        "iter 3 should have a=F b=F, got: {}", result);
+    assert!(result.contains(r#"n="5" a="F" b="F""#),
+        "iter 5 should have a=F b=F, got: {}", result);
+}
+
+#[test]
+fn test_iterate_multi_param_with_shared_variable() {
+    // Both with-params reference the same variable computed from context item.
+    // Bug: second with-param gets stale value from previous iteration.
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <result>
+      <xsl:iterate select="1 to 4">
+        <xsl:param name="a" select="'init'"/>
+        <xsl:param name="b" select="'init'"/>
+
+        <xsl:variable name="result" select="if (. mod 2 = 1) then 'yes' else ()"/>
+        <item iter="{.}" a="{$a}" b="{$b}"/>
+
+        <xsl:next-iteration>
+          <xsl:with-param name="a" select="if (exists($result)) then 'T' else 'F'"/>
+          <xsl:with-param name="b" select="if (exists($result)) then 'T' else 'F'"/>
+        </xsl:next-iteration>
+      </xsl:iterate>
+    </result>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let result = xml(&xot, output);
+    // iter 1: odd → result exists → next a=T, b=T
+    // iter 2: a=T b=T (from iter 1), even → result empty → next a=F, b=F
+    // iter 3: a=F b=F (both!), odd → result exists → next a=T, b=T
+    // iter 4: a=T b=T (both!)
+    assert!(result.contains(r#"iter="3" a="F" b="F""#),
+        "iter 3: both a and b should be F, got: {}", result);
+    assert!(result.contains(r#"iter="4" a="T" b="T""#),
+        "iter 4: both a and b should be T, got: {}", result);
+}
+
+#[test]
+fn test_iterate_multi_param_three_params_shared_variable() {
+    // Three iterate params all referencing the same local variable in next-iteration.
+    // Verifies simultaneous assignment for N > 2 params.
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <result>
+      <xsl:iterate select="1 to 4">
+        <xsl:param name="a" select="'init'"/>
+        <xsl:param name="b" select="'init'"/>
+        <xsl:param name="c" select="'init'"/>
+
+        <xsl:variable name="result" select="if (. mod 2 = 1) then 'yes' else ()"/>
+        <item iter="{.}" a="{$a}" b="{$b}" c="{$c}"/>
+
+        <xsl:next-iteration>
+          <xsl:with-param name="a" select="if (exists($result)) then 'T' else 'F'"/>
+          <xsl:with-param name="b" select="if (exists($result)) then 'T' else 'F'"/>
+          <xsl:with-param name="c" select="if (exists($result)) then 'T' else 'F'"/>
+        </xsl:next-iteration>
+      </xsl:iterate>
+    </result>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let result = xml(&xot, output);
+    assert!(result.contains(r#"iter="3" a="F" b="F" c="F""#),
+        "iter 3: all should be F, got: {}", result);
+    assert!(result.contains(r#"iter="4" a="T" b="T" c="T""#),
+        "iter 4: all should be T, got: {}", result);
+}

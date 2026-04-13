@@ -855,7 +855,12 @@ impl<'a> FunctionCompiler<'a> {
         iterate_let_next: &ir::IterateLetNext,
         span: SourceSpan,
     ) -> error::SpannedResult<()> {
-        // First, calculate all parameter values and put them on the stack
+        // Calculate all parameter values and put them on the stack.
+        // Each compiled value stays on the stack as an unnamed entry, so we must
+        // push a placeholder name after each one to keep the scope in sync with
+        // the stack. Without this, subsequent value expressions that contain Let
+        // bindings would resolve variables at wrong stack offsets.
+        let placeholder = ir::Name::new("__iterate_next_temp".to_string());
         for param in iterate_let_next.params.iter() {
             self.compile_expr(&param.value)?;
             if let Some(type_) = &param.type_ {
@@ -863,13 +868,17 @@ impl<'a> FunctionCompiler<'a> {
                 self.builder
                     .emit(Instruction::Treat(sequence_type_id as u16), span);
             }
+            self.scopes.push_name(&placeholder);
         }
-        // Then, store them back into the variables (in reverse, so they match up)
+        // Remove placeholder names before storing
+        for _ in iterate_let_next.params.iter() {
+            self.scopes.pop_name();
+        }
+        // Store them back into the variables (in reverse, so they match up)
         for param in iterate_let_next.params.iter().rev() {
             self.compile_variable_set(&param.name, span)?;
         }
         // Finally, emit a value as the result of IterateLetNext (typ. an empty sequence)
-        // self.builder.emit_constant(sequence::Sequence::default(), span);
         self.compile_expr(&iterate_let_next.return_expr)?;
         Ok(())
     }

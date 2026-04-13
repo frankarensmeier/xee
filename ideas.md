@@ -10,6 +10,14 @@ Here are some ideas and plans for Xee, some fanciful, some more concrete:
 * XSLT implementation (except for streaming). A lot of basics are there, but an awful
   lot remains to be done. See `conformance/xslt.md` for a list.
 
+* Locale-aware collation for `xsl:sort @lang` — currently silently ignored,
+  falls back to default Unicode codepoint collation. Needs ICU or similar
+  locale-sensitive collation support.
+
+* Localized `fn:format-date`/`fn:format-dateTime`/`fn:format-time` — the
+  `$language`, `$calendar`, and `$place` parameters are currently accepted but
+  ignored. Month names, day-of-week names, and AM/PM markers are English-only.
+
 * Complete PHP bindings for XPath - datatype support, the basics to get
   information from a Xot node (non-structural, just attributes, text, etc),
   documentation.

@@ -4,6 +4,35 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-13 09:10 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix xsl:iterate multi-param bug (xsl:next-iteration
+  with-param stack addressing).
+- Vendor tests: 4833 passed, 4393 filtered (no regression, no new passes
+  since the affected vendor tests use simpler patterns that didn't trigger
+  the bug).
+- Unit tests: 5 new iterate-related tests added.
+
+### xsl:iterate multi-param bug fix
+
+- Bug: when `xsl:next-iteration` has multiple `xsl:with-param` whose select
+  expressions reference a local `xsl:variable`, only the first param gets
+  the correct value; subsequent params read stale/wrong values.
+- Root cause: in `compile_iterate_let_next` (function_compiler.rs), each
+  `compile_expr(&param.value)` leaves its result on the stack as an unnamed
+  entry. The scope tracker doesn't know about these extra values, so when
+  the second param's value expression compiles its Let bindings, the scope
+  index no longer matches the actual stack offset — it points one slot too
+  low, reading the first param's result instead of the local variable.
+- Fix: push a placeholder name onto the scope after each param value
+  compilation to keep scope and stack in sync. Pop all placeholders before
+  the reverse-order `Set` operations that store the computed values back
+  into the iterate param slots.
+- DocBook NG impact: 5 of 15 iterate call sites use multiple with-params;
+  these are now safe.
+
 ## 2026-04-13 07:31 CEST
 
 ### Status snapshot
