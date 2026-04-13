@@ -2,8 +2,8 @@ use ahash::{AHashMap, HashMap, HashMapExt};
 use iri_string::types::{IriStr, IriString};
 use std::{cell::RefCell, fmt::Debug};
 
-use crate::function::{self, Function};
 use crate::declaration::OnMultipleMatch;
+use crate::function::{self, Function};
 use crate::{error::Error, interpreter::Program};
 use crate::{interpreter, sequence};
 
@@ -79,7 +79,9 @@ impl<'a> DynamicContext<'a> {
             environment_variables,
             secondary_result_documents: RefCell::new(secondary_result_documents),
             principal_result_documents: RefCell::new(principal_result_documents),
-            principal_result_document_parameters: RefCell::new(principal_result_document_parameters),
+            principal_result_document_parameters: RefCell::new(
+                principal_result_document_parameters,
+            ),
             on_multiple_match,
         }
     }
@@ -165,7 +167,10 @@ impl<'a> DynamicContext<'a> {
     pub fn principal_result_document_parameters(
         &self,
     ) -> Option<sequence::SerializationParameters> {
-        self.principal_result_document_parameters.borrow().last().cloned()
+        self.principal_result_document_parameters
+            .borrow()
+            .last()
+            .cloned()
     }
 
     pub fn serialization_parameters(&self) -> &sequence::SerializationParameters {
@@ -200,15 +205,11 @@ impl<'a> DynamicContext<'a> {
         )
     }
 
-    pub fn dynamic_xpath_evaluator(
-        &self,
-    ) -> Option<&dyn interpreter::DynamicXPathEvaluator> {
+    pub fn dynamic_xpath_evaluator(&self) -> Option<&dyn interpreter::DynamicXPathEvaluator> {
         self.program.dynamic_xpath_evaluator()
     }
 
-    pub fn transform_evaluator(
-        &self,
-    ) -> Option<&dyn interpreter::TransformEvaluator> {
+    pub fn transform_evaluator(&self) -> Option<&dyn interpreter::TransformEvaluator> {
         self.program.transform_evaluator()
     }
 

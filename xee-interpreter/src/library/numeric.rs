@@ -32,7 +32,9 @@ fn abs(arg: Option<Atomic>) -> error::Result<Option<Atomic>> {
             Atomic::Decimal(d) => Ok(Some(d.abs().into())),
             Atomic::Float(f) => Ok(Some(f.abs().into())),
             Atomic::Double(d) => Ok(Some(d.abs().into())),
-            _ => Err(error::Error::type_error("fn:abs requires a numeric argument")),
+            _ => Err(error::Error::type_error(
+                "fn:abs requires a numeric argument",
+            )),
         }
     } else {
         Ok(None)
@@ -47,7 +49,9 @@ fn ceiling(arg: Option<Atomic>) -> error::Result<Option<Atomic>> {
             Atomic::Decimal(d) => Ok(Some(d.ceil().into())),
             Atomic::Float(f) => Ok(Some(f.ceil().into())),
             Atomic::Double(d) => Ok(Some(d.ceil().into())),
-            _ => Err(error::Error::type_error("fn:ceiling requires a numeric argument")),
+            _ => Err(error::Error::type_error(
+                "fn:ceiling requires a numeric argument",
+            )),
         }
     } else {
         Ok(None)
@@ -62,7 +66,9 @@ fn floor(arg: Option<Atomic>) -> error::Result<Option<Atomic>> {
             Atomic::Decimal(d) => Ok(Some(d.floor().into())),
             Atomic::Float(f) => Ok(Some(f.floor().into())),
             Atomic::Double(d) => Ok(Some(d.floor().into())),
-            _ => Err(error::Error::type_error("fn:floor requires a numeric argument")),
+            _ => Err(error::Error::type_error(
+                "fn:floor requires a numeric argument",
+            )),
         }
     } else {
         Ok(None)
@@ -183,22 +189,29 @@ impl ParsedNumber {
         let (mantissa, exponent) = if let Some((mantissa, exponent)) = lexical.split_once('E') {
             (
                 mantissa,
-                exponent.parse::<i32>().map_err(|_| error::Error::FODF1310)?,
+                exponent
+                    .parse::<i32>()
+                    .map_err(|_| error::Error::FODF1310)?,
             )
         } else {
             (lexical, 0)
         };
 
-        let (integer_part, fraction_part) = if let Some((integer_part, fraction_part)) = mantissa.split_once('.') {
-            (integer_part, fraction_part)
-        } else {
-            (mantissa, "")
-        };
+        let (integer_part, fraction_part) =
+            if let Some((integer_part, fraction_part)) = mantissa.split_once('.') {
+                (integer_part, fraction_part)
+            } else {
+                (mantissa, "")
+            };
 
         let mut digits = integer_part
             .chars()
             .chain(fraction_part.chars())
-            .map(|c| c.to_digit(10).ok_or(error::Error::FODF1310).map(|digit| digit as u8))
+            .map(|c| {
+                c.to_digit(10)
+                    .ok_or(error::Error::FODF1310)
+                    .map(|digit| digit as u8)
+            })
             .collect::<error::Result<Vec<u8>>>()?;
         let mut scale = fraction_part.chars().count() as i32 - exponent;
 
@@ -240,8 +253,7 @@ impl ParsedNumber {
                 let has_following_non_zero = digits[keep + 1..].iter().any(|digit| *digit != 0);
                 let round_up = round_digit > 5
                     || (round_digit == 5
-                        && (has_following_non_zero
-                            || (keep > 0 && digits[keep - 1] % 2 == 1)));
+                        && (has_following_non_zero || (keep > 0 && digits[keep - 1] % 2 == 1)));
                 digits.truncate(keep);
 
                 if round_up {
@@ -313,15 +325,15 @@ fn format_number(
     }
 
     if value.is_infinite() {
-        return Ok(format_infinite(&picture, decimal_format, is_negative_number(&value)));
+        return Ok(format_infinite(
+            &picture,
+            decimal_format,
+            is_negative_number(&value),
+        ));
     }
 
     let mut number = ParsedNumber::from_atomic(&value)?;
-    Ok(format_parsed_number(
-        &mut number,
-        &picture,
-        decimal_format,
-    ))
+    Ok(format_parsed_number(&mut number, &picture, decimal_format))
 }
 
 pub(crate) fn format_number_from_lexical(
@@ -335,11 +347,7 @@ pub(crate) fn format_number_from_lexical(
         .map_err(|error| map_format_number_picture_error(context, error))?;
     let mut number = ParsedNumber::from_lexical(lexical)
         .map_err(|error| map_format_number_picture_error(context, error))?;
-    Ok(format_parsed_number(
-        &mut number,
-        &picture,
-        decimal_format,
-    ))
+    Ok(format_parsed_number(&mut number, &picture, decimal_format))
 }
 
 fn format_parsed_number(
@@ -362,7 +370,8 @@ fn format_parsed_number(
     number.multiply_by_power_of_ten(subpicture.multiplier - exponent);
 
     let min_integer = subpicture.min_integer.max(1);
-    let (mut integer_digits, _, mut fraction_digits) = number.rounded_parts(subpicture.max_fraction);
+    let (mut integer_digits, _, mut fraction_digits) =
+        number.rounded_parts(subpicture.max_fraction);
     if subpicture.min_exponent > 0 && integer_digits.len() > min_integer {
         let extra_exponent = (integer_digits.len() - min_integer) as i32;
         exponent += extra_exponent;
@@ -415,7 +424,10 @@ fn format_parsed_number(
         if exponent_digits.len() < subpicture.min_exponent {
             result.push_str(&"0".repeat(subpicture.min_exponent - exponent_digits.len()));
         }
-        result.push_str(&substitute_digits(&exponent_digits, decimal_format.zero_digit));
+        result.push_str(&substitute_digits(
+            &exponent_digits,
+            decimal_format.zero_digit,
+        ));
     }
     if negative {
         if let Some(negative_subpicture) = &picture.negative {
@@ -550,7 +562,10 @@ fn parse_subpicture(
         .iter()
         .position(|c| *c == decimal_format.exponent_separator);
     let (active, exponent_part) = if let Some(exponent_index) = exponent_index {
-        (&active[..exponent_index], Some(&active[exponent_index + 1..]))
+        (
+            &active[..exponent_index],
+            Some(&active[exponent_index + 1..]),
+        )
     } else {
         (active, None)
     };
@@ -697,13 +712,11 @@ fn grouping_positions(
         [position] => Some(*position),
         _ => {
             let mut previous = 0;
-            let mut intervals = positions
-                .iter()
-                .map(|position| {
-                    let interval = *position - previous;
-                    previous = *position;
-                    interval
-                });
+            let mut intervals = positions.iter().map(|position| {
+                let interval = *position - previous;
+                previous = *position;
+                interval
+            });
             let first_interval = intervals.next().unwrap_or_default();
             if intervals.all(|interval| interval == first_interval) {
                 Some(first_interval)
@@ -789,8 +802,8 @@ fn is_valid_zero_digit(zero_digit: char) -> bool {
 fn is_decimal_digit(c: char) -> bool {
     maps::general_category()
         .get_set_for_value(GeneralCategory::DecimalNumber)
-    .as_borrowed()
-    .contains32(c as u32)
+        .as_borrowed()
+        .contains32(c as u32)
 }
 
 fn is_negative_number(value: &Atomic) -> bool {

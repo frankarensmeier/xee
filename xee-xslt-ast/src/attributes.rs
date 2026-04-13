@@ -163,7 +163,10 @@ impl<'a> Attributes<'a> {
             if !self.in_xsl_namespace() && namespace == self.content.state.names.xsl_ns {
                 return Err(AttributeError::StaticError {
                     code: "XTSE0805",
-                    span: self.content.state.attribute_name_span(self.content.node, name)?,
+                    span: self
+                        .content
+                        .state
+                        .attribute_name_span(self.content.node, name)?,
                 });
             }
             return Err(self.content.state.attribute_unexpected(
@@ -264,12 +267,14 @@ impl<'a> Attributes<'a> {
         let xpath_default_namespace = self.optional(names.xpath_default_namespace, self.uri())?;
         let use_when = if let Some(xpath_default_namespace) = &xpath_default_namespace {
             self.seen.borrow_mut().insert(names.use_when);
-            let content = self.content.with_context(self.content.context.with_static_standard(
-                self.content.xot_namespaces(),
-                ast::StaticStandard {
-                    xpath_default_namespace: Some(xpath_default_namespace.clone()),
-                },
-            ));
+            let content = self
+                .content
+                .with_context(self.content.context.with_static_standard(
+                    self.content.xot_namespaces(),
+                    ast::StaticStandard {
+                        xpath_default_namespace: Some(xpath_default_namespace.clone()),
+                    },
+                ));
             let attributes = Self {
                 content,
                 element: self.element,
@@ -1293,7 +1298,11 @@ fn parse_format_number_rewrite(s: &str, index: usize) -> Option<FormatNumberRewr
             ']' => depth_bracket = depth_bracket.saturating_sub(1),
             '{' => depth_brace += 1,
             '}' => depth_brace = depth_brace.saturating_sub(1),
-            ',' if depth_paren == 1 && depth_bracket == 0 && depth_brace == 0 && comma.is_none() => {
+            ',' if depth_paren == 1
+                && depth_bracket == 0
+                && depth_brace == 0
+                && comma.is_none() =>
+            {
                 comma = Some(position);
             }
             _ => {}
@@ -1352,7 +1361,8 @@ mod tests {
 
     #[test]
     fn rewrites_large_decimal_literal_in_format_number_call() {
-        let source = "format-number(000123456789012345678901234567890.123456789012345678900000, '##0.0')";
+        let source =
+            "format-number(000123456789012345678901234567890.123456789012345678900000, '##0.0')";
         let rewritten = rewrite_large_decimal_format_number_call(source).unwrap();
         assert_eq!(
             rewritten,

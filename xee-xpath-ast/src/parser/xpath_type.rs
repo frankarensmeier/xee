@@ -51,7 +51,8 @@ where
         .to(ast::ItemType::Item)
         .boxed();
     let item_type_atomic_or_union = eqname.clone().try_map_with(|name, extra| {
-        let name = default_type_namespace(name, &extra.state().namespaces.default_element_namespace);
+        let name =
+            default_type_namespace(name, &extra.state().namespaces.default_element_namespace);
         Ok(ast::ItemType::AtomicOrUnionType(
             name_to_xs(&name.value).map_err(|_| ParserError::UnknownType {
                 name: name.value.clone(),
@@ -75,8 +76,10 @@ where
             .then_ignore(just(Token::Comma))
             .then(sequence_type.clone()))
         .try_map_with(|(key_type, value_type), extra| {
-            let key_type =
-                default_type_namespace(key_type, &extra.state().namespaces.default_element_namespace);
+            let key_type = default_type_namespace(
+                key_type,
+                &extra.state().namespaces.default_element_namespace,
+            );
             Ok(ast::MapTest::TypedMapTest(Box::new(ast::TypedMapTest {
                 key_type: name_to_xs(&key_type.value).map_err(|_| ParserError::UnknownType {
                     name: key_type.value.clone(),

@@ -4,8 +4,7 @@ use std::path::PathBuf;
 use xee_interpreter::{
     atomic::{self, StringType},
     context::DynamicContext,
-    error,
-    function,
+    error, function,
     interpreter::{Interpreter, TransformEvaluator, TransformRequest},
     sequence,
 };
@@ -35,22 +34,19 @@ impl TransformEvaluator for XsltTransformEvaluator {
         let stylesheet_path = resolve_stylesheet_path(context, &stylesheet_location)?;
 
         // Read and compile the stylesheet
-        let xslt_source = fs::read_to_string(&stylesheet_path).map_err(|_| {
-            error::SpannedError {
+        let xslt_source =
+            fs::read_to_string(&stylesheet_path).map_err(|_| error::SpannedError {
                 error: error::Error::Unsupported(format!(
                     "fn:transform: cannot read stylesheet '{}'",
                     stylesheet_path.display()
                 )),
                 span: None,
-            }
-        })?;
+            })?;
 
-        let mut program =
-            crate::run::parse_with_stylesheet_path(&xslt_source, &stylesheet_path)?;
+        let mut program = crate::run::parse_with_stylesheet_path(&xslt_source, &stylesheet_path)?;
         // Inject evaluators so nested transforms work
-        program.set_dynamic_xpath_evaluator(Box::new(
-            crate::dynamic_xpath::XsltDynamicXPathEvaluator,
-        ));
+        program
+            .set_dynamic_xpath_evaluator(Box::new(crate::dynamic_xpath::XsltDynamicXPathEvaluator));
         program.set_transform_evaluator(Box::new(XsltTransformEvaluator));
 
         // Build variables from stylesheet-params
@@ -66,8 +62,7 @@ impl TransformEvaluator for XsltTransformEvaluator {
             None
         };
 
-        let dynamic_context =
-            context.clone_for_program(&program, context_item, variables);
+        let dynamic_context = context.clone_for_program(&program, context_item, variables);
 
         // Run the transformation
         let result = program.runnable(&dynamic_context).many(xot)?;
@@ -77,18 +72,17 @@ impl TransformEvaluator for XsltTransformEvaluator {
     }
 }
 
-fn get_string_option(
-    options: &function::Map,
-    key: &str,
-) -> error::SpannedResult<String> {
+fn get_string_option(options: &function::Map, key: &str) -> error::SpannedResult<String> {
     let key_atomic = atomic::Atomic::String(StringType::String, key.into());
-    let value = options.get(&key_atomic).ok_or_else(|| error::SpannedError {
-        error: error::Error::Unsupported(format!(
-            "fn:transform: required option '{}' not provided",
-            key,
-        )),
-        span: None,
-    })?;
+    let value = options
+        .get(&key_atomic)
+        .ok_or_else(|| error::SpannedError {
+            error: error::Error::Unsupported(format!(
+                "fn:transform: required option '{}' not provided",
+                key,
+            )),
+            span: None,
+        })?;
     let item = value.clone().one().map_err(|e| error::SpannedError {
         error: e,
         span: None,
@@ -96,16 +90,16 @@ fn get_string_option(
     match item {
         sequence::Item::Atomic(atomic::Atomic::String(_, s)) => Ok(s.to_string()),
         _ => Err(error::SpannedError {
-            error: error::Error::type_error(format!("fn:transform: option '{}' must be a string", key)),
+            error: error::Error::type_error(format!(
+                "fn:transform: option '{}' must be a string",
+                key
+            )),
             span: None,
         }),
     }
 }
 
-fn get_node_option(
-    options: &function::Map,
-    key: &str,
-) -> error::SpannedResult<Option<xot::Node>> {
+fn get_node_option(options: &function::Map, key: &str) -> error::SpannedResult<Option<xot::Node>> {
     let key_atomic = atomic::Atomic::String(StringType::String, key.into());
     let Some(value) = options.get(&key_atomic) else {
         return Ok(None);
@@ -117,7 +111,10 @@ fn get_node_option(
     match item {
         sequence::Item::Node(node) => Ok(Some(node)),
         _ => Err(error::SpannedError {
-            error: error::Error::type_error(format!("fn:transform: option '{}' must be a node", key)),
+            error: error::Error::type_error(format!(
+                "fn:transform: option '{}' must be a node",
+                key
+            )),
             span: None,
         }),
     }
@@ -141,7 +138,10 @@ fn get_map_option(
     match item {
         sequence::Item::Function(function::Function::Map(map)) => Ok(Some(map)),
         _ => Err(error::SpannedError {
-            error: error::Error::type_error(format!("fn:transform: option '{}' must be a map", key)),
+            error: error::Error::type_error(format!(
+                "fn:transform: option '{}' must be a map",
+                key
+            )),
             span: None,
         }),
     }
@@ -222,7 +222,10 @@ fn build_result_map(
     // Add secondary result documents
     let secondary = context.secondary_result_documents();
     for (href, sequence) in secondary {
-        entries.push((atomic::Atomic::String(StringType::String, href.into()), sequence));
+        entries.push((
+            atomic::Atomic::String(StringType::String, href.into()),
+            sequence,
+        ));
     }
 
     function::Map::new(entries).map_err(|e| error::SpannedError {

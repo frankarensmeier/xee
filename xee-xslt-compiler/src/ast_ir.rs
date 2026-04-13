@@ -19,7 +19,10 @@ use xee_xslt_ast::{
     parse_transform_with_static_variables_and_base_dir,
     parse_transform_with_static_variables_and_location,
 };
-use xot::{xmlname::{NameStrInfo, OwnedName}, Xot};
+use xot::{
+    xmlname::{NameStrInfo, OwnedName},
+    Xot,
+};
 
 use crate::dynamic_xpath::XsltDynamicXPathEvaluator;
 use crate::priority::default_priority;
@@ -113,11 +116,7 @@ impl DecimalFormatAccumulator {
             import_precedence,
         );
         push_decimal_format_field(&mut self.nan, declaration.nan.clone(), import_precedence);
-        push_decimal_format_field(
-            &mut self.percent,
-            declaration.percent,
-            import_precedence,
-        );
+        push_decimal_format_field(&mut self.percent, declaration.percent, import_precedence);
         push_decimal_format_field(
             &mut self.per_mille,
             declaration.per_mille,
@@ -306,6 +305,11 @@ fn compile_preprocessed_declarations(
     mut static_context: StaticContext,
     initial_mode: ast::ApplyTemplatesModeValue,
 ) -> error::SpannedResult<interpreter::Program> {
+    let source_chunks = build_source_chunks(
+        xslt,
+        &declarations,
+        static_context.static_base_uri().map(|uri| uri.to_string()),
+    );
     augment_static_context_with_decimal_formats(&declarations, &mut static_context)?;
     let mut ir_converter = IrConverter::new(&static_context, initial_mode);
     let declarations = ir_converter.transform(&declarations)?;
@@ -313,7 +317,52 @@ fn compile_preprocessed_declarations(
     program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
     program.set_transform_evaluator(Box::new(crate::transform::XsltTransformEvaluator));
     program.set_source(xslt.to_string());
+    for (uri, start_offset, end_offset, source) in source_chunks {
+        program.add_source_chunk(uri, start_offset, end_offset, source);
+    }
     Ok(program)
+}
+
+fn build_source_chunks(
+    xslt: &str,
+    declarations: &[PreprocessedDeclaration],
+    entry_stylesheet_uri: Option<String>,
+) -> Vec<(String, usize, usize, Option<String>)> {
+    let mut chunks = Vec::new();
+    let mut seen_uris = std::collections::HashSet::new();
+    let mut offset = 0usize;
+
+    if let Some(uri) = entry_stylesheet_uri {
+        let end_offset = xslt.len();
+        chunks.push((uri.clone(), 0, end_offset, Some(xslt.to_string())));
+        seen_uris.insert(uri);
+        offset = end_offset;
+    }
+
+    for declaration in declarations {
+        let Some(uri) = declaration.stylesheet_uri.as_ref() else {
+            continue;
+        };
+        if !seen_uris.insert(uri.clone()) {
+            continue;
+        }
+        let Some(source_len) = source_len_from_stylesheet_uri(uri) else {
+            continue;
+        };
+        let start_offset = offset;
+        let end_offset = start_offset + source_len;
+        chunks.push((uri.clone(), start_offset, end_offset, None));
+        offset = end_offset;
+    }
+
+    chunks
+}
+
+fn source_len_from_stylesheet_uri(uri: &str) -> Option<usize> {
+    let path = uri.strip_prefix("file://")?.replace("%20", " ");
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|content| content.len())
 }
 
 pub fn parse(
@@ -337,7 +386,8 @@ pub fn parse_with_base_dir_and_initial_mode(
     base_dir: Option<std::path::PathBuf>,
     initial_mode: Option<String>,
 ) -> error::SpannedResult<interpreter::Program> {
-    let mut static_context = augment_static_context_with_stylesheet_namespaces(static_context, xslt);
+    let mut static_context =
+        augment_static_context_with_stylesheet_namespaces(static_context, xslt);
     let stylesheet_version = detect_stylesheet_version(xslt);
     static_context.set_stylesheet_xslt_version(stylesheet_version);
     if static_context.processor_xslt_version().is_none() {
@@ -386,7 +436,8 @@ pub fn parse_with_base_dir_and_initial_mode(
 
     // Add namespace bindings from all included/imported modules to the static
     // context so that xs:QName() casts can resolve prefixes from any module.
-    let static_context = augment_static_context_with_module_namespaces(static_context, &declarations);
+    let static_context =
+        augment_static_context_with_module_namespaces(static_context, &declarations);
 
     let initial_mode = parse_initial_mode_value(initial_mode)?;
     // When no CLI initial mode is specified (defaults to Unnamed), use the
@@ -849,7 +900,8 @@ impl<'a> IrConverter<'a> {
     {
         let previous = self.overridden_static_context.take();
         let base_context = previous.as_ref().unwrap_or(self.static_context);
-        self.overridden_static_context = Some(base_context.clone_with_static_base_uri(static_base_uri));
+        self.overridden_static_context =
+            Some(base_context.clone_with_static_base_uri(static_base_uri));
         let result = f(self);
         self.overridden_static_context = previous;
         result
@@ -1071,8 +1123,10 @@ impl<'a> IrConverter<'a> {
                 None => true,
             };
             if should_replace {
-                self.character_maps
-                    .insert(key, (declaration.import_precedence, (**character_map).clone()));
+                self.character_maps.insert(
+                    key,
+                    (declaration.import_precedence, (**character_map).clone()),
+                );
             }
         }
     }
@@ -1193,7 +1247,10 @@ impl<'a> IrConverter<'a> {
             (String::new(), lexical_qname)
         };
         let Some((_, output)) = self.named_outputs.get(&key) else {
-            return Err(error::Error::Unsupported("Unknown xsl:result-document @format".to_string()).into());
+            return Err(error::Error::Unsupported(
+                "Unknown xsl:result-document @format".to_string(),
+            )
+            .into());
         };
         Ok(output.clone())
     }
@@ -1230,9 +1287,7 @@ impl<'a> IrConverter<'a> {
     fn validate_standalone_literal(value: &str) -> error::SpannedResult<String> {
         let trimmed = value.trim();
         match trimmed {
-            "yes" | "true" | "1" | "no" | "false" | "0" | "omit" => {
-                Ok(trimmed.to_string())
-            }
+            "yes" | "true" | "1" | "no" | "false" | "0" | "omit" => Ok(trimmed.to_string()),
             _ => Err(error::Error::XTSE0020.into()),
         }
     }
@@ -1246,7 +1301,8 @@ impl<'a> IrConverter<'a> {
     }
 
     fn qname_list_literal(names: &[ast::EqName]) -> String {
-        names.iter()
+        names
+            .iter()
             .map(|name| {
                 if name.prefix().is_empty() {
                     name.local_name().to_string()
@@ -1291,7 +1347,10 @@ impl<'a> IrConverter<'a> {
                 continue;
             };
             let has_absent_context = matches!(
-                template.context_item.as_ref().and_then(|context_item| context_item.use_.as_ref()),
+                template
+                    .context_item
+                    .as_ref()
+                    .and_then(|context_item| context_item.use_.as_ref()),
                 Some(ast::Use::Absent)
             );
             if has_absent_context {
@@ -1520,7 +1579,9 @@ impl<'a> IrConverter<'a> {
 
     fn has_non_empty_binding_content(sequence_constructor: &ast::SequenceConstructor) -> bool {
         sequence_constructor.iter().any(|item| match item {
-            ast::SequenceConstructorItem::Content(ast::Content::Text(text)) => !text.trim().is_empty(),
+            ast::SequenceConstructorItem::Content(ast::Content::Text(text)) => {
+                !text.trim().is_empty()
+            }
             _ => true,
         })
     }
@@ -1621,7 +1682,8 @@ impl<'a> IrConverter<'a> {
             self.sequence_constructor(&with_param.sequence_constructor)?
         };
 
-        let bindings = self.convert_bindings(bindings, with_param.as_.as_ref(), RaisedError::XTTE0570)?;
+        let bindings =
+            self.convert_bindings(bindings, with_param.as_.as_ref(), RaisedError::XTTE0570)?;
         let (select_atom, bindings) = bindings.atom_bindings();
 
         Ok((
@@ -1714,9 +1776,7 @@ impl<'a> IrConverter<'a> {
         };
 
         // Compile the match pattern
-        let pattern = transform_pattern(&key.match_.pattern, |expr| {
-            self.pattern_predicate(expr)
-        })?;
+        let pattern = transform_pattern(&key.match_.pattern, |expr| self.pattern_predicate(expr))?;
 
         let name = key.name.clone();
         declarations.keys.push(ir::KeyDefinition {
@@ -1848,7 +1908,10 @@ impl<'a> IrConverter<'a> {
 
     fn template_context_names(&mut self, template: &ast::Template) -> ir::ContextNames {
         let has_absent_context = matches!(
-            template.context_item.as_ref().and_then(|context_item| context_item.use_.as_ref()),
+            template
+                .context_item
+                .as_ref()
+                .and_then(|context_item| context_item.use_.as_ref()),
             Some(ast::Use::Absent)
         );
         if has_absent_context {
@@ -2116,7 +2179,8 @@ impl<'a> IrConverter<'a> {
             .extend(output.suppress_indentation.clone());
         serialization.undeclare_prefixes = output.undeclare_prefixes;
         if !output.use_character_maps.is_empty() {
-            serialization.use_character_maps = self.resolve_character_maps(&output.use_character_maps)?;
+            serialization.use_character_maps =
+                self.resolve_character_maps(&output.use_character_maps)?;
         }
         assign_if_some(&mut serialization.version, output.version.clone());
         Ok(())
@@ -2342,7 +2406,8 @@ impl<'a> IrConverter<'a> {
         analyze_string: &ast::AnalyzeString,
     ) -> error::SpannedResult<Bindings> {
         // Compile select expression
-        let (select_atom, select_bindings) = self.expression(&analyze_string.select)?.atom_bindings();
+        let (select_atom, select_bindings) =
+            self.expression(&analyze_string.select)?.atom_bindings();
         let select_str_expr =
             self.static_function_call_expr("string", FN_NAMESPACE, 1, vec![select_atom]);
         let (input_atom, input_bindings) = select_bindings
@@ -2402,7 +2467,10 @@ impl<'a> IrConverter<'a> {
 
         Ok(bindings.bind_expr(
             &mut self.variables,
-            Spanned::new(expr, (analyze_string.span.start..analyze_string.span.end).into()),
+            Spanned::new(
+                expr,
+                (analyze_string.span.start..analyze_string.span.end).into(),
+            ),
         ))
     }
 
@@ -2414,10 +2482,9 @@ impl<'a> IrConverter<'a> {
     ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
         let param_name = self.variables.new_name();
         let context_names = self.variables.push_context();
-        let body_bindings = self
-            .with_template_continuation_availability(false, |this| {
-                this.sequence_constructor(sequence_constructor)
-            })?;
+        let body_bindings = self.with_template_continuation_availability(false, |this| {
+            this.sequence_constructor(sequence_constructor)
+        })?;
         self.variables.pop_context();
 
         let body = ir::Expr::Map(ir::Map {
@@ -2500,24 +2567,30 @@ impl<'a> IrConverter<'a> {
             .into());
         }
 
-        let (xpath_value_atom, xpath_value_bindings) = self.expression(&evaluate.xpath)?.atom_bindings();
+        let (xpath_value_atom, xpath_value_bindings) =
+            self.expression(&evaluate.xpath)?.atom_bindings();
         let xpath_expr = self.simple_content_expr(xpath_value_atom, self.space_separator_atom());
         let (xpath_atom, xpath_bindings) = xpath_value_bindings
             .bind_expr_no_span(&mut self.variables, xpath_expr)
             .atom_bindings();
 
-        let (context_item_atom, context_item_bindings) = self
-            .optional_evaluate_argument(evaluate.context_item.as_ref())?;
-        let (namespace_context_atom, namespace_context_bindings) = self
-            .optional_evaluate_argument(evaluate.namespace_context.as_ref())?;
-        let (with_params_atom, with_params_bindings) = self
-            .optional_evaluate_argument(evaluate.with_params.as_ref())?;
+        let (context_item_atom, context_item_bindings) =
+            self.optional_evaluate_argument(evaluate.context_item.as_ref())?;
+        let (namespace_context_atom, namespace_context_bindings) =
+            self.optional_evaluate_argument(evaluate.namespace_context.as_ref())?;
+        let (with_params_atom, with_params_bindings) =
+            self.optional_evaluate_argument(evaluate.with_params.as_ref())?;
 
         let expr = self.static_function_call_expr(
             "xslt-evaluate",
             FN_NAMESPACE,
             4,
-            vec![xpath_atom, context_item_atom, namespace_context_atom, with_params_atom],
+            vec![
+                xpath_atom,
+                context_item_atom,
+                namespace_context_atom,
+                with_params_atom,
+            ],
         );
         Ok(xpath_bindings
             .concat(context_item_bindings)
@@ -2581,10 +2654,7 @@ impl<'a> IrConverter<'a> {
             ))
         } else {
             // Counting form
-            let level = number
-                .level
-                .as_ref()
-                .unwrap_or(&ast::NumberLevel::Single);
+            let level = number.level.as_ref().unwrap_or(&ast::NumberLevel::Single);
 
             // Compile the selected node (select= or context item)
             let (node_atom, node_bindings) = if let Some(select) = &number.select {
@@ -2796,18 +2866,14 @@ impl<'a> IrConverter<'a> {
             };
 
             let error_bindings = if let Some((local_name, namespace, prefix)) = custom_error {
-                let ns_atom = Spanned::new(
-                    ir::Atom::Const(ir::Const::String(namespace)),
-                    (0..0).into(),
-                );
+                let ns_atom =
+                    Spanned::new(ir::Atom::Const(ir::Const::String(namespace)), (0..0).into());
                 let local_atom = Spanned::new(
                     ir::Atom::Const(ir::Const::String(local_name)),
                     (0..0).into(),
                 );
-                let prefix_atom = Spanned::new(
-                    ir::Atom::Const(ir::Const::String(prefix)),
-                    (0..0).into(),
-                );
+                let prefix_atom =
+                    Spanned::new(ir::Atom::Const(ir::Const::String(prefix)), (0..0).into());
                 let call_expr = self.static_function_call_expr(
                     "xslt-message-terminate",
                     FN_NAMESPACE,
@@ -2822,12 +2888,8 @@ impl<'a> IrConverter<'a> {
         } else {
             // Non-terminate: output message content to stderr via xslt-message
             let (message_atom, bindings) = message_bindings.atom_bindings();
-            let call_expr = self.static_function_call_expr(
-                "xslt-message",
-                FN_NAMESPACE,
-                1,
-                vec![message_atom],
-            );
+            let call_expr =
+                self.static_function_call_expr("xslt-message", FN_NAMESPACE, 1, vec![message_atom]);
             Ok(bindings.bind_expr_no_span(&mut self.variables, call_expr))
         }
     }
@@ -2846,11 +2908,7 @@ impl<'a> IrConverter<'a> {
                 let namespace = &rest[..close_brace];
                 let local_name = &rest[close_brace + 1..];
                 if !local_name.is_empty() {
-                    return Some((
-                        local_name.to_string(),
-                        namespace.to_string(),
-                        String::new(),
-                    ));
+                    return Some((local_name.to_string(), namespace.to_string(), String::new()));
                 }
             }
             return None;
@@ -2880,8 +2938,7 @@ impl<'a> IrConverter<'a> {
         if matches!(
             result_document.validation,
             Some(ast::Validation::Strict | ast::Validation::Lax | ast::Validation::Preserve)
-        )
-            || result_document.type_.is_some()
+        ) || result_document.type_.is_some()
             || result_document.allow_duplicate_names.is_some()
             || result_document.build_tree.is_some()
             || result_document.escape_uri_attributes.is_some()
@@ -2922,31 +2979,34 @@ impl<'a> IrConverter<'a> {
         };
 
         let method_literal = if let Some(method) = &result_document.method {
-            self.static_value_template(method).ok_or_else(|| {
-                error::SpannedError {
+            self.static_value_template(method)
+                .ok_or_else(|| error::SpannedError {
                     error: error::Error::Unsupported(
                         "Dynamic xsl:result-document @method is not supported yet".to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?
+                })?
         } else if let Some(output) = formatted_output.as_ref() {
             Self::output_method_literal(output.method.as_ref())?.unwrap_or_default()
         } else {
             String::new()
         };
-        let method_atom = Spanned::new(ir::Atom::Const(ir::Const::String(method_literal)), (0..0).into());
+        let method_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(method_literal)),
+            (0..0).into(),
+        );
 
-        let byte_order_mark_literal = if let Some(byte_order_mark) = &result_document.bye_order_mark {
-            let byte_order_mark_literal = self.static_value_template(byte_order_mark).ok_or_else(|| {
-                error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @byte-order-mark is not supported yet"
-                            .to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?;
+        let byte_order_mark_literal = if let Some(byte_order_mark) = &result_document.bye_order_mark
+        {
+            let byte_order_mark_literal =
+                self.static_value_template(byte_order_mark)
+                    .ok_or_else(|| error::SpannedError {
+                        error: error::Error::Unsupported(
+                            "Dynamic xsl:result-document @byte-order-mark is not supported yet"
+                                .to_string(),
+                        ),
+                        span: Some((result_document.span.start..result_document.span.end).into()),
+                    })?;
             Self::validate_boolean_literal(&byte_order_mark_literal)?
         } else if let Some(output) = formatted_output.as_ref() {
             output.byte_order_mark.to_string()
@@ -2958,17 +3018,23 @@ impl<'a> IrConverter<'a> {
             (0..0).into(),
         );
 
-        let cdata_literal = if let Some(cdata_section_elements) = &result_document.cdata_section_elements {
-            let direct_literal = self.static_value_template(cdata_section_elements).ok_or_else(|| {
-                error::SpannedError {
+        let cdata_literal = if let Some(cdata_section_elements) =
+            &result_document.cdata_section_elements
+        {
+            let direct_literal = self
+                .static_value_template(cdata_section_elements)
+                .ok_or_else(|| error::SpannedError {
                     error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @cdata-section-elements is not supported yet".to_string(),
+                        "Dynamic xsl:result-document @cdata-section-elements is not supported yet"
+                            .to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?;
+                })?;
             if let Some(output) = formatted_output.as_ref() {
-                Self::merge_literal_qname_lists(&output.cdata_section_elements, Some(direct_literal))
+                Self::merge_literal_qname_lists(
+                    &output.cdata_section_elements,
+                    Some(direct_literal),
+                )
             } else {
                 direct_literal
             }
@@ -2977,52 +3043,60 @@ impl<'a> IrConverter<'a> {
         } else {
             String::new()
         };
-        let cdata_atom = Spanned::new(ir::Atom::Const(ir::Const::String(cdata_literal)), (0..0).into());
+        let cdata_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(cdata_literal)),
+            (0..0).into(),
+        );
 
         let doctype_public_literal = if let Some(doctype_public) = &result_document.doctype_public {
-            self.static_value_template(doctype_public).ok_or_else(|| {
-                error::SpannedError {
+            self.static_value_template(doctype_public)
+                .ok_or_else(|| error::SpannedError {
                     error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @doctype-public is not supported yet".to_string(),
+                        "Dynamic xsl:result-document @doctype-public is not supported yet"
+                            .to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?
+                })?
         } else if let Some(output) = formatted_output.as_ref() {
             output.doctype_public.clone().unwrap_or_default()
         } else {
             String::new()
         };
-        let doctype_public_atom =
-            Spanned::new(ir::Atom::Const(ir::Const::String(doctype_public_literal)), (0..0).into());
+        let doctype_public_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(doctype_public_literal)),
+            (0..0).into(),
+        );
 
         let doctype_system_literal = if let Some(doctype_system) = &result_document.doctype_system {
-            self.static_value_template(doctype_system).ok_or_else(|| {
-                error::SpannedError {
+            self.static_value_template(doctype_system)
+                .ok_or_else(|| error::SpannedError {
                     error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @doctype-system is not supported yet".to_string(),
+                        "Dynamic xsl:result-document @doctype-system is not supported yet"
+                            .to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?
+                })?
         } else if let Some(output) = formatted_output.as_ref() {
             output.doctype_system.clone().unwrap_or_default()
         } else {
             String::new()
         };
-        let doctype_system_atom =
-            Spanned::new(ir::Atom::Const(ir::Const::String(doctype_system_literal)), (0..0).into());
+        let doctype_system_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(doctype_system_literal)),
+            (0..0).into(),
+        );
 
-        let include_content_type_literal = if let Some(include_content_type) = &result_document.include_content_type {
-            self.static_value_template(include_content_type).ok_or_else(|| {
-                error::SpannedError {
+        let include_content_type_literal = if let Some(include_content_type) =
+            &result_document.include_content_type
+        {
+            self.static_value_template(include_content_type)
+                .ok_or_else(|| error::SpannedError {
                     error: error::Error::Unsupported(
                         "Dynamic xsl:result-document @include-content-type is not supported yet"
                             .to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?
+                })?
         } else if let Some(output) = formatted_output.as_ref() {
             output.include_content_type.to_string()
         } else {
@@ -3034,63 +3108,70 @@ impl<'a> IrConverter<'a> {
         );
 
         let media_type_literal = if let Some(media_type) = &result_document.media_type {
-            self.static_value_template(media_type).ok_or_else(|| {
-                error::SpannedError {
+            self.static_value_template(media_type)
+                .ok_or_else(|| error::SpannedError {
                     error: error::Error::Unsupported(
                         "Dynamic xsl:result-document @media-type is not supported yet".to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?
+                })?
         } else if let Some(output) = formatted_output.as_ref() {
             output.media_type.clone().unwrap_or_default()
         } else {
             String::new()
         };
-        let media_type_atom =
-            Spanned::new(ir::Atom::Const(ir::Const::String(media_type_literal)), (0..0).into());
+        let media_type_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(media_type_literal)),
+            (0..0).into(),
+        );
 
-        let omit_xml_declaration_literal =
-            if let Some(omit_xml_declaration) = &result_document.omit_xml_declaration {
-                let omit_xml_declaration_literal = self.static_value_template(omit_xml_declaration).ok_or_else(|| {
-                    error::SpannedError {
-                        error: error::Error::Unsupported(
-                            "Dynamic xsl:result-document @omit-xml-declaration is not supported yet"
-                                .to_string(),
-                        ),
-                        span: Some((result_document.span.start..result_document.span.end).into()),
-                    }
+        let omit_xml_declaration_literal = if let Some(omit_xml_declaration) =
+            &result_document.omit_xml_declaration
+        {
+            let omit_xml_declaration_literal = self
+                .static_value_template(omit_xml_declaration)
+                .ok_or_else(|| error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @omit-xml-declaration is not supported yet"
+                            .to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
                 })?;
-                Self::validate_boolean_literal(&omit_xml_declaration_literal)?
-            } else if let Some(output) = formatted_output.as_ref() {
-                output.omit_xml_declaration.to_string()
-            } else {
-                String::new()
-            };
+            Self::validate_boolean_literal(&omit_xml_declaration_literal)?
+        } else if let Some(output) = formatted_output.as_ref() {
+            output.omit_xml_declaration.to_string()
+        } else {
+            String::new()
+        };
         let omit_xml_declaration_atom = Spanned::new(
             ir::Atom::Const(ir::Const::String(omit_xml_declaration_literal)),
             (0..0).into(),
         );
 
         let standalone_literal = if let Some(standalone) = &result_document.standalone {
-            let standalone_literal = self.static_value_template(standalone).ok_or_else(|| {
-                error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @standalone is not supported yet".to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?;
+            let standalone_literal =
+                self.static_value_template(standalone)
+                    .ok_or_else(|| error::SpannedError {
+                        error: error::Error::Unsupported(
+                            "Dynamic xsl:result-document @standalone is not supported yet"
+                                .to_string(),
+                        ),
+                        span: Some((result_document.span.start..result_document.span.end).into()),
+                    })?;
             Self::validate_standalone_literal(&standalone_literal)?
         } else if let Some(output) = formatted_output.as_ref() {
             Self::output_standalone_literal(output.standalone.as_ref()).unwrap_or_default()
         } else {
             String::new()
         };
-        let standalone_atom =
-            Spanned::new(ir::Atom::Const(ir::Const::String(standalone_literal)), (0..0).into());
+        let standalone_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(standalone_literal)),
+            (0..0).into(),
+        );
 
-        let (html_version_atom, html_version_bindings) = if let Some(html_version) = &result_document.html_version {
+        let (html_version_atom, html_version_bindings) = if let Some(html_version) =
+            &result_document.html_version
+        {
             if let Some(html_version_literal) = self.static_value_template(html_version) {
                 rust_decimal::Decimal::from_str_exact(&html_version_literal).map_err(|_| {
                     error::SpannedError {
@@ -3123,12 +3204,17 @@ impl<'a> IrConverter<'a> {
             )
         } else {
             (
-                Spanned::new(ir::Atom::Const(ir::Const::String(String::new())), (0..0).into()),
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(String::new())),
+                    (0..0).into(),
+                ),
                 Bindings::empty(),
             )
         };
 
-        let use_character_maps_literal = if let Some(use_character_maps) = &result_document.use_character_maps {
+        let use_character_maps_literal = if let Some(use_character_maps) =
+            &result_document.use_character_maps
+        {
             let mut merged_character_maps = if let Some(output) = formatted_output.as_ref() {
                 self.resolve_character_maps(&output.use_character_maps)?
             } else {
@@ -3149,26 +3235,29 @@ impl<'a> IrConverter<'a> {
         );
 
         let version_literal = if let Some(version) = &result_document.version {
-            self.static_value_template(version).ok_or_else(|| {
-                error::SpannedError {
+            self.static_value_template(version)
+                .ok_or_else(|| error::SpannedError {
                     error: error::Error::Unsupported(
                         "Dynamic xsl:result-document @output-version is not supported yet"
                             .to_string(),
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
-                }
-            })?
+                })?
         } else if let Some(output) = formatted_output.as_ref() {
             output.version.clone().unwrap_or_default()
         } else {
             String::new()
         };
-        let version_atom =
-            Spanned::new(ir::Atom::Const(ir::Const::String(version_literal)), (0..0).into());
+        let version_atom = Spanned::new(
+            ir::Atom::Const(ir::Const::String(version_literal)),
+            (0..0).into(),
+        );
 
         if let Some(href) = &result_document.href {
             let (href_atom, href_bindings) = self.attribute_value_template(href)?.atom_bindings();
-            let bindings = href_bindings.concat(content_bindings).concat(html_version_bindings);
+            let bindings = href_bindings
+                .concat(content_bindings)
+                .concat(html_version_bindings);
             let expr = self.static_function_call_expr(
                 "store-result-document",
                 FN_NAMESPACE,
@@ -3177,7 +3266,10 @@ impl<'a> IrConverter<'a> {
             );
             return Ok(bindings.bind_expr(
                 &mut self.variables,
-                Spanned::new(expr, (result_document.span.start..result_document.span.end).into()),
+                Spanned::new(
+                    expr,
+                    (result_document.span.start..result_document.span.end).into(),
+                ),
             ));
         }
 
@@ -3203,7 +3295,10 @@ impl<'a> IrConverter<'a> {
         );
         Ok(content_bindings.concat(html_version_bindings).bind_expr(
             &mut self.variables,
-            Spanned::new(expr, (result_document.span.start..result_document.span.end).into()),
+            Spanned::new(
+                expr,
+                (result_document.span.start..result_document.span.end).into(),
+            ),
         ))
     }
 
@@ -3327,7 +3422,9 @@ impl<'a> IrConverter<'a> {
             return Ok(Bindings::empty());
         }
 
-        let (atom, bindings) = self.attribute_set_bindings(use_attribute_sets)?.atom_bindings();
+        let (atom, bindings) = self
+            .attribute_set_bindings(use_attribute_sets)?
+            .atom_bindings();
         let append = ir::Expr::XmlAppend(ir::XmlAppend {
             parent: element_atom,
             child: atom,
@@ -3355,7 +3452,11 @@ impl<'a> IrConverter<'a> {
                     return Err(error::Error::XTDE0640.into());
                 }
 
-                let attribute_sets = this.attribute_sets.get(&key).cloned().ok_or(error::Error::XTSE0710)?;
+                let attribute_sets = this
+                    .attribute_sets
+                    .get(&key)
+                    .cloned()
+                    .ok_or(error::Error::XTSE0710)?;
 
                 this.active_attribute_sets.push(key);
                 for attribute_set in attribute_sets {
@@ -3365,7 +3466,8 @@ impl<'a> IrConverter<'a> {
                         .and_then(|uri| this.resolve_static_base_uri(uri));
                     this.with_static_base_uri(attribute_set_base_uri, |this| {
                         if let Some(nested) = &attribute_set.use_attribute_sets {
-                            let nested_bindings = this.attribute_set_bindings_with_active(nested)?;
+                            let nested_bindings =
+                                this.attribute_set_bindings_with_active(nested)?;
                             combined = Some(match combined.take() {
                                 Some(existing) => this.comma_bindings(existing, nested_bindings),
                                 None => nested_bindings,
@@ -3499,7 +3601,10 @@ impl<'a> IrConverter<'a> {
         &mut self,
         apply_imports: &ast::ApplyImports,
     ) -> error::SpannedResult<Bindings> {
-        self.continue_template(apply_imports.with_params.iter(), ir::ContinueBehavior::ApplyImports)
+        self.continue_template(
+            apply_imports.with_params.iter(),
+            ir::ContinueBehavior::ApplyImports,
+        )
     }
 
     fn next_match(&mut self, next_match: &ast::NextMatch) -> error::SpannedResult<Bindings> {
@@ -3675,10 +3780,7 @@ impl<'a> IrConverter<'a> {
                 let sep = if base.contains('?') { ";" } else { "?" };
                 let uri = format!("{}{}{}", base, sep, suffix);
                 Ok((
-                    Spanned::new(
-                        ir::Atom::Const(ir::Const::String(uri)),
-                        (0..0).into(),
-                    ),
+                    Spanned::new(ir::Atom::Const(ir::Const::String(uri)), (0..0).into()),
                     Bindings::empty(),
                 ))
             } else {
@@ -3687,10 +3789,7 @@ impl<'a> IrConverter<'a> {
         } else if let Some(suffix) = &case_first_suffix {
             let uri = format!("http://www.w3.org/2013/collation/UCA?{}", suffix);
             Ok((
-                Spanned::new(
-                    ir::Atom::Const(ir::Const::String(uri)),
-                    (0..0).into(),
-                ),
+                Spanned::new(ir::Atom::Const(ir::Const::String(uri)), (0..0).into()),
                 Bindings::empty(),
             ))
         } else {
@@ -3701,10 +3800,7 @@ impl<'a> IrConverter<'a> {
         }
     }
 
-    fn sort_case_order_suffix(
-        &self,
-        sort: &ast::Sort,
-    ) -> error::SpannedResult<Option<String>> {
+    fn sort_case_order_suffix(&self, sort: &ast::Sort) -> error::SpannedResult<Option<String>> {
         let Some(case_order) = &sort.case_order else {
             return Ok(None);
         };
@@ -3942,9 +4038,9 @@ impl<'a> IrConverter<'a> {
             if try_.xslt_version > processor_xslt_version {
                 return self.try_fallback_bindings(try_);
             }
-            return Err(error::Error::XTSE0010.with_ast_span(
-                (try_.span.start..try_.span.end).into(),
-            ));
+            return Err(
+                error::Error::XTSE0010.with_ast_span((try_.span.start..try_.span.end).into())
+            );
         }
 
         let try_body = self.select_or_sequence_constructor(try_)?;
@@ -4265,10 +4361,9 @@ impl<'a> IrConverter<'a> {
         let bindings = bindings.concat(sort_bindings);
 
         let context_names = self.variables.push_context();
-        let return_bindings = self
-            .with_template_continuation_availability(false, |this| {
-                this.sequence_constructor(&for_each.sequence_constructor)
-            })?;
+        let return_bindings = self.with_template_continuation_availability(false, |this| {
+            this.sequence_constructor(&for_each.sequence_constructor)
+        })?;
         self.variables.pop_context();
         let expr = ir::Expr::Map(ir::Map {
             context_names,
@@ -4320,10 +4415,9 @@ impl<'a> IrConverter<'a> {
         let last_param = self.variables.new_name();
 
         let context_names = self.variables.push_context();
-        let body_bindings = self
-            .with_template_continuation_availability(false, |this| {
-                this.sequence_constructor(&for_each_group.sequence_constructor)
-            })?;
+        let body_bindings = self.with_template_continuation_availability(false, |this| {
+            this.sequence_constructor(&for_each_group.sequence_constructor)
+        })?;
         self.variables.pop_context();
 
         // Build Let chain: bind context variables from closure params
@@ -4399,26 +4493,31 @@ impl<'a> IrConverter<'a> {
 
         // Compile sort specifications into a sort key function and options
         let sort_refs = for_each_group.sort.iter().collect::<Vec<_>>();
-        let (sort_key_atom, sort_key_bindings, sort_descending, sort_numeric) = if !sort_refs.is_empty() {
-            // Use first sort only for now; compile its key function
-            let sort = sort_refs[0];
-            let (key_atom, key_bindings) = self.sort_key_function(sort)?;
-            let descending = self.sort_is_descending(sort)?;
-            let numeric = matches!(self.sort_data_type(sort)?, SortDataType::Number);
-            (key_atom, key_bindings, descending, numeric)
-        } else {
-            // No sort: pass empty sequence as sort key function
-            let empty = Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (0..0).into());
-            let bindings = Bindings::empty();
-            (empty, bindings, false, false)
-        };
+        let (sort_key_atom, sort_key_bindings, sort_descending, sort_numeric) =
+            if !sort_refs.is_empty() {
+                // Use first sort only for now; compile its key function
+                let sort = sort_refs[0];
+                let (key_atom, key_bindings) = self.sort_key_function(sort)?;
+                let descending = self.sort_is_descending(sort)?;
+                let numeric = matches!(self.sort_data_type(sort)?, SortDataType::Number);
+                (key_atom, key_bindings, descending, numeric)
+            } else {
+                // No sort: pass empty sequence as sort key function
+                let empty = Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (0..0).into());
+                let bindings = Bindings::empty();
+                (empty, bindings, false, false)
+            };
 
         let sort_descending_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(if sort_descending { "yes" } else { "no" }.to_string())),
+            ir::Atom::Const(ir::Const::String(
+                if sort_descending { "yes" } else { "no" }.to_string(),
+            )),
             (0..0).into(),
         );
         let sort_numeric_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(if sort_numeric { "yes" } else { "no" }.to_string())),
+            ir::Atom::Const(ir::Const::String(
+                if sort_numeric { "yes" } else { "no" }.to_string(),
+            )),
             (0..0).into(),
         );
 
@@ -4605,9 +4704,8 @@ impl<'a> IrConverter<'a> {
 
         let copy_expr = ir::Expr::Atom(copy_atom.clone());
 
-        let attribute_set_bindings = self.attribute_set_bindings(
-            copy.use_attribute_sets.as_deref().unwrap_or(&[]),
-        )?;
+        let attribute_set_bindings =
+            self.attribute_set_bindings(copy.use_attribute_sets.as_deref().unwrap_or(&[]))?;
 
         let sequence_constructor_bindings = if copy.select.is_some() {
             self.with_template_continuation_availability(false, |this| {
@@ -4621,7 +4719,8 @@ impl<'a> IrConverter<'a> {
         } else {
             sequence_constructor_bindings
         };
-        let (append_content_atom, append_content_bindings) = append_content_bindings.atom_bindings();
+        let (append_content_atom, append_content_bindings) =
+            append_content_bindings.atom_bindings();
 
         let bindings = bindings.concat(append_content_bindings);
 
@@ -4696,12 +4795,10 @@ impl<'a> IrConverter<'a> {
         default_namespace: &str,
     ) -> error::SpannedResult<Bindings> {
         let literal_name = self.static_value_template(name);
-        let (localname_atom, bindings) = if let Some((local_name, namespace_uri)) = literal_name
-            .as_deref()
-            .and_then(|literal_name| {
+        let (localname_atom, bindings) = if let Some((local_name, namespace_uri)) =
+            literal_name.as_deref().and_then(|literal_name| {
                 self.resolve_static_qname_with_default(literal_name, namespaces, default_namespace)
-            })
-        {
+            }) {
             let local_name_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(local_name)),
                 (0..0).into(),
@@ -4727,20 +4824,26 @@ impl<'a> IrConverter<'a> {
             }
             bindings.atom_bindings()
         } else if namespace.is_none() || literal_name.is_none() {
-            let (lexical_name_atom, bindings) = self.attribute_value_template(name)?.atom_bindings();
+            let (lexical_name_atom, bindings) =
+                self.attribute_value_template(name)?.atom_bindings();
             let default_namespace_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(default_namespace.to_string())),
                 (0..0).into(),
             );
             let namespace_map_atom = Spanned::new(
-                ir::Atom::Const(ir::Const::String(self.encode_literal_namespaces(namespaces))),
+                ir::Atom::Const(ir::Const::String(
+                    self.encode_literal_namespaces(namespaces),
+                )),
                 (0..0).into(),
             );
             let (force_namespace_atom, namespace_bindings) = if let Some(namespace) = namespace {
                 self.attribute_value_template(namespace)?.atom_bindings()
             } else {
                 (
-                    Spanned::new(ir::Atom::Const(ir::Const::String(String::new())), (0..0).into()),
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(String::new())),
+                        (0..0).into(),
+                    ),
                     Bindings::empty(),
                 )
             };
@@ -4819,7 +4922,12 @@ impl<'a> IrConverter<'a> {
             .iter()
             .find(|namespace| namespace.prefix.is_empty())
             .map(|namespace| namespace.uri.clone())
-            .unwrap_or_else(|| self.current_static_context().namespaces().default_element_namespace().to_string())
+            .unwrap_or_else(|| {
+                self.current_static_context()
+                    .namespaces()
+                    .default_element_namespace()
+                    .to_string()
+            })
     }
 
     fn encode_literal_namespaces(&self, namespaces: &[ast::LiteralNamespace]) -> String {
@@ -4895,14 +5003,12 @@ impl<'a> IrConverter<'a> {
         let (element_atom, bindings) = bindings
             .bind_expr_no_span(&mut self.variables, expr)
             .atom_bindings();
-        let (element_atom, bindings) = if let Some(namespace) =
-            self.static_name_namespace(
-                &element.name,
-                &element.namespace,
-                &element.namespaces,
-                &default_namespace,
-            )
-        {
+        let (element_atom, bindings) = if let Some(namespace) = self.static_name_namespace(
+            &element.name,
+            &element.namespace,
+            &element.namespaces,
+            &default_namespace,
+        ) {
             let prefix_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(namespace.prefix)),
                 (0..0).into(),
@@ -4976,11 +5082,16 @@ impl<'a> IrConverter<'a> {
             .into());
         }
 
-        let (href_atom, href_bindings) = self.attribute_value_template(&source_document.href)?.atom_bindings();
+        let (href_atom, href_bindings) = self
+            .attribute_value_template(&source_document.href)?
+            .atom_bindings();
         let load_expr = self.static_function_call_expr("doc", FN_NAMESPACE, 1, vec![href_atom]);
         let load_bindings = href_bindings.bind_expr(
             &mut self.variables,
-            Spanned::new(load_expr, (source_document.span.start..source_document.span.end).into()),
+            Spanned::new(
+                load_expr,
+                (source_document.span.start..source_document.span.end).into(),
+            ),
         );
         let (document_atom, bindings) = load_bindings.atom_bindings();
 
@@ -4995,7 +5106,10 @@ impl<'a> IrConverter<'a> {
 
         Ok(bindings.bind_expr(
             &mut self.variables,
-            Spanned::new(expr, (source_document.span.start..source_document.span.end).into()),
+            Spanned::new(
+                expr,
+                (source_document.span.start..source_document.span.end).into(),
+            ),
         ))
     }
 
@@ -5011,7 +5125,12 @@ impl<'a> IrConverter<'a> {
 
     fn attribute(&mut self, attribute: &ast::Attribute) -> error::SpannedResult<Bindings> {
         let (name_atom, name_bindings) = self
-            .xml_name_dynamic(&attribute.name, &attribute.namespace, &attribute.namespaces, "")?
+            .xml_name_dynamic(
+                &attribute.name,
+                &attribute.namespace,
+                &attribute.namespaces,
+                "",
+            )?
             .atom_bindings();
         let (value_atom, value_bindings) = self
             .select_or_sequence_constructor(attribute)?
@@ -5095,19 +5214,18 @@ impl<'a> IrConverter<'a> {
         self.offset_xpath_spans_expr(&mut rewritten_xpath, expression.span.start);
         let current_focus = self.bind_current_focus_variable(&mut rewritten_xpath);
         self.rewrite_user_function_references_expr(&mut rewritten_xpath, &expression.namespaces);
-        let static_context = self
-            .current_static_context()
-            .clone_with_static_base_uri(
-                self.current_static_context()
-                    .static_base_uri()
-                    .map(ToOwned::to_owned),
-            );
+        let static_context = self.current_static_context().clone_with_static_base_uri(
+            self.current_static_context()
+                .static_base_uri()
+                .map(ToOwned::to_owned),
+        );
         let mut ir_converter =
             xee_xpath_compiler::IrConverter::new(&mut self.variables, &static_context);
         let bindings = ir_converter.expr(&rewritten_xpath);
         let current_focus = current_focus?;
         if let Some((_, current_name)) = &current_focus {
-            self.variables.remove_var_name_in_current_scope(current_name);
+            self.variables
+                .remove_var_name_in_current_scope(current_name);
         }
         let bindings = bindings?;
         Ok(match current_focus {
@@ -5191,7 +5309,8 @@ impl<'a> IrConverter<'a> {
             }
             xpath_ast::ExprSingle::Let(let_expr) => {
                 self.rewrite_current_focus_expr_single(&mut let_expr.var_expr, current_name)
-                    | self.rewrite_current_focus_expr_single(&mut let_expr.return_expr, current_name)
+                    | self
+                        .rewrite_current_focus_expr_single(&mut let_expr.return_expr, current_name)
             }
             xpath_ast::ExprSingle::If(if_expr) => {
                 self.rewrite_current_focus_expr(&mut if_expr.condition, current_name)
@@ -5204,7 +5323,8 @@ impl<'a> IrConverter<'a> {
             }
             xpath_ast::ExprSingle::For(for_expr) => {
                 self.rewrite_current_focus_expr_single(&mut for_expr.var_expr, current_name)
-                    | self.rewrite_current_focus_expr_single(&mut for_expr.return_expr, current_name)
+                    | self
+                        .rewrite_current_focus_expr_single(&mut for_expr.return_expr, current_name)
             }
             xpath_ast::ExprSingle::Quantified(quantified_expr) => {
                 self.rewrite_current_focus_expr_single(&mut quantified_expr.var_expr, current_name)
@@ -5246,8 +5366,8 @@ impl<'a> IrConverter<'a> {
                         }
                         xpath_ast::Postfix::ArgumentList(arguments) => {
                             for argument in arguments {
-                                rewritten |= self
-                                    .rewrite_current_focus_expr_single(argument, current_name);
+                                rewritten |=
+                                    self.rewrite_current_focus_expr_single(argument, current_name);
                             }
                         }
                         xpath_ast::Postfix::Lookup(key_specifier) => {
@@ -5298,20 +5418,23 @@ impl<'a> IrConverter<'a> {
             xpath_ast::PrimaryExpr::MapConstructor(map_constructor) => {
                 let mut rewritten = false;
                 for entry in &mut map_constructor.entries {
-                    rewritten |= self.rewrite_current_focus_expr_single(&mut entry.key, current_name);
+                    rewritten |=
+                        self.rewrite_current_focus_expr_single(&mut entry.key, current_name);
                     rewritten |=
                         self.rewrite_current_focus_expr_single(&mut entry.value, current_name);
                 }
                 rewritten
             }
-            xpath_ast::PrimaryExpr::ArrayConstructor(array_constructor) => match array_constructor {
-                xpath_ast::ArrayConstructor::Square(expr) => {
-                    self.rewrite_current_focus_expr(expr, current_name)
+            xpath_ast::PrimaryExpr::ArrayConstructor(array_constructor) => {
+                match array_constructor {
+                    xpath_ast::ArrayConstructor::Square(expr) => {
+                        self.rewrite_current_focus_expr(expr, current_name)
+                    }
+                    xpath_ast::ArrayConstructor::Curly(expr) => {
+                        self.rewrite_current_focus_expr_or_empty(expr, current_name)
+                    }
                 }
-                xpath_ast::ArrayConstructor::Curly(expr) => {
-                    self.rewrite_current_focus_expr_or_empty(expr, current_name)
-                }
-            },
+            }
             xpath_ast::PrimaryExpr::UnaryLookup(key_specifier) => {
                 self.rewrite_current_focus_key_specifier(key_specifier, current_name)
             }
@@ -5344,13 +5467,11 @@ impl<'a> IrConverter<'a> {
     ) -> error::SpannedResult<Bindings> {
         let mut rewritten_xpath = xpath.clone();
         self.rewrite_user_function_references_expr(&mut rewritten_xpath, namespaces);
-        let static_context = self
-            .current_static_context()
-            .clone_with_static_base_uri(
-                self.current_static_context()
-                    .static_base_uri()
-                    .map(ToOwned::to_owned),
-            );
+        let static_context = self.current_static_context().clone_with_static_base_uri(
+            self.current_static_context()
+                .static_base_uri()
+                .map(ToOwned::to_owned),
+        );
         let mut ir_converter =
             xee_xpath_compiler::IrConverter::new(&mut self.variables, &static_context);
         ir_converter.expr(&rewritten_xpath)
@@ -5465,14 +5586,16 @@ impl<'a> IrConverter<'a> {
                     self.offset_xpath_spans_expr_single(&mut entry.value, offset);
                 }
             }
-            xpath_ast::PrimaryExpr::ArrayConstructor(array_constructor) => match array_constructor {
-                xpath_ast::ArrayConstructor::Square(expr) => {
-                    self.offset_xpath_spans_expr(expr, offset);
+            xpath_ast::PrimaryExpr::ArrayConstructor(array_constructor) => {
+                match array_constructor {
+                    xpath_ast::ArrayConstructor::Square(expr) => {
+                        self.offset_xpath_spans_expr(expr, offset);
+                    }
+                    xpath_ast::ArrayConstructor::Curly(expr) => {
+                        self.offset_xpath_spans_expr_or_empty(expr, offset);
+                    }
                 }
-                xpath_ast::ArrayConstructor::Curly(expr) => {
-                    self.offset_xpath_spans_expr_or_empty(expr, offset);
-                }
-            },
+            }
             xpath_ast::PrimaryExpr::UnaryLookup(key_specifier) => {
                 self.offset_xpath_spans_key_specifier(key_specifier, offset);
             }
@@ -5546,7 +5669,10 @@ impl<'a> IrConverter<'a> {
                 self.rewrite_user_function_references_path_expr(path_expr, namespaces);
             }
             xpath_ast::ExprSingle::Apply(apply_expr) => {
-                self.rewrite_user_function_references_path_expr(&mut apply_expr.path_expr, namespaces);
+                self.rewrite_user_function_references_path_expr(
+                    &mut apply_expr.path_expr,
+                    namespaces,
+                );
                 if let xpath_ast::ApplyOperator::SimpleMap(path_exprs) = &mut apply_expr.operator {
                     for path_expr in path_exprs {
                         self.rewrite_user_function_references_path_expr(path_expr, namespaces);
@@ -5554,8 +5680,14 @@ impl<'a> IrConverter<'a> {
                 }
             }
             xpath_ast::ExprSingle::Let(let_expr) => {
-                self.rewrite_user_function_references_expr_single(&mut let_expr.var_expr, namespaces);
-                self.rewrite_user_function_references_expr_single(&mut let_expr.return_expr, namespaces);
+                self.rewrite_user_function_references_expr_single(
+                    &mut let_expr.var_expr,
+                    namespaces,
+                );
+                self.rewrite_user_function_references_expr_single(
+                    &mut let_expr.return_expr,
+                    namespaces,
+                );
             }
             xpath_ast::ExprSingle::If(if_expr) => {
                 self.rewrite_user_function_references_expr(&mut if_expr.condition, namespaces);
@@ -5567,11 +5699,20 @@ impl<'a> IrConverter<'a> {
                 self.rewrite_user_function_references_path_expr(&mut binary_expr.right, namespaces);
             }
             xpath_ast::ExprSingle::For(for_expr) => {
-                self.rewrite_user_function_references_expr_single(&mut for_expr.var_expr, namespaces);
-                self.rewrite_user_function_references_expr_single(&mut for_expr.return_expr, namespaces);
+                self.rewrite_user_function_references_expr_single(
+                    &mut for_expr.var_expr,
+                    namespaces,
+                );
+                self.rewrite_user_function_references_expr_single(
+                    &mut for_expr.return_expr,
+                    namespaces,
+                );
             }
             xpath_ast::ExprSingle::Quantified(quantified_expr) => {
-                self.rewrite_user_function_references_expr_single(&mut quantified_expr.var_expr, namespaces);
+                self.rewrite_user_function_references_expr_single(
+                    &mut quantified_expr.var_expr,
+                    namespaces,
+                );
                 self.rewrite_user_function_references_expr_single(
                     &mut quantified_expr.satisfies_expr,
                     namespaces,
@@ -5642,16 +5783,14 @@ impl<'a> IrConverter<'a> {
                     && (function_call.name.value.namespace().is_empty()
                         || function_call.name.value.namespace() == FN_NAMESPACE)
                 {
-                    if let Some(base_uri) =
-                        self.current_static_context().static_base_uri()
-                    {
+                    if let Some(base_uri) = self.current_static_context().static_base_uri() {
                         let base_uri_str = base_uri.to_string();
                         let empty_span = (0..0).into();
                         // Build the string literal argument
                         let string_literal = Spanned::new(
-                            xpath_ast::PrimaryExpr::Literal(
-                                xpath_ast::Literal::String(base_uri_str),
-                            ),
+                            xpath_ast::PrimaryExpr::Literal(xpath_ast::Literal::String(
+                                base_uri_str,
+                            )),
                             empty_span,
                         );
                         let step = Spanned::new(
@@ -5659,10 +5798,7 @@ impl<'a> IrConverter<'a> {
                             empty_span,
                         );
                         let path = xpath_ast::PathExpr { steps: vec![step] };
-                        let arg = Spanned::new(
-                            xpath_ast::ExprSingle::Path(path),
-                            empty_span,
-                        );
+                        let arg = Spanned::new(xpath_ast::ExprSingle::Path(path), empty_span);
                         // Rewrite to xs:anyURI("base_uri") constructor call
                         function_call.name = Spanned::new(
                             Name::new(
@@ -5712,7 +5848,10 @@ impl<'a> IrConverter<'a> {
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::InlineFunction(inline_function) => {
-                self.rewrite_user_function_references_expr_or_empty(&mut inline_function.body, namespaces);
+                self.rewrite_user_function_references_expr_or_empty(
+                    &mut inline_function.body,
+                    namespaces,
+                );
                 Vec::new()
             }
             xpath_ast::PrimaryExpr::MapConstructor(map_constructor) => {
@@ -5819,7 +5958,8 @@ impl<'a> IrConverter<'a> {
         let xpath_ast::StepExpr::PrimaryExpr(primary) = &step.value else {
             return None;
         };
-        let xpath_ast::PrimaryExpr::Literal(xpath_ast::Literal::String(value)) = &primary.value else {
+        let xpath_ast::PrimaryExpr::Literal(xpath_ast::Literal::String(value)) = &primary.value
+        else {
             return None;
         };
         Some(value.clone())
@@ -5835,7 +5975,8 @@ impl<'a> IrConverter<'a> {
         let xpath_ast::StepExpr::PrimaryExpr(primary) = &mut step.value else {
             return None;
         };
-        let xpath_ast::PrimaryExpr::Literal(xpath_ast::Literal::String(value)) = &mut primary.value else {
+        let xpath_ast::PrimaryExpr::Literal(xpath_ast::Literal::String(value)) = &mut primary.value
+        else {
             return None;
         };
         Some(value)
@@ -5895,17 +6036,11 @@ impl<'a> IrConverter<'a> {
 
     /// Compile an XSLT pattern and store it as a NumberPatternDefinition.
     /// Returns the index into the number_patterns vec.
-    fn compile_number_pattern(
-        &mut self,
-        pattern: &ast::Pattern,
-    ) -> error::SpannedResult<usize> {
-        let compiled = transform_pattern(&pattern.pattern, |expr| {
-            self.pattern_predicate(expr)
-        })?;
+    fn compile_number_pattern(&mut self, pattern: &ast::Pattern) -> error::SpannedResult<usize> {
+        let compiled = transform_pattern(&pattern.pattern, |expr| self.pattern_predicate(expr))?;
         let index = self.number_patterns.len();
-        self.number_patterns.push(ir::NumberPatternDefinition {
-            pattern: compiled,
-        });
+        self.number_patterns
+            .push(ir::NumberPatternDefinition { pattern: compiled });
         Ok(index)
     }
 }

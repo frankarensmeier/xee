@@ -23,7 +23,11 @@ fn node_name(
             if prefix.is_empty() {
                 None
             } else {
-                Some(ast::Name::new(prefix.to_string(), "".to_string(), "".to_string()))
+                Some(ast::Name::new(
+                    prefix.to_string(),
+                    "".to_string(),
+                    "".to_string(),
+                ))
             }
         } else {
             xot.node_name_ref(node)?.map(|n| n.to_owned())

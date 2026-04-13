@@ -2,8 +2,8 @@ use ahash::{HashMap, HashMapExt};
 use rust_decimal::Decimal;
 use xee_xpath_ast::Pattern;
 
-use crate::{function, pattern::ModeId, pattern::ModeLookup};
 use crate::sequence::SerializationParameters;
+use crate::{function, pattern::ModeId, pattern::ModeLookup};
 use xot::xmlname::OwnedName;
 
 #[derive(Debug, Clone)]
@@ -199,12 +199,12 @@ impl Declarations {
         &self,
         function_id: function::InlineFunctionId,
     ) -> Option<&[usize]> {
-        self.template_module_path.get(&function_id).map(Vec::as_slice)
+        self.template_module_path
+            .get(&function_id)
+            .map(Vec::as_slice)
     }
 
-    pub fn template_module_paths(
-        &self,
-    ) -> &HashMap<function::InlineFunctionId, Vec<usize>> {
+    pub fn template_module_paths(&self) -> &HashMap<function::InlineFunctionId, Vec<usize>> {
         &self.template_module_path
     }
 

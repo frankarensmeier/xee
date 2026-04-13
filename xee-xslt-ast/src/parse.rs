@@ -1,13 +1,11 @@
-use xee_xpath_compiler::context::Variables;
 use std::path::PathBuf;
+use xee_xpath_compiler::context::Variables;
 use xot::Xot;
 
 use crate::ast_core as ast;
 use crate::error::ElementError as Error;
 use crate::instruction::SequenceConstructorParser;
-use crate::staticeval::{
-    static_evaluate_with_initial_variables_and_location_and_active_paths,
-};
+use crate::staticeval::static_evaluate_with_initial_variables_and_location_and_active_paths;
 use crate::{content::Content, context::Context, element::XsltParser, names::Names, state::State};
 
 type Result<V> = std::result::Result<V, Error>;

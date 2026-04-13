@@ -1,7 +1,7 @@
 use ahash::{HashSet, HashSetExt};
 use xee_xpath_macros::xpath_fn;
-use xot::{Node, Xot};
 use xot::xmlname::OwnedName;
+use xot::{Node, Xot};
 
 use crate::atomic;
 use crate::context::DynamicContext;
@@ -126,11 +126,7 @@ fn key_helper(
     top: Node,
 ) -> Result<Vec<Node>, Error> {
     // Resolve the key name as a QName (no namespace for now, matching DocBook usage)
-    let key_owned_name = OwnedName::new(
-        key_name.to_string(),
-        "".to_string(),
-        "".to_string(),
-    );
+    let key_owned_name = OwnedName::new(key_name.to_string(), "".to_string(), "".to_string());
 
     // Find all key declarations with this name
     let key_decls: Vec<_> = interpreter

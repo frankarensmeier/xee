@@ -55,35 +55,38 @@ impl Dependency {
         let type_query = queries.option("@type/string()", convert_string)?;
         let value_query = queries.option("@value/string()", convert_string)?;
 
-        let dependency_query = queries.many("dependency | dependencies/*", move |session, item| {
-            let satisfied = satisfied_query.execute(session, item)?;
-            let satisfied = if let Some(satisfied) = satisfied {
-                if satisfied == "true" {
-                    true
-                } else if satisfied == "false" {
-                    false
+        let dependency_query =
+            queries.many("dependency | dependencies/*", move |session, item| {
+                let satisfied = satisfied_query.execute(session, item)?;
+                let satisfied = if let Some(satisfied) = satisfied {
+                    if satisfied == "true" {
+                        true
+                    } else if satisfied == "false" {
+                        false
+                    } else {
+                        panic!("Unexpected satisfied value: {:?}", satisfied);
+                    }
                 } else {
-                    panic!("Unexpected satisfied value: {:?}", satisfied);
-                }
-            } else {
-                true
-            };
-            let local_name = name_query.execute(session, item)?;
-            let type_ = type_query.execute(session, item)?.unwrap_or(local_name.clone());
-            let value = value_query
-                .execute(session, item)?
-                .unwrap_or_else(|| "true".to_string());
-            let values = value.split(' ');
-            Ok(values
-                .map(|value| Dependency {
-                    spec: DependencySpec {
-                        type_: type_.clone(),
-                        value: value.to_string(),
-                    },
-                    satisfied,
-                })
-                .collect::<Vec<Dependency>>())
-        })?;
+                    true
+                };
+                let local_name = name_query.execute(session, item)?;
+                let type_ = type_query
+                    .execute(session, item)?
+                    .unwrap_or(local_name.clone());
+                let value = value_query
+                    .execute(session, item)?
+                    .unwrap_or_else(|| "true".to_string());
+                let values = value.split(' ');
+                Ok(values
+                    .map(|value| Dependency {
+                        spec: DependencySpec {
+                            type_: type_.clone(),
+                            value: value.to_string(),
+                        },
+                        satisfied,
+                    })
+                    .collect::<Vec<Dependency>>())
+            })?;
         Ok(dependency_query)
     }
 }
@@ -188,7 +191,10 @@ mod tests {
 
     use super::*;
 
-    use crate::{language::{XPathLanguage, XsltLanguage}, ns::{XPATH_TEST_NS, XSLT_TEST_NS}};
+    use crate::{
+        language::{XPathLanguage, XsltLanguage},
+        ns::{XPATH_TEST_NS, XSLT_TEST_NS},
+    };
 
     #[test]
     fn test_load_dependencies() {

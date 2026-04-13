@@ -219,10 +219,7 @@ fn serialize_text(
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
     let node = arg.normalize(&parameters.item_separator, xot)?;
-    let serialized = apply_character_maps(
-        &xot.string_value(node),
-        &parameters.use_character_maps,
-    );
+    let serialized = apply_character_maps(&xot.string_value(node), &parameters.use_character_maps);
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
@@ -346,10 +343,7 @@ fn serialize_xhtml(
         }
     }
 
-    remove_redundant_default_namespace(
-        &mut serialized,
-        " xmlns=\"http://www.w3.org/1999/xhtml\"",
-    );
+    remove_redundant_default_namespace(&mut serialized, " xmlns=\"http://www.w3.org/1999/xhtml\"");
 
     if !parameters.omit_xml_declaration {
         serialized = format!(
@@ -463,19 +457,23 @@ fn normalize_default_namespace_nodes(root: xot::Node, xot: &mut Xot) {
             .map(|name| xot.namespace_str(xot.namespace_for_name(name)).to_string())
             .unwrap_or_default();
 
-        let explicit_default_namespace = xot.children(element).find_map(|child| {
-            match xot.value(child) {
-                xot::Value::Namespace(namespace)
-                    if xot.prefix_str(namespace.prefix()).is_empty() =>
-                {
-                    Some((child, xot.namespace_str(namespace.namespace()).to_string()))
-                }
-                _ => None,
-            }
-        });
+        let explicit_default_namespace =
+            xot.children(element)
+                .find_map(|child| match xot.value(child) {
+                    xot::Value::Namespace(namespace)
+                        if xot.prefix_str(namespace.prefix()).is_empty() =>
+                    {
+                        Some((child, xot.namespace_str(namespace.namespace()).to_string()))
+                    }
+                    _ => None,
+                });
 
         if element_namespace.is_empty() && !parent_default_namespace.is_empty() {
-            if explicit_default_namespace.as_ref().map(|(_, uri)| uri.as_str()) != Some("") {
+            if explicit_default_namespace
+                .as_ref()
+                .map(|(_, uri)| uri.as_str())
+                != Some("")
+            {
                 if let Some((child, _)) = explicit_default_namespace {
                     let _ = xot.remove(child);
                 }
@@ -512,10 +510,7 @@ fn apply_character_maps(value: &str, character_maps: &HashMap<char, String>) -> 
     mapped
 }
 
-fn apply_byte_order_mark(
-    mut serialized: String,
-    parameters: &SerializationParameters,
-) -> String {
+fn apply_byte_order_mark(mut serialized: String, parameters: &SerializationParameters) -> String {
     if parameters.byte_order_mark {
         serialized.insert(0, '\u{FEFF}');
     }

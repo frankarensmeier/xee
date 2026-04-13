@@ -243,7 +243,10 @@ fn unparsed_text_available2(context: &DynamicContext, href: Option<&str>, encodi
 }
 
 #[xpath_fn("fn:unparsed-text-lines($href as xs:string?) as xs:string*")]
-fn unparsed_text_lines1(context: &DynamicContext, href: Option<&str>) -> error::Result<Vec<String>> {
+fn unparsed_text_lines1(
+    context: &DynamicContext,
+    href: Option<&str>,
+) -> error::Result<Vec<String>> {
     match href {
         Some(href) => {
             let text = read_text_resource(context, href, None)?;

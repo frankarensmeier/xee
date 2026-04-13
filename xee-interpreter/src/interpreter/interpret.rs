@@ -492,7 +492,10 @@ impl<'a> Interpreter<'a> {
                     } else if cast_type.empty_sequence_allowed {
                         self.state.push(sequence::Sequence::default());
                     } else {
-                        Err(error::Error::type_error(format!("cast requires a value, got empty sequence (target type: {:?})", cast_type.xs)))?;
+                        Err(error::Error::type_error(format!(
+                            "cast requires a value, got empty sequence (target type: {:?})",
+                            cast_type.xs
+                        )))?;
                     }
                 }
                 EncodedInstruction::Castable => {
@@ -580,9 +583,13 @@ impl<'a> Interpreter<'a> {
                     let index = self.pop_atomic()?;
                     let index = index.cast_to_integer_value::<i64>()? as usize;
                     // substract 1 as Xpath is 1-indexed
-                    let item = value.get(index - 1).ok_or(error::Error::type_error(
-                        format!("sequence index {} out of bounds (length {})", index, value.len())
-                    ))?;
+                    let item = value
+                        .get(index - 1)
+                        .ok_or(error::Error::type_error(format!(
+                            "sequence index {} out of bounds (length {})",
+                            index,
+                            value.len()
+                        )))?;
                     let sequence: sequence::Sequence = item.into();
                     self.state.push(sequence)
                 }
@@ -765,11 +772,8 @@ impl<'a> Interpreter<'a> {
                     let tunnel_params = self.state.pop()?.one()?.to_map()?;
                     let params = self.state.pop()?.one()?.to_map()?;
                     let behavior = self.read_u8();
-                    let value = self.continue_template_with_params(
-                        &params,
-                        &tunnel_params,
-                        behavior,
-                    )?;
+                    let value =
+                        self.continue_template_with_params(&params, &tunnel_params, behavior)?;
                     self.state.push(value);
                 }
                 EncodedInstruction::RaiseError => {
@@ -1062,7 +1066,8 @@ impl<'a> Interpreter<'a> {
                 self.state.push_value(stack::Value::Absent);
             }
         }
-        self.call_function(function, arity).map_err(|error| self.err(error))?;
+        self.call_function(function, arity)
+            .map_err(|error| self.err(error))?;
         if matches!(function, function::Function::Inline(_)) {
             self.run(self.state.frame().base())?;
         }
@@ -1092,7 +1097,11 @@ impl<'a> Interpreter<'a> {
     ) -> error::Result<()> {
         let static_function = self.runnable.program().static_function(static_function_id);
         if arity as usize != static_function.arity() {
-            return Err(error::Error::type_error(format!("function expects {} argument(s), got {}", static_function.arity(), arity)));
+            return Err(error::Error::type_error(format!(
+                "function expects {} argument(s), got {}",
+                static_function.arity(),
+                arity
+            )));
         }
         let parameter_types = static_function.signature().parameter_types();
         let arguments = self.coerce_arguments(parameter_types, arity)?;
@@ -1113,7 +1122,11 @@ impl<'a> Interpreter<'a> {
         let function = self.runnable.program().inline_function(function_id);
         let parameter_types = &function.signature.parameter_types();
         if arity as usize != parameter_types.len() {
-            return Err(error::Error::type_error(format!("function expects {} argument(s), got {}", parameter_types.len(), arity)));
+            return Err(error::Error::type_error(format!(
+                "function expects {} argument(s), got {}",
+                parameter_types.len(),
+                arity
+            )));
         }
 
         let arguments = self.coerce_inline_arguments(parameter_types, arity)?;
@@ -1199,7 +1212,10 @@ impl<'a> Interpreter<'a> {
 
     fn call_array(&mut self, array: &function::Array, arity: usize) -> error::Result<()> {
         if arity != 1 {
-            return Err(error::Error::type_error(format!("array lookup expects 1 argument, got {}", arity)));
+            return Err(error::Error::type_error(format!(
+                "array lookup expects 1 argument, got {}",
+                arity
+            )));
         }
         // the argument
         let position = self.pop_atomic()?;
@@ -1229,7 +1245,10 @@ impl<'a> Interpreter<'a> {
 
     fn call_map(&mut self, map: &function::Map, arity: usize) -> error::Result<()> {
         if arity != 1 {
-            return Err(error::Error::type_error(format!("map lookup expects 1 argument, got {}", arity)));
+            return Err(error::Error::type_error(format!(
+                "map lookup expects 1 argument, got {}",
+                arity
+            )));
         }
         let key = self.pop_atomic()?;
         let value = map.get(&key);
@@ -1282,7 +1301,9 @@ impl<'a> Interpreter<'a> {
     ) -> error::Result<Vec<sequence::Item>> {
         self.lookup_helper(key_specifier, array, |array, atomic| match atomic {
             atomic::Atomic::Integer(..) => Self::array_get(array, atomic),
-            _ => Err(error::Error::type_error("array lookup key must be an integer")),
+            _ => Err(error::Error::type_error(
+                "array lookup key must be an integer",
+            )),
         })
     }
 
@@ -1327,7 +1348,11 @@ impl<'a> Interpreter<'a> {
                 }
                 result
             }
-            _ => return Err(error::Error::type_error("wildcard lookup requires a map or array")),
+            _ => {
+                return Err(error::Error::type_error(
+                    "wildcard lookup requires a map or array",
+                ))
+            }
         };
         let sequence: sequence::Sequence = value.into();
         self.state.push(sequence);
@@ -1612,7 +1637,8 @@ impl<'a> Interpreter<'a> {
         };
 
         for (i, item) in sequence.iter().enumerate() {
-            let sequence = self.apply_templates_item(mode, item.clone(), i, size.clone(), &options)?;
+            let sequence =
+                self.apply_templates_item(mode, item.clone(), i, size.clone(), &options)?;
             if let Some(sequence) = sequence {
                 for item in sequence.iter() {
                     r.push(item.clone());
@@ -1801,13 +1827,8 @@ impl<'a> Interpreter<'a> {
                     .filter_map(|name| self.state.xot.attributes(node).get_node(name))
                     .map(sequence::Item::Node)
                     .collect();
-                content.extend(
-                    self.state
-                        .xot
-                        .children(node)
-                        .map(sequence::Item::Node),
-                );
-                
+                content.extend(self.state.xot.children(node).map(sequence::Item::Node));
+
                 let empty_params = function::Map::new(Vec::new()).unwrap();
                 let params = if builtin_template_params_passthrough {
                     params
@@ -1836,7 +1857,9 @@ impl<'a> Interpreter<'a> {
         builtin_template_params_passthrough: bool,
     ) -> error::Result<Option<sequence::Sequence>> {
         match item {
-            sequence::Item::Node(node) if matches!(self.state.xot.value(node), xot::Value::Document) => {
+            sequence::Item::Node(node)
+                if matches!(self.state.xot.value(node), xot::Value::Document) =>
+            {
                 let children = self
                     .state
                     .xot
@@ -2119,12 +2142,19 @@ impl<'a> Interpreter<'a> {
                 current_import_precedence,
                 |pattern| self.matches(pattern, item),
                 |rule| rule.function_id == current,
-                |rule| import_precedences.get(&rule.function_id).copied().unwrap_or_default(),
                 |rule| {
-                    module_paths.get(&rule.function_id).is_some_and(|module_path| {
-                        module_path.len() > current_module_path.len()
-                            && module_path.starts_with(current_module_path)
-                    })
+                    import_precedences
+                        .get(&rule.function_id)
+                        .copied()
+                        .unwrap_or_default()
+                },
+                |rule| {
+                    module_paths
+                        .get(&rule.function_id)
+                        .is_some_and(|module_path| {
+                            module_path.len() > current_module_path.len()
+                                && module_path.starts_with(current_module_path)
+                        })
                 },
             )
             .map(|rule| rule.function_id)

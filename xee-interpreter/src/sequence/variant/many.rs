@@ -40,12 +40,18 @@ impl<'a> SequenceCore<'a, std::iter::Cloned<std::slice::Iter<'a, Item>>> for Man
 
     #[inline]
     fn one(self) -> error::Result<Item> {
-        Err(error::Error::type_error(format!("expected exactly one item, got {}", self.items.len())))
+        Err(error::Error::type_error(format!(
+            "expected exactly one item, got {}",
+            self.items.len()
+        )))
     }
 
     #[inline]
     fn option(self) -> error::Result<Option<Item>> {
-        Err(error::Error::type_error(format!("expected zero or one item, got {}", self.items.len())))
+        Err(error::Error::type_error(format!(
+            "expected zero or one item, got {}",
+            self.items.len()
+        )))
     }
 
     #[inline]
@@ -66,7 +72,10 @@ impl<'a> SequenceCore<'a, std::iter::Cloned<std::slice::Iter<'a, Item>>> for Man
 
     #[inline]
     fn string_value(&self, _xot: &xot::Xot) -> error::Result<String> {
-        Err(error::Error::type_error(format!("string value requires a single item, got {}", self.items.len())))
+        Err(error::Error::type_error(format!(
+            "string value requires a single item, got {}",
+            self.items.len()
+        )))
     }
 }
 
@@ -90,6 +99,9 @@ where
     Many: SequenceCore<'a, I>,
 {
     fn one_node(&self) -> error::Result<xot::Node> {
-        Err(error::Error::type_error(format!("expected exactly one node, got {} items", self.items.len())))
+        Err(error::Error::type_error(format!(
+            "expected exactly one node, got {} items",
+            self.items.len()
+        )))
     }
 }

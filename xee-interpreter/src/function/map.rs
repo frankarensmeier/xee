@@ -99,9 +99,7 @@ impl Map {
             Map::Many(map) => Box::new(map.keys()),
         }
     }
-    pub fn entries(
-        &self,
-    ) -> Box<dyn Iterator<Item = (&atomic::Atomic, &sequence::Sequence)> + '_> {
+    pub fn entries(&self) -> Box<dyn Iterator<Item = (&atomic::Atomic, &sequence::Sequence)> + '_> {
         match self {
             Map::Empty(map) => Box::new(map.entries()),
             Map::One(map) => Box::new(map.entries()),

@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 use xee_name::{Namespaces, VariableNames};
 use xee_xpath_ast::parse_name;
-use xot::Node;
 use xot::xmlname::{NameStrInfo, OwnedName};
+use xot::Node;
 
 use xee_xpath_ast::ast as xpath_ast;
 
@@ -177,7 +177,11 @@ impl InstructionParser for ast::ElementNode {
                     .namespace_for_name(content.state.xot.node_name(node).unwrap())
                     != content.state.names.xsl_ns
             {
-                parent_namespaces = content.state.xot.namespaces_in_scope(node).collect::<Vec<_>>();
+                parent_namespaces = content
+                    .state
+                    .xot
+                    .namespaces_in_scope(node)
+                    .collect::<Vec<_>>();
                 break;
             }
             parent = content.state.xot.parent(node);
@@ -209,21 +213,28 @@ impl InstructionParser for ast::ElementNode {
             if namespaces
                 .iter()
                 .any(|namespace| namespace.prefix == prefix && namespace.uri == uri)
-                || parent_namespaces.iter().any(|(parent_prefix, parent_namespace)| {
-                    content.state.xot.prefix_str(*parent_prefix) == prefix
-                        && content.state.xot.namespace_str(*parent_namespace) == uri
-                })
+                || parent_namespaces
+                    .iter()
+                    .any(|(parent_prefix, parent_namespace)| {
+                        content.state.xot.prefix_str(*parent_prefix) == prefix
+                            && content.state.xot.namespace_str(*parent_namespace) == uri
+                    })
             {
                 return Ok(());
             }
 
             if uri.is_empty() {
-                let parent_has_default_namespace = parent_namespaces
-                    .iter()
-                    .any(|(parent_prefix, parent_namespace)| {
-                        content.state.xot.prefix_str(*parent_prefix).is_empty()
-                            && !content.state.xot.namespace_str(*parent_namespace).is_empty()
-                    });
+                let parent_has_default_namespace =
+                    parent_namespaces
+                        .iter()
+                        .any(|(parent_prefix, parent_namespace)| {
+                            content.state.xot.prefix_str(*parent_prefix).is_empty()
+                                && !content
+                                    .state
+                                    .xot
+                                    .namespace_str(*parent_namespace)
+                                    .is_empty()
+                        });
                 if prefix.is_empty() && parent_has_default_namespace {
                     namespaces.push(ast::LiteralNamespace { prefix, uri });
                 }
@@ -591,7 +602,8 @@ impl InstructionParser for ast::Try {
             let child_content = content.with_node(node);
             match element.name() {
                 name if name == names.xsl_catch => {
-                    let catch = child_content.parse_element(element, ast::Catch::parse_and_validate)?;
+                    let catch =
+                        child_content.parse_element(element, ast::Catch::parse_and_validate)?;
                     if first_catch.is_some() {
                         catches.push(ast::TryCatchOrFallback::Catch(catch));
                     } else {
@@ -1706,20 +1718,13 @@ impl InstructionParser for ast::ResultDocument {
             .collect();
 
         Ok(ast::ResultDocument {
-            format: attributes.optional(
-                names.format,
-                attributes.value_template(attributes.eqname()),
-            )?,
-            href: attributes.optional(
-                names.href,
-                attributes.value_template(attributes.uri()),
-            )?,
+            format: attributes
+                .optional(names.format, attributes.value_template(attributes.eqname()))?,
+            href: attributes.optional(names.href, attributes.value_template(attributes.uri()))?,
             validation: attributes.optional(names.validation, attributes.validation())?,
             type_: attributes.optional(names.type_, attributes.eqname())?,
-            method: attributes.optional(
-                names.method,
-                attributes.value_template(attributes.method()),
-            )?,
+            method: attributes
+                .optional(names.method, attributes.value_template(attributes.method()))?,
             allow_duplicate_names: attributes.optional(
                 names.allow_duplicate_names,
                 attributes.value_template(attributes.boolean()),
@@ -1800,7 +1805,8 @@ impl InstructionParser for ast::ResultDocument {
                 names.undeclare_prefixes,
                 attributes.value_template(attributes.boolean()),
             )?,
-            use_character_maps: attributes.optional(names.use_character_maps, attributes.eqnames())?,
+            use_character_maps: attributes
+                .optional(names.use_character_maps, attributes.eqnames())?,
             version: attributes.optional(
                 names.output_version,
                 attributes.value_template(attributes.nmtoken()),
@@ -1953,9 +1959,7 @@ impl InstructionParser for ast::Text {
 
         let children = content.state.xot.children(content.node).collect::<Vec<_>>();
         if children.len() > 1 {
-            return Err(Error::Unexpected {
-                span,
-            });
+            return Err(Error::Unexpected { span });
         }
         let text = if !children.is_empty() {
             let text = content.state.xot.text_content_str(content.node);
@@ -1964,9 +1968,7 @@ impl InstructionParser for ast::Text {
             } else {
                 // this wasn't text content, and it wasn't because it was
                 // empty either
-                return Err(Error::Unexpected {
-                    span,
-                });
+                return Err(Error::Unexpected { span });
             }
         } else {
             ""

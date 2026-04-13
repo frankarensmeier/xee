@@ -43,10 +43,25 @@ pub trait TransformEvaluator: std::fmt::Debug {
     ) -> error::SpannedResult<function::Map>;
 }
 
+#[derive(Debug, Clone)]
+pub struct SourceChunk {
+    uri: String,
+    start_offset: usize,
+    end_offset: usize,
+    source: Option<String>,
+}
+
+impl SourceChunk {
+    fn len(&self) -> usize {
+        self.end_offset.saturating_sub(self.start_offset)
+    }
+}
+
 #[derive(Debug)]
 pub struct Program {
     span: Span,
     source: Option<String>,
+    source_chunks: Vec<SourceChunk>,
     pub functions: Vec<function::InlineFunction>,
     pub declarations: Declarations,
     static_context: context::StaticContext,
@@ -61,6 +76,7 @@ impl Program {
         Program {
             span,
             source: None,
+            source_chunks: Vec::new(),
             functions: Vec::new(),
             declarations: Declarations::new(),
             static_context,
@@ -75,10 +91,7 @@ impl Program {
         &self.static_context
     }
 
-    pub fn set_dynamic_xpath_evaluator(
-        &mut self,
-        evaluator: Box<dyn DynamicXPathEvaluator>,
-    ) {
+    pub fn set_dynamic_xpath_evaluator(&mut self, evaluator: Box<dyn DynamicXPathEvaluator>) {
         self.dynamic_xpath_evaluator = Some(evaluator);
     }
 
@@ -86,10 +99,7 @@ impl Program {
         self.dynamic_xpath_evaluator.as_deref()
     }
 
-    pub fn set_transform_evaluator(
-        &mut self,
-        evaluator: Box<dyn TransformEvaluator>,
-    ) {
+    pub fn set_transform_evaluator(&mut self, evaluator: Box<dyn TransformEvaluator>) {
         self.transform_evaluator = Some(evaluator);
     }
 
@@ -111,6 +121,44 @@ impl Program {
 
     pub fn source(&self) -> Option<&str> {
         self.source.as_deref()
+    }
+
+    pub fn add_source_chunk(
+        &mut self,
+        uri: String,
+        start_offset: usize,
+        end_offset: usize,
+        source: Option<String>,
+    ) {
+        self.source_chunks.push(SourceChunk {
+            uri,
+            start_offset,
+            end_offset: end_offset.max(start_offset),
+            source,
+        });
+    }
+
+    pub fn source_for_uri(&self, uri: &str) -> Option<&str> {
+        self.source_chunks
+            .iter()
+            .find(|chunk| chunk.uri == uri)
+            .and_then(|chunk| chunk.source.as_deref())
+    }
+
+    pub fn resolve_source_span(
+        &self,
+        span: SourceSpan,
+    ) -> Option<(String, std::ops::Range<usize>)> {
+        let range = span.range();
+        let start = range.start;
+        let end = range.end;
+        let chunk = self
+            .source_chunks
+            .iter()
+            .find(|chunk| start >= chunk.start_offset && start <= chunk.end_offset)?;
+        let local_start = start.saturating_sub(chunk.start_offset).min(chunk.len());
+        let local_end = end.saturating_sub(chunk.start_offset).min(chunk.len());
+        Some((chunk.uri.clone(), local_start..local_end))
     }
 
     pub fn source_location(&self, span: SourceSpan) -> Option<(usize, usize)> {

@@ -599,10 +599,11 @@ impl Assertable for AssertSerializationMatches {
         documents: &mut Documents,
         sequence: &Sequence,
     ) -> TestOutcome {
-        let serialized = match serialize_for_assertion(context, documents, sequence, self.method.as_deref()) {
-            Ok(serialized) => serialized,
-            Err(error) => return TestOutcome::RuntimeError(error.value()),
-        };
+        let serialized =
+            match serialize_for_assertion(context, documents, sequence, self.method.as_deref()) {
+                Ok(serialized) => serialized,
+                Err(error) => return TestOutcome::RuntimeError(error.value()),
+            };
 
         let mut builder = regex::RegexBuilder::new(&self.pattern);
         if let Some(flags) = &self.flags {
@@ -616,10 +617,7 @@ impl Assertable for AssertSerializationMatches {
                 if regex.is_match(&serialized) {
                     TestOutcome::Passed
                 } else {
-                    TestOutcome::Failed(Failure::SerializationMatches(
-                        self.clone(),
-                        serialized,
-                    ))
+                    TestOutcome::Failed(Failure::SerializationMatches(self.clone(), serialized))
                 }
             }
             Err(error) => TestOutcome::EnvironmentError(format!("Invalid regex: {error}")),
@@ -646,18 +644,16 @@ impl Assertable for AssertSerialization {
         documents: &mut Documents,
         sequence: &Sequence,
     ) -> TestOutcome {
-        let serialized = match serialize_for_assertion(context, documents, sequence, self.method.as_deref()) {
-            Ok(serialized) => serialized,
-            Err(error) => return TestOutcome::RuntimeError(error.value()),
-        };
+        let serialized =
+            match serialize_for_assertion(context, documents, sequence, self.method.as_deref()) {
+                Ok(serialized) => serialized,
+                Err(error) => return TestOutcome::RuntimeError(error.value()),
+            };
 
         if serialized == self.expected {
             TestOutcome::Passed
         } else {
-            TestOutcome::Failed(Failure::Serialization(
-                self.clone(),
-                serialized,
-            ))
+            TestOutcome::Failed(Failure::Serialization(self.clone(), serialized))
         }
     }
 }
@@ -829,18 +825,17 @@ impl AssertError {
         // code matches too
         let code = error.code_qname();
         // Parse expected code: may be Q{namespace}local-name or just local-name
-        let (expected_local, expected_ns) =
-            if let Some(rest) = self.0.strip_prefix("Q{") {
-                if let Some(close_brace) = rest.find('}') {
-                    let ns = &rest[..close_brace];
-                    let local = &rest[close_brace + 1..];
-                    (local, Some(ns))
-                } else {
-                    (self.0.as_str(), None)
-                }
+        let (expected_local, expected_ns) = if let Some(rest) = self.0.strip_prefix("Q{") {
+            if let Some(close_brace) = rest.find('}') {
+                let ns = &rest[..close_brace];
+                let local = &rest[close_brace + 1..];
+                (local, Some(ns))
             } else {
                 (self.0.as_str(), None)
-            };
+            }
+        } else {
+            (self.0.as_str(), None)
+        };
         let local_matches = code.local_name() == expected_local;
         let ns_matches = match expected_ns {
             Some(ns) => code.namespace() == ns,
@@ -1072,9 +1067,9 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
         let assert_serialization_query = queries.one(".", move |documents, item| {
             let expected = assert_serialization_contents_query.execute(documents, item)?;
             let method = assert_serialization_method_query.execute(documents, item)?;
-            Ok(TestCaseResult::AssertSerialization(AssertSerialization::new(
-                expected, method,
-            )))
+            Ok(TestCaseResult::AssertSerialization(
+                AssertSerialization::new(expected, method),
+            ))
         })?;
 
         let serialization_matches_contents_query = serialization_contents_query.clone();
@@ -1107,56 +1102,56 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
         let local_name_query = queries.one("local-name()", convert_string)?;
         let result_query =
             queries.one("result/*", move |documents: &mut Documents, item: &Item| {
-                let f =
-                    |documents: &mut Documents, item: &Item, recurse: &Recurse<TestCaseResult>| {
-                        let local_name = local_name_query.execute(documents, item)?;
-                        let r = match local_name.as_ref() {
-                            "any-of" => {
-                                let contents = any_all_recurse.execute(documents, item, recurse)?;
-                                TestCaseResult::AnyOf(AssertAnyOf::new(contents))
-                            }
-                            "all-of" => {
-                                let contents = any_all_recurse.execute(documents, item, recurse)?;
-                                TestCaseResult::AllOf(AssertAllOf::new(contents))
-                            }
-                            "not" => {
-                                let contents = not_recurse.execute(documents, item, recurse)?;
-                                TestCaseResult::Not(AssertNot::new(contents))
-                            }
-                            "error" => error_query.execute(documents, item)?,
-                            "assert-true" => TestCaseResult::AssertTrue(AssertTrue::new()),
-                            "assert-false" => TestCaseResult::AssertFalse(AssertFalse::new()),
-                            "assert-count" => assert_count_query.execute(documents, item)?,
-                            "assert-xml" => assert_xml_query.execute(documents, item)?,
-                            "assert-eq" => assert_eq_query.execute(documents, item)?,
-                            "assert-deep-eq" => assert_deep_eq_query.execute(documents, item)?,
-                            "assert-string-value" => {
-                                assert_string_value_query.execute(documents, item)?
-                            }
-                            "assert" => assert_query.execute(documents, item)?,
-                            "assert-serialization" => {
-                                assert_serialization_query.execute(documents, item)?
-                            }
-                            "serialization-matches" => {
-                                serialization_matches_query.execute(documents, item)?
-                            }
-                            "assert-permutation" => {
-                                assert_permutation_query.execute(documents, item)?
-                            }
-                            "assert-result-document" => {
-                                let uri =
-                                    assert_result_document_uri_query.execute(documents, item)?;
-                                let contents = not_recurse.execute(documents, item, recurse)?;
-                                TestCaseResult::AssertResultDocument(
-                                    AssertResultDocument::new(uri, contents),
-                                )
-                            }
-                            "assert-empty" => TestCaseResult::AssertEmpty(AssertEmpty::new()),
-                            "assert-type" => assert_type_query.execute(documents, item)?,
-                            _ => TestCaseResult::Unsupported,
-                        };
-                        Ok(r)
+                let f = |documents: &mut Documents,
+                         item: &Item,
+                         recurse: &Recurse<TestCaseResult>| {
+                    let local_name = local_name_query.execute(documents, item)?;
+                    let r = match local_name.as_ref() {
+                        "any-of" => {
+                            let contents = any_all_recurse.execute(documents, item, recurse)?;
+                            TestCaseResult::AnyOf(AssertAnyOf::new(contents))
+                        }
+                        "all-of" => {
+                            let contents = any_all_recurse.execute(documents, item, recurse)?;
+                            TestCaseResult::AllOf(AssertAllOf::new(contents))
+                        }
+                        "not" => {
+                            let contents = not_recurse.execute(documents, item, recurse)?;
+                            TestCaseResult::Not(AssertNot::new(contents))
+                        }
+                        "error" => error_query.execute(documents, item)?,
+                        "assert-true" => TestCaseResult::AssertTrue(AssertTrue::new()),
+                        "assert-false" => TestCaseResult::AssertFalse(AssertFalse::new()),
+                        "assert-count" => assert_count_query.execute(documents, item)?,
+                        "assert-xml" => assert_xml_query.execute(documents, item)?,
+                        "assert-eq" => assert_eq_query.execute(documents, item)?,
+                        "assert-deep-eq" => assert_deep_eq_query.execute(documents, item)?,
+                        "assert-string-value" => {
+                            assert_string_value_query.execute(documents, item)?
+                        }
+                        "assert" => assert_query.execute(documents, item)?,
+                        "assert-serialization" => {
+                            assert_serialization_query.execute(documents, item)?
+                        }
+                        "serialization-matches" => {
+                            serialization_matches_query.execute(documents, item)?
+                        }
+                        "assert-permutation" => {
+                            assert_permutation_query.execute(documents, item)?
+                        }
+                        "assert-result-document" => {
+                            let uri = assert_result_document_uri_query.execute(documents, item)?;
+                            let contents = not_recurse.execute(documents, item, recurse)?;
+                            TestCaseResult::AssertResultDocument(AssertResultDocument::new(
+                                uri, contents,
+                            ))
+                        }
+                        "assert-empty" => TestCaseResult::AssertEmpty(AssertEmpty::new()),
+                        "assert-type" => assert_type_query.execute(documents, item)?,
+                        _ => TestCaseResult::Unsupported,
                     };
+                    Ok(r)
+                };
                 let recurse = Recurse::new(&f);
                 recurse.execute(documents, item)
             })?;
@@ -1370,13 +1365,20 @@ fn serialize_for_assertion(
     method: Option<&str>,
 ) -> error::Result<String> {
     let set_html_media_type = |params: &mut SerializationParameters| {
-        if params.media_type.as_deref().is_none_or(|media_type| media_type == "text/xml") {
+        if params
+            .media_type
+            .as_deref()
+            .is_none_or(|media_type| media_type == "text/xml")
+        {
             params.media_type = Some("text/html".to_string());
         }
     };
 
     if matches!(method, Some("text")) {
-        let node = sequence.normalize(&context.serialization_parameters().item_separator, documents.xot_mut())?;
+        let node = sequence.normalize(
+            &context.serialization_parameters().item_separator,
+            documents.xot_mut(),
+        )?;
         return Ok(documents.xot().string_value(node));
     }
 

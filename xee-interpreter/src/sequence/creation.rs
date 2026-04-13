@@ -100,13 +100,17 @@ impl Sequence {
             match item {
                 Item::Node(n) => {
                     if non_node_seen {
-                        return Err(error::Error::type_error("path expression mixes nodes and non-nodes"));
+                        return Err(error::Error::type_error(
+                            "path expression mixes nodes and non-nodes",
+                        ));
                     }
                     s.insert(n);
                 }
                 _ => {
                     if !s.is_empty() {
-                        return Err(error::Error::type_error("path expression mixes nodes and non-nodes"));
+                        return Err(error::Error::type_error(
+                            "path expression mixes nodes and non-nodes",
+                        ));
                     }
                     non_node_seen = true;
                 }

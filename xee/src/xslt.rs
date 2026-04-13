@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::common::input_xml;
-use crate::error::render_error;
+use crate::error::{render_error, render_program_error};
 use anyhow::Context;
 use clap::Parser;
 use xot::Xot;
@@ -33,16 +33,14 @@ impl Xslt {
         let xml = input_xml(&self.infile)?;
 
         // Compile the stylesheet
-        let program = match xee_xslt_compiler::parse_with_stylesheet_path(
-            &stylesheet,
-            &self.stylesheet,
-        ) {
-            Ok(program) => program,
-            Err(e) => {
-                render_error(&self.stylesheet.display().to_string(), &stylesheet, e);
-                return Ok(());
-            }
-        };
+        let program =
+            match xee_xslt_compiler::parse_with_stylesheet_path(&stylesheet, &self.stylesheet) {
+                Ok(program) => program,
+                Err(e) => {
+                    render_error(&self.stylesheet.display().to_string(), &stylesheet, e);
+                    return Ok(());
+                }
+            };
 
         // Get serialization parameters from xsl:output
         let serialization_params = program.declarations.serialization_params.clone();
@@ -55,7 +53,12 @@ impl Xslt {
         let result = match xee_xslt_compiler::evaluate_program(&mut xot, &program, root) {
             Ok(result) => result,
             Err(e) => {
-                render_error(&self.stylesheet.display().to_string(), &stylesheet, e);
+                render_program_error(
+                    &program,
+                    &self.stylesheet.display().to_string(),
+                    &stylesheet,
+                    e,
+                );
                 return Ok(());
             }
         };

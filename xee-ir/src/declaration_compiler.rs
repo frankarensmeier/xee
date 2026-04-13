@@ -6,8 +6,8 @@ use xee_xpath_ast::Pattern;
 use crate::function_compiler::Scopes;
 use crate::{ir, FunctionBuilder, FunctionCompiler};
 
-use xee_interpreter::{error, function, interpreter};
 use xee_interpreter::declaration::TemplateRule;
+use xee_interpreter::{error, function, interpreter};
 use xee_xpath_ast::pattern::transform_pattern;
 
 #[derive(Debug, Clone)]
@@ -21,12 +21,7 @@ pub(crate) struct RuleBuilder {
 }
 
 impl RuleBuilder {
-    fn rule(
-        self,
-    ) -> (
-        Pattern<function::InlineFunctionId>,
-        TemplateRule,
-    ) {
+    fn rule(self) -> (Pattern<function::InlineFunctionId>, TemplateRule) {
         (
             self.pattern,
             TemplateRule {
@@ -181,7 +176,10 @@ impl<'a> DeclarationCompiler<'a> {
         }
     }
 
-    fn register_modes_in_function_definition(&mut self, function_definition: &ir::FunctionDefinition) {
+    fn register_modes_in_function_definition(
+        &mut self,
+        function_definition: &ir::FunctionDefinition,
+    ) {
         for param in &function_definition.params {
             if let Some(default) = &param.default {
                 let expr = xee_xpath_ast::span::Spanned::new((**default).clone(), (0..0).into());
@@ -291,9 +289,7 @@ impl<'a> DeclarationCompiler<'a> {
                 ir::OnMultipleMatch::UseLast => {
                     xee_interpreter::declaration::OnMultipleMatch::UseLast
                 }
-                ir::OnMultipleMatch::Fail => {
-                    xee_interpreter::declaration::OnMultipleMatch::Fail
-                }
+                ir::OnMultipleMatch::Fail => xee_interpreter::declaration::OnMultipleMatch::Fail,
             }),
             warning_on_no_match: mode.warning_on_no_match,
             typed: match mode.typed {
@@ -378,20 +374,14 @@ impl<'a> DeclarationCompiler<'a> {
         Ok(())
     }
 
-    fn compile_keys(
-        &mut self,
-        declarations: &ir::Declarations,
-    ) -> error::SpannedResult<()> {
+    fn compile_keys(&mut self, declarations: &ir::Declarations) -> error::SpannedResult<()> {
         for key in &declarations.keys {
             self.compile_key(key)?;
         }
         Ok(())
     }
 
-    fn compile_key(
-        &mut self,
-        key: &ir::KeyDefinition,
-    ) -> error::SpannedResult<()> {
+    fn compile_key(&mut self, key: &ir::KeyDefinition) -> error::SpannedResult<()> {
         let mut function_compiler = self.function_compiler();
 
         // Compile the use-expression function
@@ -403,13 +393,13 @@ impl<'a> DeclarationCompiler<'a> {
             function_compiler.compile_function_id(function_definition, (0..0).into())
         })?;
 
-        self.program.declarations.add_key(
-            xee_interpreter::declaration::KeyDeclaration {
+        self.program
+            .declarations
+            .add_key(xee_interpreter::declaration::KeyDeclaration {
                 name: key.name.clone(),
                 pattern,
                 use_function_id,
-            },
-        );
+            });
         Ok(())
     }
 
@@ -433,9 +423,9 @@ impl<'a> DeclarationCompiler<'a> {
             function_compiler.compile_function_id(function_definition, (0..0).into())
         })?;
 
-        self.program.declarations.add_number_pattern(
-            xee_interpreter::declaration::NumberPatternDeclaration { pattern },
-        );
+        self.program
+            .declarations
+            .add_number_pattern(xee_interpreter::declaration::NumberPatternDeclaration { pattern });
         Ok(())
     }
 

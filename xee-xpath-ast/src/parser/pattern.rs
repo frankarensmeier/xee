@@ -73,12 +73,13 @@ where
     .try_map_with(|prefixed_qname, extra| {
         let span = extra.span();
         let state: &mut chumsky::inspector::SimpleState<super::types::State> = extra.state();
-        let namespace = state.namespaces.by_prefix(prefixed_qname.prefix).ok_or_else(|| {
-            ParserError::UnknownPrefix {
+        let namespace = state
+            .namespaces
+            .by_prefix(prefixed_qname.prefix)
+            .ok_or_else(|| ParserError::UnknownPrefix {
                 prefix: prefixed_qname.prefix.to_string(),
                 span,
-            }
-        })?;
+            })?;
         if namespace != FN_NAMESPACE {
             return Err(ParserError::IllegalFunctionInPattern {
                 name: ast::Name::prefixed(
@@ -350,7 +351,12 @@ where
 
         let expr_pattern = path_expr
             .clone()
-            .then(operator.then(path_expr.clone()).repeated().collect::<Vec<_>>())
+            .then(
+                operator
+                    .then(path_expr.clone())
+                    .repeated()
+                    .collect::<Vec<_>>(),
+            )
             .map(|(left, rest)| {
                 let mut left = pattern::ExprPattern::Path(left);
                 for (operator, right) in rest {
@@ -422,12 +428,16 @@ fn parse_top_level_binary_pattern(
     segments.push(input[segment_start..].trim());
 
     let first = segments.first().copied()?;
-    let pattern::Pattern::Expr(mut left) = pattern::Pattern::parse(first, namespaces, &VariableNames::new()).ok()? else {
+    let pattern::Pattern::Expr(mut left) =
+        pattern::Pattern::parse(first, namespaces, &VariableNames::new()).ok()?
+    else {
         return None;
     };
 
     for (operator, segment) in operators.into_iter().zip(segments.into_iter().skip(1)) {
-        let pattern::Pattern::Expr(right) = pattern::Pattern::parse(segment, namespaces, &VariableNames::new()).ok()? else {
+        let pattern::Pattern::Expr(right) =
+            pattern::Pattern::parse(segment, namespaces, &VariableNames::new()).ok()?
+        else {
             return None;
         };
         left = pattern::ExprPattern::BinaryExpr(pattern::BinaryExpr {
@@ -556,7 +566,10 @@ fn parse_pattern_via_xpath(
     // Detect absolute root
     let root = if is_root_step(first_step) {
         steps_iter.next(); // consume root step
-        if steps_iter.peek().is_some_and(|s| is_descendant_or_self_any(s)) {
+        if steps_iter
+            .peek()
+            .is_some_and(|s| is_descendant_or_self_any(s))
+        {
             steps_iter.next(); // consume descendant-or-self::node()
             pattern::PathRoot::AbsoluteDoubleSlash
         } else {
@@ -598,7 +611,8 @@ impl pattern::Pattern<ast::ExprS> {
             Err(error) => match parse_top_level_binary_pattern(input, namespaces) {
                 Some(Ok(pattern)) => pattern,
                 Some(Err(fallback_error)) => return Err(fallback_error),
-                None => match parse_kind_test_pattern_via_xpath(input, namespaces, _variable_names) {
+                None => match parse_kind_test_pattern_via_xpath(input, namespaces, _variable_names)
+                {
                     Some(Ok(pattern)) => pattern,
                     Some(Err(fallback_error)) => return Err(fallback_error),
                     None => match parse_pattern_via_xpath(input, namespaces, _variable_names) {
@@ -759,7 +773,6 @@ mod tests {
         assert!(pattern::Pattern::parse("text()[1]", &namespaces, &variable_names).is_ok());
     }
 
-
     #[test]
     fn test_union() {
         let namespaces = Namespaces::default();
@@ -775,8 +788,8 @@ mod tests {
     fn test_union_with_node_kind_test() {
         let namespaces = Namespaces::default();
         let variable_names = VariableNames::new();
-        let pattern = pattern::Pattern::parse("node()|element(x)", &namespaces, &variable_names)
-            .unwrap();
+        let pattern =
+            pattern::Pattern::parse("node()|element(x)", &namespaces, &variable_names).unwrap();
 
         let pattern::Pattern::Expr(pattern::ExprPattern::BinaryExpr(binary_expr)) = pattern else {
             panic!("expected binary expression pattern");

@@ -347,8 +347,13 @@ fn format_date_time2(
     picture: &str,
 ) -> error::Result<Option<String>> {
     let Some(value) = value else { return Ok(None) };
-    format_datetime_picture(&value.date_time, value.offset.as_ref(), picture, DateTimeKind::DateTime)
-        .map(Some)
+    format_datetime_picture(
+        &value.date_time,
+        value.offset.as_ref(),
+        picture,
+        DateTimeKind::DateTime,
+    )
+    .map(Some)
 }
 
 #[xpath_fn("fn:format-dateTime($value as xs:dateTime?, $picture as xs:string, $language as xs:string?, $calendar as xs:string?, $place as xs:string?) as xs:string?")]
@@ -360,8 +365,13 @@ fn format_date_time5(
     _place: Option<&str>,
 ) -> error::Result<Option<String>> {
     let Some(value) = value else { return Ok(None) };
-    format_datetime_picture(&value.date_time, value.offset.as_ref(), picture, DateTimeKind::DateTime)
-        .map(Some)
+    format_datetime_picture(
+        &value.date_time,
+        value.offset.as_ref(),
+        picture,
+        DateTimeKind::DateTime,
+    )
+    .map(Some)
 }
 
 #[xpath_fn("fn:format-date($value as xs:date?, $picture as xs:string) as xs:string?")]
@@ -507,7 +517,13 @@ fn format_component(
             // Day of week (name)
             check_date_component(kind, component)?;
             let day_names = [
-                "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
             ];
             let day_idx = dt.weekday().num_days_from_monday() as usize;
             result.push_str(day_names[day_idx]);
@@ -601,7 +617,10 @@ fn parse_min_width(presentation: &str) -> Option<u32> {
         return None;
     }
     // Count leading zeros + trailing digit to determine minimum width
-    let digits: String = presentation.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = presentation
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     if digits.is_empty() {
         return None;
     }

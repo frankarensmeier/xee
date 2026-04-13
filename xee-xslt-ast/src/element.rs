@@ -163,8 +163,7 @@ impl<'a> Content<'a> {
 }
 
 pub(crate) fn sequence_constructor() -> impl NodeParser<ast::SequenceConstructor> {
-    multi(parse_sequence_constructor_node)
-    .flatten()
+    multi(parse_sequence_constructor_node).flatten()
 }
 
 pub(crate) fn parse_sequence_constructor_node(

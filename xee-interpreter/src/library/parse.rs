@@ -77,7 +77,9 @@ fn serialize2(
             map.clone()
         } else {
             // TODO: handle element(output::serialization-parameters)
-            return Err(error::Error::type_error("serialization parameters must be a map"));
+            return Err(error::Error::type_error(
+                "serialization parameters must be a map",
+            ));
         }
     } else {
         function::Map::new(vec![])?

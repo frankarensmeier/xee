@@ -3,8 +3,8 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use xee_interpreter::{
-  declaration::OnMultipleMatch,
     context::{StaticContext, StaticContextBuilder},
+    declaration::OnMultipleMatch,
     error,
     sequence::Sequence,
     xml::Documents,
@@ -53,21 +53,21 @@ fn evaluate_with_stylesheet_base(
     runnable.many(xot)
 }
 
-  fn evaluate_named_template_with_stylesheet_base(
+fn evaluate_named_template_with_stylesheet_base(
     xot: &mut Xot,
     xml: &str,
     xslt: &str,
     stylesheet_path: &std::path::Path,
     template_name: &str,
-  ) -> error::SpannedResult<Sequence> {
+) -> error::SpannedResult<Sequence> {
     let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
     let mut static_context_builder = StaticContextBuilder::default();
     static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
     let static_context = static_context_builder.build();
     let program = parse_with_base_dir(
-      static_context,
-      xslt,
-      stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+        static_context,
+        xslt,
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
     )
     .unwrap();
 
@@ -81,14 +81,14 @@ fn evaluate_with_stylesheet_base(
     let context = dynamic_context_builder.build();
     let runnable = program.runnable(&context);
     runnable.named_template(template_name, xot)
-  }
+}
 
-  fn evaluate_with_processor_xslt_version(
+fn evaluate_with_processor_xslt_version(
     xot: &mut Xot,
     xml: &str,
     xslt: &str,
     processor_xslt_version: u8,
-  ) -> error::SpannedResult<Sequence> {
+) -> error::SpannedResult<Sequence> {
     let mut static_context_builder = StaticContextBuilder::default();
     static_context_builder.processor_xslt_version(Some(processor_xslt_version));
     let static_context = static_context_builder.build();
@@ -104,15 +104,15 @@ fn evaluate_with_stylesheet_base(
     let context = dynamic_context_builder.build();
     let runnable = program.runnable(&context);
     runnable.many(xot)
-  }
+}
 
-  fn evaluate_with_processor_versions(
+fn evaluate_with_processor_versions(
     xot: &mut Xot,
     xml: &str,
     xslt: &str,
     processor_xslt_version: u8,
     processor_xpath_version: u8,
-  ) -> error::SpannedResult<Sequence> {
+) -> error::SpannedResult<Sequence> {
     let mut static_context_builder = StaticContextBuilder::default();
     static_context_builder.processor_xslt_version(Some(processor_xslt_version));
     static_context_builder.processor_xpath_version(Some(processor_xpath_version));
@@ -129,7 +129,7 @@ fn evaluate_with_stylesheet_base(
     let context = dynamic_context_builder.build();
     let runnable = program.runnable(&context);
     runnable.many(xot)
-  }
+}
 
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let unique = SystemTime::now()
@@ -142,21 +142,21 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     temp_dir
 }
 
-  fn evaluate_with_stylesheet_base_and_on_multiple_match(
+fn evaluate_with_stylesheet_base_and_on_multiple_match(
     xot: &mut Xot,
     xml: &str,
     xslt: &str,
     stylesheet_path: &std::path::Path,
     on_multiple_match: OnMultipleMatch,
-  ) -> error::SpannedResult<Sequence> {
+) -> error::SpannedResult<Sequence> {
     let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
     let mut static_context_builder = StaticContextBuilder::default();
     static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
     let static_context = static_context_builder.build();
     let program = parse_with_base_dir(
-      static_context,
-      xslt,
-      stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+        static_context,
+        xslt,
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
     )
     .unwrap();
 
@@ -171,7 +171,7 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let context = dynamic_context_builder.build();
     let runnable = program.runnable(&context);
     runnable.many(xot)
-  }
+}
 
 #[test]
 fn test_transform() {
@@ -272,14 +272,13 @@ fn test_match_node_pattern_does_not_capture_initial_document_node() {
     );
 }
 
-
-    #[test]
-    fn test_match_pattern_predicate_accepts_parent_axis_path_expression() {
-        let mut xot = Xot::new();
-        let output = evaluate(
-            &mut xot,
-            "<root><sup><a>x</a></sup><a>y</a></root>",
-            r#"
+#[test]
+fn test_match_pattern_predicate_accepts_parent_axis_path_expression() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<root><sup><a>x</a></sup><a>y</a></root>",
+        r#"
     <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
       <xsl:template match="/">
         <out><xsl:apply-templates/></out>
@@ -291,11 +290,11 @@ fn test_match_node_pattern_does_not_capture_initial_document_node() {
 
       <xsl:template match="text()"/>
     </xsl:stylesheet>"#,
-        )
-        .unwrap();
+    )
+    .unwrap();
 
-        assert_eq!(xml(&xot, output), "<out><hit/></out>");
-    }
+    assert_eq!(xml(&xot, output), "<out><hit/></out>");
+}
 #[test]
 fn test_apply_templates_sort_with_param() {
     let mut xot = Xot::new();
@@ -363,7 +362,7 @@ fn test_apply_templates_missing_mode_uses_builtin_text_only_copy() {
     )
     .unwrap();
 
-  assert_eq!(xml(&xot, output), "<out>a-text</out>");
+    assert_eq!(xml(&xot, output), "<out>a-text</out>");
 }
 
 #[test]
@@ -399,7 +398,7 @@ fn test_named_template_with_match_is_callable() {
 #[test]
 fn test_apply_templates_with_param_as_validates_value_type() {
     let mut xot = Xot::new();
-  let error = evaluate(
+    let error = evaluate(
         &mut xot,
         "<doc><item/></doc>",
         r#"
@@ -511,13 +510,12 @@ fn test_xsl_text_treats_curly_braces_as_literal_text() {
 }
 
 #[test]
-fn test_literal_result_attribute_value_template_allows_trailing_whitespace_before_closing_curly()
-{
-  let mut xot = Xot::new();
-  let output = evaluate(
-    &mut xot,
-    "<doc/>",
-    r#"
+fn test_literal_result_attribute_value_template_allows_trailing_whitespace_before_closing_curly() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
   <xsl:template match="/">
   <out class="footnote-number{
@@ -527,10 +525,13 @@ fn test_literal_result_attribute_value_template_allows_trailing_whitespace_befor
         }"/>
   </xsl:template>
 </xsl:stylesheet>"#,
-  )
-  .unwrap();
+    )
+    .unwrap();
 
-  assert_eq!(xml(&xot, output), "<out class=\"footnote-number table-footnote\"/>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out class=\"footnote-number table-footnote\"/>"
+    );
 }
 
 #[test]
@@ -899,7 +900,10 @@ fn test_next_match_in_attribute_set_on_literal_element_uses_imported_template() 
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<a a1=\"5\" a2=\"next matched\">hello</a>");
+    assert_eq!(
+        xml(&xot, output),
+        "<a a1=\"5\" a2=\"next matched\">hello</a>"
+    );
 
     fs::remove_dir_all(&temp_dir).unwrap();
 }
@@ -907,15 +911,16 @@ fn test_next_match_in_attribute_set_on_literal_element_uses_imported_template() 
 #[test]
 fn test_result_document_collects_secondary_output() {
     let mut xot = Xot::new();
-  let stylesheet_path = std::env::temp_dir().join("xee-result-document-collects-secondary-output.xsl");
-  let static_context = StaticContextBuilder::default()
-    .static_base_uri(Some(
-      format!("file://{}", stylesheet_path.display())
-        .replace(' ', "%20")
-        .try_into()
-        .unwrap(),
-    ))
-    .build();
+    let stylesheet_path =
+        std::env::temp_dir().join("xee-result-document-collects-secondary-output.xsl");
+    let static_context = StaticContextBuilder::default()
+        .static_base_uri(Some(
+            format!("file://{}", stylesheet_path.display())
+                .replace(' ', "%20")
+                .try_into()
+                .unwrap(),
+        ))
+        .build();
     let program = parse(
         static_context,
         r#"
@@ -933,7 +938,9 @@ fn test_result_document_collects_secondary_output() {
     )
     .unwrap();
 
-    let root = xot.parse("<doc><foo place=\"secondary\">Hello</foo></doc>").unwrap();
+    let root = xot
+        .parse("<doc><foo place=\"secondary\">Hello</foo></doc>")
+        .unwrap();
     let mut documents = Documents::new();
     let handle = documents.add_root(None, root).unwrap();
     let root = documents.get_node_by_handle(handle).unwrap();
@@ -944,9 +951,14 @@ fn test_result_document_collects_secondary_output() {
     let runnable = program.runnable(&context);
     let output = runnable.many(&mut xot).unwrap();
 
-    assert_eq!(xml(&xot, output), "<out><log>Before redirect</log><log>After redirect</log></out>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out><log>Before redirect</log><log>After redirect</log></out>"
+    );
 
-    let secondary = context.secondary_result_document("multresult1.out").unwrap();
+    let secondary = context
+        .secondary_result_document("multresult1.out")
+        .unwrap();
     assert_eq!(xml(&xot, secondary), "<foo place=\"secondary\">Hello</foo>");
 }
 
@@ -1207,7 +1219,10 @@ fn test_xsl_element_applies_attribute_sets() {
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<out><test color=\"black\" text-decoration=\"underline\"/></out>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out><test color=\"black\" text-decoration=\"underline\"/></out>"
+    );
 }
 
 #[test]
@@ -1313,7 +1328,10 @@ fn test_xsl_copy_applies_attribute_sets() {
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<out><doc color=\"black\" text-decoration=\"underline\"/></out>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out><doc color=\"black\" text-decoration=\"underline\"/></out>"
+    );
 }
 
 #[test]
@@ -2837,7 +2855,10 @@ fn test_use_when_instance_of_uses_xpath_default_namespace_for_types() {
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<root><p><para>p1</para></p><p><para>p2</para></p></root>");
+    assert_eq!(
+        xml(&xot, output),
+        "<root><p><para>p1</para></p><p><para>p2</para></p></root>"
+    );
 }
 
 #[test]
@@ -3012,7 +3033,10 @@ fn test_use_when_false_on_include_skips_included_stylesheet() {
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<out><print_a>a1</print_a><print_a>a2</print_a>b1b2</out>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out><print_a>a1</print_a><print_a>a2</print_a>b1b2</out>"
+    );
 }
 
 #[test]
@@ -3478,77 +3502,77 @@ fn test_evaluate_with_stylesheet_path_resolves_relative_include() {
 
 #[test]
 fn test_evaluate_with_stylesheet_path_reports_xtse0165_for_missing_include() {
-  let temp_dir = unique_temp_dir("evaluate-stylesheet-path-missing-include");
-  let stylesheet_path = temp_dir.join("main.xsl");
-  fs::write(
-    &stylesheet_path,
-    r#"<?xml version="1.0"?>
+    let temp_dir = unique_temp_dir("evaluate-stylesheet-path-missing-include");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
   <xsl:include href="missing.xsl"/>
 </xsl:stylesheet>"#,
-  )
-  .unwrap();
+    )
+    .unwrap();
 
-  let mut xot = Xot::new();
-  let error = evaluate_with_stylesheet_path(
-    &mut xot,
-    "<doc/>",
-    &fs::read_to_string(&stylesheet_path).unwrap(),
-    &stylesheet_path,
-  )
-  .unwrap_err();
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_path(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap_err();
 
-  assert_eq!(error.value(), error::Error::XTSE0165);
+    assert_eq!(error.value(), error::Error::XTSE0165);
 }
 
 #[test]
 fn test_evaluate_with_stylesheet_path_supports_simplified_stylesheet_module() {
-  let temp_dir = unique_temp_dir("simplified-stylesheet-module");
-  let stylesheet_path = temp_dir.join("main.xsl");
-  fs::write(
-    &stylesheet_path,
-    r#"<?xml version="1.0"?>
+    let temp_dir = unique_temp_dir("simplified-stylesheet-module");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
 <out xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xsl:version="2.0">
   <in><xsl:value-of select="'Hi there!'"/></in>
 </out>"#,
-  )
-  .unwrap();
+    )
+    .unwrap();
 
-  let mut xot = Xot::new();
-  let output = evaluate_with_stylesheet_path(
-    &mut xot,
-    "<doc/>",
-    &fs::read_to_string(&stylesheet_path).unwrap(),
-    &stylesheet_path,
-  )
-  .unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_path(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap();
 
-  assert_eq!(xml(&xot, output), "<out><in>Hi there!</in></out>");
+    assert_eq!(xml(&xot, output), "<out><in>Hi there!</in></out>");
 }
 
 #[test]
 fn test_evaluate_with_stylesheet_path_reports_xtse0150_for_missing_simplified_version() {
-  let temp_dir = unique_temp_dir("simplified-stylesheet-missing-version");
-  let stylesheet_path = temp_dir.join("main.xsl");
-  fs::write(
-    &stylesheet_path,
-    r#"<?xml version="1.0"?>
+    let temp_dir = unique_temp_dir("simplified-stylesheet-missing-version");
+    let stylesheet_path = temp_dir.join("main.xsl");
+    fs::write(
+        &stylesheet_path,
+        r#"<?xml version="1.0"?>
 <out xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
   <in/>
 </out>"#,
-  )
-  .unwrap();
+    )
+    .unwrap();
 
-  let mut xot = Xot::new();
-  let error = evaluate_with_stylesheet_path(
-    &mut xot,
-    "<doc/>",
-    &fs::read_to_string(&stylesheet_path).unwrap(),
-    &stylesheet_path,
-  )
-  .unwrap_err();
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_path(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+    )
+    .unwrap_err();
 
-  assert_eq!(error.value(), error::Error::XTSE0150);
+    assert_eq!(error.value(), error::Error::XTSE0150);
 }
 
 #[test]
@@ -3682,7 +3706,7 @@ fn test_try_exposes_error_variables_in_catch() {
 
     assert_eq!(
         xml(&xot, output),
-      "<out code=\"FOAR0001\" described=\"true\" line=\"6\" column=\"22\"/>"
+        "<out code=\"FOAR0001\" described=\"true\" line=\"6\" column=\"22\"/>"
     );
 }
 
@@ -3787,18 +3811,18 @@ fn test_try_does_not_catch_global_variable_errors() {
     assert_eq!(error.value(), error::Error::FOAR0001);
 }
 
-  #[test]
-  fn test_try_vendor_002_exposes_module_and_line_information() {
+#[test]
+fn test_try_vendor_002_exposes_module_and_line_information() {
     let mut xot = Xot::new();
     let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-      .join("../vendor/xslt-tests/tests/insn/try/try-002.xsl");
+        .join("../vendor/xslt-tests/tests/insn/try/try-002.xsl");
     let xslt = fs::read_to_string(&stylesheet_path).unwrap();
     let output = evaluate_named_template_with_stylesheet_base(
-      &mut xot,
-      "<doc/>",
-      &xslt,
-      &stylesheet_path,
-      "main",
+        &mut xot,
+        "<doc/>",
+        &xslt,
+        &stylesheet_path,
+        "main",
     )
     .unwrap();
     let actual = xml(&xot, output);
@@ -3807,20 +3831,20 @@ fn test_try_does_not_catch_global_variable_errors() {
     assert!(actual.contains("module=\"try-002.xsl\""), "{actual}");
     assert!(actual.contains("line=\"17\""), "{actual}");
     assert!(actual.to_lowercase().contains("zero"), "{actual}");
-  }
+}
 
-  #[test]
-  fn test_try_vendor_018_exposes_module_line_and_column_information() {
+#[test]
+fn test_try_vendor_018_exposes_module_line_and_column_information() {
     let mut xot = Xot::new();
     let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-      .join("../vendor/xslt-tests/tests/insn/try/try-018.xsl");
+        .join("../vendor/xslt-tests/tests/insn/try/try-018.xsl");
     let xslt = fs::read_to_string(&stylesheet_path).unwrap();
     let output = evaluate_named_template_with_stylesheet_base(
-      &mut xot,
-      "<doc/>",
-      &xslt,
-      &stylesheet_path,
-      "main",
+        &mut xot,
+        "<doc/>",
+        &xslt,
+        &stylesheet_path,
+        "main",
     )
     .unwrap();
     let actual = xml(&xot, output);
@@ -3830,45 +3854,45 @@ fn test_try_does_not_catch_global_variable_errors() {
     assert!(actual.contains("<module>file://"), "{actual}");
     assert!(actual.contains("try-018.xsl</module>"), "{actual}");
     assert!(actual.contains("<line>11</line>"), "{actual}");
-  }
+}
 
-  #[test]
-  fn test_try_vendor_031_local_variable_error_is_not_caught() {
+#[test]
+fn test_try_vendor_031_local_variable_error_is_not_caught() {
     let mut xot = Xot::new();
     let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-      .join("../vendor/xslt-tests/tests/insn/try/try-031.xsl");
+        .join("../vendor/xslt-tests/tests/insn/try/try-031.xsl");
     let xslt = fs::read_to_string(&stylesheet_path).unwrap();
     let error = evaluate_named_template_with_stylesheet_base(
-      &mut xot,
-      r#"<root><n/><n/><n/></root>"#,
-      &xslt,
-      &stylesheet_path,
-      "main",
+        &mut xot,
+        r#"<root><n/><n/><n/></root>"#,
+        &xslt,
+        &stylesheet_path,
+        "main",
     )
     .unwrap_err();
 
     assert_eq!(error.value(), error::Error::FOAR0001);
-  }
+}
 
-  #[test]
-  fn test_try_vendor_021_allows_result_document_validation_strip() {
+#[test]
+fn test_try_vendor_021_allows_result_document_validation_strip() {
     let mut xot = Xot::new();
     let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-      .join("../vendor/xslt-tests/tests/insn/try/try-021.xsl");
+        .join("../vendor/xslt-tests/tests/insn/try/try-021.xsl");
     let xslt = fs::read_to_string(&stylesheet_path).unwrap();
     let output = evaluate_named_template_with_stylesheet_base(
-      &mut xot,
-      "<doc/>",
-      &xslt,
-      &stylesheet_path,
-      "main",
+        &mut xot,
+        "<doc/>",
+        &xslt,
+        &stylesheet_path,
+        "main",
     )
     .unwrap();
     let actual = xml(&xot, output);
 
     assert!(actual.contains("code=\"err:XTDE1490\""), "{actual}");
     assert!(actual.contains("module=\"try-021.xsl\""), "{actual}");
-  }
+}
 
 #[test]
 fn test_try_catches_sequence_constructor_error() {
@@ -4008,7 +4032,10 @@ fn test_imported_named_decimal_format_is_visible_in_importing_stylesheet() {
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<out>not a number, -13.2|<sub>not a number, -13.2</sub></out>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out>not a number, -13.2|<sub>not a number, -13.2</sub></out>"
+    );
 }
 
 #[test]
@@ -4058,7 +4085,10 @@ fn test_imported_named_decimal_format_merges_identical_declarations() {
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<out>not a number, -13.2|<sub>not a number, -13.2</sub></out>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out>not a number, -13.2|<sub>not a number, -13.2</sub></out>"
+    );
 }
 
 #[test]
@@ -4265,55 +4295,63 @@ fn test_overloaded_xslt_function_call_inside_function_body() {
     )
     .unwrap();
 
-    assert_eq!(xml(&xot, output), "<out><one>010</one><two>0020</two></out>");
+    assert_eq!(
+        xml(&xot, output),
+        "<out><one>010</one><two>0020</two></out>"
+    );
 }
 
 #[test]
 fn test_vendor_format_number_040_stylesheet() {
-  let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-    .join("../vendor/xslt-tests/tests/fn/format-number");
-  let stylesheet_path = vendor_dir.join("format-number-040.xsl");
-  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
-  let mut xot = Xot::new();
-  let output = evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &stylesheet_path).unwrap();
+    let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/fn/format-number");
+    let stylesheet_path = vendor_dir.join("format-number-040.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output =
+        evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &stylesheet_path).unwrap();
 
-  assert_eq!(
-    xml(&xot, output),
-    "<out>\n<one>not a number, -13.2</one>\n<sub>not a number, -13.2</sub></out>"
-  );
+    assert_eq!(
+        xml(&xot, output),
+        "<out>\n<one>not a number, -13.2</one>\n<sub>not a number, -13.2</sub></out>"
+    );
 }
 
 #[test]
 fn test_vendor_format_number_041_stylesheet() {
-  let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-    .join("../vendor/xslt-tests/tests/fn/format-number");
-  let stylesheet_path = vendor_dir.join("format-number-041.xsl");
-  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
-  let mut xot = Xot::new();
-  let output = evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &stylesheet_path).unwrap();
+    let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/fn/format-number");
+    let stylesheet_path = vendor_dir.join("format-number-041.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output =
+        evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &stylesheet_path).unwrap();
 
-  assert_eq!(
-    xml(&xot, output),
-    "<out>\n<main>not a number, -13.2</main>\n<sub>not a number, -13.2</sub></out>"
-  );
+    assert_eq!(
+        xml(&xot, output),
+        "<out>\n<main>not a number, -13.2</main>\n<sub>not a number, -13.2</sub></out>"
+    );
 }
 
 #[test]
 fn test_vendor_format_number_070_stylesheet() {
-  let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-    .join("../vendor/xslt-tests/tests/fn/format-number");
-  let stylesheet_path = vendor_dir.join("format-number-070.xsl");
-  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
-  let mut xot = Xot::new();
-  let output = evaluate_with_stylesheet_base(
-    &mut xot,
-    "<root><value1>58</value1><value2>64</value2></root>",
-    &xslt,
-    &stylesheet_path,
-  )
-  .unwrap();
+    let vendor_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/fn/format-number");
+    let stylesheet_path = vendor_dir.join("format-number-070.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+        &mut xot,
+        "<root><value1>58</value1><value2>64</value2></root>",
+        &xslt,
+        &stylesheet_path,
+    )
+    .unwrap();
 
-  assert_eq!(xml(&xot, output), "<root><format1>058</format1><format2>0000000064</format2><ver>3.0</ver></root>");
+    assert_eq!(
+        xml(&xot, output),
+        "<root><format1>058</format1><format2>0000000064</format2><ver>3.0</ver></root>"
+    );
 }
 
 #[test]
@@ -4431,11 +4469,7 @@ fn test_use_when_in_imported_module_sees_earlier_static_variable_from_including_
     let xslt = fs::read_to_string(&main_path).unwrap();
     let mut xot = Xot::new();
     let output = evaluate_named_template_with_stylesheet_base(
-        &mut xot,
-        "<doc/>",
-        &xslt,
-        &main_path,
-        "action",
+        &mut xot, "<doc/>", &xslt, &main_path, "action",
     )
     .unwrap();
 
@@ -4446,26 +4480,26 @@ fn test_use_when_in_imported_module_sees_earlier_static_variable_from_including_
 
 #[test]
 fn test_missing_initial_template_uses_xtde0040() {
-  let mut xot = Xot::new();
-  let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-    .join("tests/fixtures/missing-initial-template.xsl");
-  let xslt = r#"
+    let mut xot = Xot::new();
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/missing-initial-template.xsl");
+    let xslt = r#"
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
   <xsl:template name="main">
   <out/>
   </xsl:template>
 </xsl:stylesheet>"#;
 
-  let error = evaluate_named_template_with_stylesheet_base(
-    &mut xot,
-    "<doc/>",
-    xslt,
-    &stylesheet_path,
-    "nonsuch",
-  )
-  .unwrap_err();
+    let error = evaluate_named_template_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        xslt,
+        &stylesheet_path,
+        "nonsuch",
+    )
+    .unwrap_err();
 
-  assert_eq!(error.value(), error::Error::XTDE0040);
+    assert_eq!(error.value(), error::Error::XTDE0040);
 }
 
 #[test]
@@ -5800,8 +5834,8 @@ fn test_vendor_mode_0015_on_no_match_with_attributes() {
 </xsl:stylesheet>"##,
     )
     .unwrap();
-    
-    let result = xml(&xot,output);
+
+    let result = xml(&xot, output);
     let expected = "<out><c><foo><matched/></foo></c><d><matched/></d><s/></out>";
     assert_eq!(result, expected, "mode-0015: Output mismatch");
 }
@@ -5893,8 +5927,8 @@ fn test_xsl_evaluate_uses_with_params_map() {
     .unwrap();
 
     assert_eq!(
-      xml(&xot, output),
-      "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">ok</out>"
+        xml(&xot, output),
+        "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">ok</out>"
     );
 }
 
@@ -5976,8 +6010,8 @@ fn test_xsl_number_value_accepts_dynamic_format_value_template() {
     .unwrap();
 
     assert_eq!(
-      xml(&xot, output),
-      "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">c</out>"
+        xml(&xot, output),
+        "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">c</out>"
     );
 }
 
@@ -6464,8 +6498,11 @@ fn test_iterate_multi_param_conditional_next_iteration() {
 
     // After iteration 2, both a and b should be false
     let result = xml(&xot, output);
-    assert!(result.contains(r#"n="3" a="false" b="false""#),
-        "Expected both a and b to be false after iteration 2, got: {}", result);
+    assert!(
+        result.contains(r#"n="3" a="false" b="false""#),
+        "Expected both a and b to be false after iteration 2, got: {}",
+        result
+    );
 }
 
 #[test]
@@ -6510,10 +6547,16 @@ fn test_iterate_multi_param_each_branch_has_next_iteration() {
     // iteration 1: a=T b=T (initial), iteration 2: a=T b=T (from odd branch)
     // iteration 3: a=F b=F (from even branch), iteration 4: a=T b=T (from odd branch)
     // iteration 5: a=F b=F (from even branch)
-    assert!(result.contains(r#"n="3" a="F" b="F""#),
-        "iter 3 should have a=F b=F, got: {}", result);
-    assert!(result.contains(r#"n="5" a="F" b="F""#),
-        "iter 5 should have a=F b=F, got: {}", result);
+    assert!(
+        result.contains(r#"n="3" a="F" b="F""#),
+        "iter 3 should have a=F b=F, got: {}",
+        result
+    );
+    assert!(
+        result.contains(r#"n="5" a="F" b="F""#),
+        "iter 5 should have a=F b=F, got: {}",
+        result
+    );
 }
 
 #[test]
@@ -6551,10 +6594,16 @@ fn test_iterate_multi_param_with_shared_variable() {
     // iter 2: a=T b=T (from iter 1), even → result empty → next a=F, b=F
     // iter 3: a=F b=F (both!), odd → result exists → next a=T, b=T
     // iter 4: a=T b=T (both!)
-    assert!(result.contains(r#"iter="3" a="F" b="F""#),
-        "iter 3: both a and b should be F, got: {}", result);
-    assert!(result.contains(r#"iter="4" a="T" b="T""#),
-        "iter 4: both a and b should be T, got: {}", result);
+    assert!(
+        result.contains(r#"iter="3" a="F" b="F""#),
+        "iter 3: both a and b should be F, got: {}",
+        result
+    );
+    assert!(
+        result.contains(r#"iter="4" a="T" b="T""#),
+        "iter 4: both a and b should be T, got: {}",
+        result
+    );
 }
 
 #[test]
@@ -6590,8 +6639,14 @@ fn test_iterate_multi_param_three_params_shared_variable() {
     .unwrap();
 
     let result = xml(&xot, output);
-    assert!(result.contains(r#"iter="3" a="F" b="F" c="F""#),
-        "iter 3: all should be F, got: {}", result);
-    assert!(result.contains(r#"iter="4" a="T" b="T" c="T""#),
-        "iter 4: all should be T, got: {}", result);
+    assert!(
+        result.contains(r#"iter="3" a="F" b="F" c="F""#),
+        "iter 3: all should be F, got: {}",
+        result
+    );
+    assert!(
+        result.contains(r#"iter="4" a="T" b="T" c="T""#),
+        "iter 4: all should be T, got: {}",
+        result
+    );
 }

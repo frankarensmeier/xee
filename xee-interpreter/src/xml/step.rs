@@ -1,5 +1,5 @@
-use xot::{ValueType, Xot};
 use xot::xmlname::NameStrInfo;
+use xot::{ValueType, Xot};
 
 use ahash::HashMap;
 use xee_xpath_ast::ast;
@@ -90,8 +90,10 @@ fn resolve_step_from_namespace_node(
             }
         }
         // Following/preceding from namespace node: delegate to parent element
-        ast::Axis::Following | ast::Axis::FollowingSibling
-        | ast::Axis::Preceding | ast::Axis::PrecedingSibling => {
+        ast::Axis::Following
+        | ast::Axis::FollowingSibling
+        | ast::Axis::Preceding
+        | ast::Axis::PrecedingSibling => {
             if let Some(parent) = parent {
                 let mut items = Vec::new();
                 for axis_node in node_take_axis(&step.axis, xot, parent) {
@@ -101,7 +103,10 @@ fn resolve_step_from_namespace_node(
                 }
                 // xot returns reverse axes (Preceding, PrecedingSibling) in
                 // reverse document order; XPath 2.0+ needs document order
-                if matches!(step.axis, ast::Axis::Preceding | ast::Axis::PrecedingSibling) {
+                if matches!(
+                    step.axis,
+                    ast::Axis::Preceding | ast::Axis::PrecedingSibling
+                ) {
                     items.reverse();
                 }
                 items.into()
@@ -202,9 +207,7 @@ fn node_test(node_test: &ast::NodeTest, axis: &ast::Axis, xot: &Xot, node: xot::
                     xot::Value::Attribute(attribute) => {
                         xot.local_name_str(attribute.name()) == local_name
                     }
-                    xot::Value::Namespace(n) => {
-                        xot.prefix_str(n.prefix()) == local_name.as_str()
-                    }
+                    xot::Value::Namespace(n) => xot.prefix_str(n.prefix()) == local_name.as_str(),
                     _ => false,
                 },
                 ast::NameTest::Namespace(uri) => match xot.value(node) {
@@ -217,9 +220,7 @@ fn node_test(node_test: &ast::NodeTest, axis: &ast::Axis, xot: &Xot, node: xot::
                         let namespace_str = xot.uri_str(attribute.name());
                         namespace_str == uri
                     }
-                    xot::Value::Namespace(n) => {
-                        xot.namespace_str(n.namespace()) == uri.as_str()
-                    }
+                    xot::Value::Namespace(n) => xot.namespace_str(n.namespace()) == uri.as_str(),
                     _ => false,
                 },
             }

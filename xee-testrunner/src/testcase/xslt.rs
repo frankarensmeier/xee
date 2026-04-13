@@ -280,18 +280,21 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
         let initial_mode_query = queries.option("initial-mode/@name/string()", convert_string)?;
         let initial_template_query =
             queries.option("initial-template/@name/string()", convert_string)?;
-        let on_multiple_match_query =
-            queries.option("../dependencies/on-multiple-match/@value/string()", convert_string)?;
+        let on_multiple_match_query = queries.option(
+            "../dependencies/on-multiple-match/@value/string()",
+            convert_string,
+        )?;
         let spec_values_query =
             queries.many("dependencies/spec/@value/string()", convert_string)?;
         let feature_value_query = queries.one("@value/string()", convert_string)?;
         let feature_satisfied_query = queries.option("@satisfied/string()", convert_string)?;
-        let feature_values_query = queries.many("dependencies/feature", move |documents, item| {
-            Ok((
-                feature_value_query.execute(documents, item)?,
-                feature_satisfied_query.execute(documents, item)?,
-            ))
-        })?;
+        let feature_values_query =
+            queries.many("dependencies/feature", move |documents, item| {
+                Ok((
+                    feature_value_query.execute(documents, item)?,
+                    feature_satisfied_query.execute(documents, item)?,
+                ))
+            })?;
         let stylesheets_query = queries.many("stylesheet", move |documents, item| {
             let file = file_query.execute(documents, item)?;
             Ok(Stylesheet { path: file })
@@ -368,14 +371,14 @@ impl ContextLoadable<LoadContext> for XsltTestCase {
 
 #[cfg(test)]
 mod tests {
-        use super::*;
+    use super::*;
 
-        use crate::ns::XSLT_TEST_NS;
+    use crate::ns::XSLT_TEST_NS;
 
-        #[test]
-        fn test_load_xslt_test_case_processor_versions_from_dependencies() {
-                let xml = format!(
-                        r#"
+    #[test]
+    fn test_load_xslt_test_case_processor_versions_from_dependencies() {
+        let xml = format!(
+            r#"
 <test-case xmlns="{}" name="format-number-069b">
     <dependencies>
         <spec value="XSLT20"/>
@@ -389,19 +392,19 @@ mod tests {
         <error code="XXX"/>
     </result>
 </test-case>"#,
-                        XSLT_TEST_NS,
-                );
-                let context = LoadContext::new::<XsltLanguage>(PathBuf::from("/tmp/test-set.xml"));
-                let test_case = XsltTestCase::load_from_xml_with_context(&xml, &context).unwrap();
+            XSLT_TEST_NS,
+        );
+        let context = LoadContext::new::<XsltLanguage>(PathBuf::from("/tmp/test-set.xml"));
+        let test_case = XsltTestCase::load_from_xml_with_context(&xml, &context).unwrap();
 
-                assert_eq!(test_case.test.processor_xslt_version, Some(2));
-                assert_eq!(test_case.test.processor_xpath_version, Some(30));
-        }
+        assert_eq!(test_case.test.processor_xslt_version, Some(2));
+        assert_eq!(test_case.test.processor_xpath_version, Some(30));
+    }
 
-        #[test]
-        fn test_load_nested_xslt_test_case_processor_versions_from_dependencies() {
-                let xml = format!(
-                        r#"
+    #[test]
+    fn test_load_nested_xslt_test_case_processor_versions_from_dependencies() {
+        let xml = format!(
+            r#"
 <test-set xmlns="{}" name="format-number">
     <test-case name="format-number-069b">
         <dependencies>
@@ -417,13 +420,13 @@ mod tests {
         </result>
     </test-case>
 </test-set>"#,
-                        XSLT_TEST_NS,
-                );
-                let context = LoadContext::new::<XsltLanguage>(PathBuf::from("/tmp/test-set.xml"));
-                let test_set = TestSet::<XsltLanguage>::load_from_xml_with_context(&xml, &context).unwrap();
+            XSLT_TEST_NS,
+        );
+        let context = LoadContext::new::<XsltLanguage>(PathBuf::from("/tmp/test-set.xml"));
+        let test_set = TestSet::<XsltLanguage>::load_from_xml_with_context(&xml, &context).unwrap();
 
-                let test_case = &test_set.test_cases[0];
-                assert_eq!(test_case.test.processor_xslt_version, Some(2));
-                assert_eq!(test_case.test.processor_xpath_version, Some(30));
-        }
+        let test_case = &test_set.test_cases[0];
+        assert_eq!(test_case.test.processor_xslt_version, Some(2));
+        assert_eq!(test_case.test.processor_xpath_version, Some(30));
+    }
 }

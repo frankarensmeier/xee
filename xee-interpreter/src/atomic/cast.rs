@@ -183,7 +183,9 @@ impl atomic::Atomic {
 
     pub(crate) fn cast_to_boolean(self) -> error::Result<atomic::Atomic> {
         match self {
-            atomic::Atomic::String(atomic::StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
+            atomic::Atomic::String(atomic::StringType::AnyURI, _) => {
+                Err(error::Error::XPTY0004(None))
+            }
             atomic::Atomic::Untyped(s) | atomic::Atomic::String(_, s) => {
                 Self::parse_atomic::<bool>(&s)
             }
@@ -214,7 +216,9 @@ impl atomic::Atomic {
         F: Fn(&str) -> error::Result<Vec<u8>>,
     {
         match self {
-            atomic::Atomic::String(atomic::StringType::AnyURI, _) => Err(error::Error::XPTY0004(None)),
+            atomic::Atomic::String(atomic::StringType::AnyURI, _) => {
+                Err(error::Error::XPTY0004(None))
+            }
             atomic::Atomic::String(_, s) | atomic::Atomic::Untyped(s) => {
                 let s = s.as_ref();
                 let s = whitespace_remove(s);

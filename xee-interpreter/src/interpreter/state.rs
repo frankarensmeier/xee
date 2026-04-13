@@ -382,10 +382,7 @@ impl<'a> State<'a> {
     }
 
     pub(crate) fn current_group(&self) -> sequence::Sequence {
-        self.current_group_stack
-            .last()
-            .cloned()
-            .unwrap_or_default()
+        self.current_group_stack.last().cloned().unwrap_or_default()
     }
 
     pub(crate) fn current_grouping_key(&self) -> sequence::Sequence {

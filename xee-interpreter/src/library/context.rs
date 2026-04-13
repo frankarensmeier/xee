@@ -2,8 +2,8 @@
 
 use ibig::IBig;
 use xee_name::{Name, Namespaces, FN_NAMESPACE};
-use xee_xpath_ast::parse_name;
 use xee_xpath_ast::ast;
+use xee_xpath_ast::parse_name;
 use xee_xpath_macros::xpath_fn;
 use xot::xmlname::NameStrInfo;
 
@@ -234,7 +234,9 @@ fn function_available(context: &DynamicContext, function_name: &str) -> bool {
     is_function_available(context, &name, None)
 }
 
-#[xpath_fn("fn:function-available($function_name as xs:string, $arity as xs:integer) as xs:boolean")]
+#[xpath_fn(
+    "fn:function-available($function_name as xs:string, $arity as xs:integer) as xs:boolean"
+)]
 fn function_available_with_arity(
     context: &DynamicContext,
     function_name: &str,
@@ -258,7 +260,10 @@ fn element_available(context: &DynamicContext, element_name: &str) -> bool {
         return false;
     }
 
-    let processor_xslt_version = context.static_context().processor_xslt_version().unwrap_or(3);
+    let processor_xslt_version = context
+        .static_context()
+        .processor_xslt_version()
+        .unwrap_or(3);
     if processor_xslt_version < 3 && XSLT_30_ONLY_ELEMENT_NAMES.contains(&name.local_name()) {
         return false;
     }
@@ -310,18 +315,17 @@ fn resolve_element_name(context: &DynamicContext, lexical_name: &str) -> Option<
         })
 }
 
-fn is_function_available(
-    context: &DynamicContext,
-    name: &Name,
-    arity: Option<u8>,
-) -> bool {
+fn is_function_available(context: &DynamicContext, name: &Name, arity: Option<u8>) -> bool {
     if context.static_context().is_function_disabled(name) {
         return false;
     }
 
     match arity {
         Some(arity) => {
-            context.static_context().function_id_by_name(name, arity).is_some()
+            context
+                .static_context()
+                .function_id_by_name(name, arity)
+                .is_some()
                 || is_manual_xslt_function_available(name, arity)
         }
         None => {
@@ -367,7 +371,11 @@ fn resolve_system_property(context: &DynamicContext, property_name: &str) -> Opt
             .or(context.static_context().stylesheet_xslt_version())
             .unwrap_or(3)
     );
-    let xpath_version = match context.static_context().processor_xpath_version().unwrap_or(31) {
+    let xpath_version = match context
+        .static_context()
+        .processor_xpath_version()
+        .unwrap_or(31)
+    {
         20 => "2.0",
         30 => "3.0",
         31 => "3.1",

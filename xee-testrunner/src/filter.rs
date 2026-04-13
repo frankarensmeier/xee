@@ -152,8 +152,7 @@ impl ExcludedNamesFilter {
             // Only keep the intersection: tests that were already filtered
             // AND still fail. Never add new failures — those are regressions
             // that `check` should catch.
-            let kept: FxHashSet<String> =
-                old_names.intersection(&failing_names).cloned().collect();
+            let kept: FxHashSet<String> = old_names.intersection(&failing_names).cloned().collect();
             self.names
                 .insert(test_set_outcomes.test_set_name.clone(), kept);
             return UpdateResult::Shrank;

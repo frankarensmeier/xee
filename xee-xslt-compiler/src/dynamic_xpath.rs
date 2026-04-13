@@ -1,8 +1,7 @@
 use ahash::HashSetExt;
 use xee_interpreter::{
     context::{self, DynamicContext},
-    error,
-    function,
+    error, function,
     interpreter::{DynamicXPathEvaluator, DynamicXPathRequest, Interpreter},
     sequence,
 };
@@ -28,12 +27,12 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
         let static_context = context
             .static_context()
             .clone_with_namespaces_and_variables(namespaces, variable_names);
-        let xpath = static_context.parse_xpath(&request.xpath).map_err(|error| {
-            error::SpannedError {
+        let xpath = static_context
+            .parse_xpath(&request.xpath)
+            .map_err(|error| error::SpannedError {
                 error: error::Error::Unsupported(format!("{error:?}")),
                 span: None,
-            }
-        })?;
+            })?;
         let mut program = xee_xpath_compiler::compile(static_context, xpath)?;
         program.set_source(request.xpath.clone());
 
@@ -42,7 +41,9 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
             .clone()
             .or_else(|| context.context_item().cloned());
         let dynamic_context = context.clone_for_program(&program, context_item, variables);
-        program.runnable(&dynamic_context).many(interpreter.xot_mut())
+        program
+            .runnable(&dynamic_context)
+            .many(interpreter.xot_mut())
     }
 }
 
@@ -72,7 +73,9 @@ fn namespaces_for_request(
     match namespace_context {
         None => Ok(context.static_context().namespaces().clone()),
         Some(sequence::Item::Node(node)) => Ok(namespaces_for_node(*node, xot)),
-        Some(_) => Err(error::Error::type_error("xsl:evaluate namespace-context must be a node")),
+        Some(_) => Err(error::Error::type_error(
+            "xsl:evaluate namespace-context must be a node",
+        )),
     }
 }
 

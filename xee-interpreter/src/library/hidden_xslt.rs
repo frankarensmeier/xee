@@ -2,8 +2,8 @@
 // exposed to XPath
 use ahash::{HashMap, HashMapExt};
 
-use iri_string::types::{IriReferenceStr, IriString};
 use ibig::IBig;
+use iri_string::types::{IriReferenceStr, IriString};
 use xee_name::Namespaces;
 use xee_xpath_ast::parse_name;
 use xee_xpath_macros::xpath_fn;
@@ -89,8 +89,7 @@ fn xslt_for_each_group_by(
                 .and_then(|g| g.first())
                 .map(|item| item.clone().into())
                 .unwrap_or_default();
-            let sort_val = interpreter
-                .call_function_with_arguments(&sort_key_fn, &[first_item])?;
+            let sort_val = interpreter.call_function_with_arguments(&sort_key_fn, &[first_item])?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
                 .next()
@@ -109,7 +108,9 @@ fn xslt_for_each_group_by(
                 if is_numeric {
                     let a_num: f64 = a_str.parse().unwrap_or(f64::NAN);
                     let b_num: f64 = b_str.parse().unwrap_or(f64::NAN);
-                    a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                    a_num
+                        .partial_cmp(&b_num)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 } else {
                     a_str.cmp(&b_str)
                 }
@@ -130,11 +131,8 @@ fn xslt_for_each_group_by(
     let mut result = Vec::new();
     let total_groups: IBig = sorted_keys.len().into();
     for (index, group_key) in sorted_keys.iter().enumerate() {
-        let group_items: sequence::Sequence = groups
-            .get(group_key)
-            .cloned()
-            .unwrap_or_default()
-            .into();
+        let group_items: sequence::Sequence =
+            groups.get(group_key).cloned().unwrap_or_default().into();
         let first_item: sequence::Sequence = group_items
             .iter()
             .next()
@@ -210,8 +208,7 @@ fn xslt_for_each_group_adjacent(
                 .first()
                 .map(|item| item.clone().into())
                 .unwrap_or_default();
-            let sort_val = interpreter
-                .call_function_with_arguments(&sort_key_fn, &[first_item])?;
+            let sort_val = interpreter.call_function_with_arguments(&sort_key_fn, &[first_item])?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
                 .next()
@@ -230,7 +227,9 @@ fn xslt_for_each_group_adjacent(
                 if is_numeric {
                     let a_num: f64 = a_str.parse().unwrap_or(f64::NAN);
                     let b_num: f64 = b_str.parse().unwrap_or(f64::NAN);
-                    a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                    a_num
+                        .partial_cmp(&b_num)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 } else {
                     a_str.cmp(&b_str)
                 }
@@ -464,9 +463,7 @@ fn resolve_xslt_qname(
     Ok(name.into())
 }
 
-#[xpath_fn(
-    "fn:format-number-lexical($value as xs:string, $picture as xs:string) as xs:string"
-)]
+#[xpath_fn("fn:format-number-lexical($value as xs:string, $picture as xs:string) as xs:string")]
 fn format_number_lexical2(
     context: &crate::context::DynamicContext,
     value: &str,
@@ -502,8 +499,9 @@ fn xslt_number_value(
             let rounded = d.round();
             i64::try_from(rounded).map_err(|_| error::Error::XPTY0004(None))?
         }
-        atomic::Atomic::Integer(_, i) => i64::try_from(i.as_ref())
-            .map_err(|_| error::Error::XPTY0004(None))?,
+        atomic::Atomic::Integer(_, i) => {
+            i64::try_from(i.as_ref()).map_err(|_| error::Error::XPTY0004(None))?
+        }
         _ => atomic
             .cast_to_integer_value::<i64>()
             .map_err(|_| error::Error::XPTY0004(None))?,
@@ -519,9 +517,7 @@ fn xslt_number_value(
 
 // xsl:number level="single" with default count pattern (no explicit count/from).
 // Counts 1 + preceding siblings that match the same node kind and expanded-QName.
-#[xpath_fn(
-    "fn:xslt-number-count-single($node as node(), $format as xs:string?) as xs:string"
-)]
+#[xpath_fn("fn:xslt-number-count-single($node as node(), $format as xs:string?) as xs:string")]
 fn xslt_number_count_single(
     interpreter: &Interpreter,
     node: xot::Node,
@@ -588,9 +584,7 @@ fn node_matches_default_count(
 // xsl:number level="any" with default count pattern (no explicit count/from).
 // Counts all preceding nodes (in document order) that match the same node kind
 // and expanded-QName as the current node, including the current node itself.
-#[xpath_fn(
-    "fn:xslt-number-count-any($node as node(), $format as xs:string?) as xs:string"
-)]
+#[xpath_fn("fn:xslt-number-count-any($node as node(), $format as xs:string?) as xs:string")]
 fn xslt_number_count_any(
     interpreter: &Interpreter,
     node: xot::Node,
@@ -642,8 +636,12 @@ fn xslt_number_count_single_pattern(
     from_index: IBig,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
-    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
+    let count_index: i64 = (&count_index)
+        .try_into()
+        .map_err(|_| error::Error::XPTY0004(None))?;
+    let from_index: i64 = (&from_index)
+        .try_into()
+        .map_err(|_| error::Error::XPTY0004(None))?;
     let count = count_single_level_pattern(interpreter, node, count_index, from_index);
     format_xslt_number_value(count, format.unwrap_or("1"))
 }
@@ -718,8 +716,12 @@ fn xslt_number_count_any_pattern(
     from_index: IBig,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
-    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
+    let count_index: i64 = (&count_index)
+        .try_into()
+        .map_err(|_| error::Error::XPTY0004(None))?;
+    let from_index: i64 = (&from_index)
+        .try_into()
+        .map_err(|_| error::Error::XPTY0004(None))?;
     let count = count_any_level_pattern(interpreter, node, count_index, from_index);
     format_xslt_number_value(count, format.unwrap_or("1"))
 }
@@ -770,9 +772,7 @@ fn count_any_level_pattern(
 // xsl:number level="multiple" with default count pattern (no explicit count/from).
 // For each ancestor-or-self matching the default count, count 1 + preceding siblings matching.
 // Returns the formatted multi-value string.
-#[xpath_fn(
-    "fn:xslt-number-count-multiple($node as node(), $format as xs:string?) as xs:string"
-)]
+#[xpath_fn("fn:xslt-number-count-multiple($node as node(), $format as xs:string?) as xs:string")]
 fn xslt_number_count_multiple(
     interpreter: &Interpreter,
     node: xot::Node,
@@ -823,8 +823,12 @@ fn xslt_number_count_multiple_pattern(
     from_index: IBig,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let count_index: i64 = (&count_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
-    let from_index: i64 = (&from_index).try_into().map_err(|_| error::Error::XPTY0004(None))?;
+    let count_index: i64 = (&count_index)
+        .try_into()
+        .map_err(|_| error::Error::XPTY0004(None))?;
+    let from_index: i64 = (&from_index)
+        .try_into()
+        .map_err(|_| error::Error::XPTY0004(None))?;
     let numbers = count_multiple_level_pattern(interpreter, node, count_index, from_index);
     format_xslt_number_values(&numbers, format.unwrap_or("1"))
 }
@@ -899,7 +903,11 @@ fn node_matches_pattern(
 
 /// Test if a candidate node matches the default count pattern for the reference node.
 /// Default count matches nodes with the same node kind and expanded-QName.
-fn node_matches_default_count_for(xot: &Xot, reference_node: xot::Node, candidate: xot::Node) -> bool {
+fn node_matches_default_count_for(
+    xot: &Xot,
+    reference_node: xot::Node,
+    candidate: xot::Node,
+) -> bool {
     let target_value_type = xot.value_type(reference_node);
     let target_name = match xot.value(reference_node) {
         xot::Value::Element(el) => Some(el.name()),
@@ -1014,12 +1022,20 @@ fn format_xslt_number_values(numbers: &[i64], picture: &str) -> error::Result<St
                 let prev_end = tokens[i - 1].1;
                 let curr_start = tokens[i].0;
                 let s: String = chars[prev_end..curr_start].iter().collect();
-                if s.is_empty() { ".".to_string() } else { s }
+                if s.is_empty() {
+                    ".".to_string()
+                } else {
+                    s
+                }
             } else if tokens.len() >= 2 {
                 let prev_end = tokens[tokens.len() - 2].1;
                 let curr_start = tokens[tokens.len() - 1].0;
                 let s: String = chars[prev_end..curr_start].iter().collect();
-                if s.is_empty() { ".".to_string() } else { s }
+                if s.is_empty() {
+                    ".".to_string()
+                } else {
+                    s
+                }
             } else {
                 ".".to_string()
             };
@@ -1027,7 +1043,11 @@ fn format_xslt_number_values(numbers: &[i64], picture: &str) -> error::Result<St
         }
 
         // Use token[i] if it exists, otherwise use the last token
-        let token_idx = if i < tokens.len() { i } else { tokens.len() - 1 };
+        let token_idx = if i < tokens.len() {
+            i
+        } else {
+            tokens.len() - 1
+        };
         let (t_start, t_end) = tokens[token_idx];
         let token: String = chars[t_start..t_end].iter().collect();
         result.push_str(&format_number_token(num, &token)?);
@@ -1044,9 +1064,7 @@ fn format_number_token(number: i64, token: &str) -> error::Result<String> {
 
     // Handle zero-padded decimal pictures like "01", "001"
     let chars: Vec<char> = token.chars().collect();
-    if chars.iter().all(|c| *c == '0' || *c == '1')
-        && chars.last() == Some(&'1')
-        && chars.len() > 1
+    if chars.iter().all(|c| *c == '0' || *c == '1') && chars.last() == Some(&'1') && chars.len() > 1
     {
         let min_width = chars.len();
         return Ok(format!("{:0>width$}", number, width = min_width));
@@ -1134,7 +1152,10 @@ fn store_result_document(
     content: &sequence::Sequence,
 ) -> error::Result<sequence::Sequence> {
     if href.is_empty() {
-        context.store_principal_result_document(content.clone(), context.serialization_parameters().clone());
+        context.store_principal_result_document(
+            content.clone(),
+            context.serialization_parameters().clone(),
+        );
         return Ok(sequence::Sequence::default());
     }
 
@@ -1241,11 +1262,19 @@ fn xslt_evaluate(
     let with_params = match with_params.clone().option()? {
         None => None,
         Some(sequence::Item::Function(function::Function::Map(map))) => Some(map),
-        Some(_) => return Err(error::Error::type_error("xsl:evaluate with-params must be a map")),
+        Some(_) => {
+            return Err(error::Error::type_error(
+                "xsl:evaluate with-params must be a map",
+            ))
+        }
     };
 
     let request = crate::interpreter::DynamicXPathRequest {
-        xpath: xpath.ok_or(error::Error::type_error("xsl:evaluate xpath expression is empty"))?.to_string(),
+        xpath: xpath
+            .ok_or(error::Error::type_error(
+                "xsl:evaluate xpath expression is empty",
+            ))?
+            .to_string(),
         context_item: context_item.clone().option()?,
         namespace_context,
         with_params,
@@ -1547,10 +1576,7 @@ fn xslt_message_terminate(
         prefix.to_string(),
     );
     Err(error::Error::Application(Box::new(
-        error::ApplicationError::new(
-            qname,
-            "Processing terminated by xsl:message".to_string(),
-        ),
+        error::ApplicationError::new(qname, "Processing terminated by xsl:message".to_string()),
     )))
 }
 
@@ -1594,10 +1620,9 @@ fn is_item_populated(xot: &Xot, item: sequence::Item) -> bool {
     match item {
         sequence::Item::Node(node) => match xot.value(node) {
             xot::Value::Text(text) => !text.get().is_empty(),
-            xot::Value::Element(_) | xot::Value::Document => {
-                xot.children(node)
-                    .any(|child| is_item_populated(xot, sequence::Item::Node(child)))
-            }
+            xot::Value::Element(_) | xot::Value::Document => xot
+                .children(node)
+                .any(|child| is_item_populated(xot, sequence::Item::Node(child))),
             // PI, comment, attribute, namespace nodes count as populated
             _ => true,
         },
