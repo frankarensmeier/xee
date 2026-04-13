@@ -1270,13 +1270,14 @@ fn xslt_evaluate_put_param(
 }
 
 #[xpath_fn(
-    "fn:xslt-evaluate($xpath as xs:string?, $context_item as item()*, $namespace_context as item()*, $with_params as item()*, $base_uri as xs:string?) as item()*"
+    "fn:xslt-evaluate($xpath as xs:string?, $context_item as item()*, $context_item_supplied as item()*, $namespace_context as item()*, $with_params as item()*, $base_uri as xs:string?) as item()*"
 )]
 fn xslt_evaluate(
     context: &crate::context::DynamicContext,
     interpreter: &mut Interpreter,
     xpath: Option<&str>,
     context_item: &sequence::Sequence,
+    context_item_supplied: &sequence::Sequence,
     namespace_context: &sequence::Sequence,
     with_params: &sequence::Sequence,
     base_uri: Option<&str>,
@@ -1285,6 +1286,15 @@ fn xslt_evaluate(
         error::Error::Unsupported("xsl:evaluate is not configured for this program".to_string())
     })?;
 
+    let context_item_supplied = !context_item_supplied.is_empty();
+    let context_item = if context_item_supplied {
+        context_item
+            .clone()
+            .option()
+            .map_err(|_| error::Error::XTTE3210)?
+    } else {
+        None
+    };
     let namespace_context = namespace_context.clone().option()?;
     let with_params = match with_params.clone().option()? {
         None => None,
@@ -1302,7 +1312,8 @@ fn xslt_evaluate(
                 "xsl:evaluate xpath expression is empty",
             ))?
             .to_string(),
-        context_item: context_item.clone().option()?,
+        context_item,
+        context_item_supplied,
         namespace_context,
         with_params,
         base_uri: base_uri.map(str::to_string),

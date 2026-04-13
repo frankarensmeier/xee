@@ -13,9 +13,16 @@ use super::Runnable;
 pub struct DynamicXPathRequest {
     pub xpath: String,
     pub context_item: Option<sequence::Item>,
+    pub context_item_supplied: bool,
     pub namespace_context: Option<sequence::Item>,
     pub with_params: Option<function::Map>,
     pub base_uri: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitialFocusMode {
+    Full,
+    ItemOnly,
 }
 
 pub trait DynamicXPathEvaluator: std::fmt::Debug {
@@ -68,6 +75,7 @@ pub struct Program {
     static_context: context::StaticContext,
     dynamic_xpath_evaluator: Option<Box<dyn DynamicXPathEvaluator>>,
     transform_evaluator: Option<Box<dyn TransformEvaluator>>,
+    initial_focus_mode: InitialFocusMode,
     map_signature: function::Signature,
     array_signature: function::Signature,
 }
@@ -83,6 +91,7 @@ impl Program {
             static_context,
             dynamic_xpath_evaluator: None,
             transform_evaluator: None,
+            initial_focus_mode: InitialFocusMode::Full,
             map_signature: function::Signature::map_signature(),
             array_signature: function::Signature::array_signature(),
         }
@@ -106,6 +115,14 @@ impl Program {
 
     pub fn transform_evaluator(&self) -> Option<&dyn TransformEvaluator> {
         self.transform_evaluator.as_deref()
+    }
+
+    pub fn set_initial_focus_mode(&mut self, initial_focus_mode: InitialFocusMode) {
+        self.initial_focus_mode = initial_focus_mode;
+    }
+
+    pub fn initial_focus_mode(&self) -> InitialFocusMode {
+        self.initial_focus_mode
     }
 
     pub fn dynamic_context_builder(&self) -> context::DynamicContextBuilder<'_> {

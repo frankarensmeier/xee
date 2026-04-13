@@ -4,7 +4,9 @@ use xee_ir::{FunctionBuilder, FunctionCompiler, ModeIds, Scopes, TemplateIds, Te
 use xee_interpreter::{
     context::{self, DynamicContext},
     error, function,
-    interpreter::{DynamicXPathEvaluator, DynamicXPathRequest, Interpreter, Program},
+    interpreter::{
+        DynamicXPathEvaluator, DynamicXPathRequest, InitialFocusMode, Interpreter, Program,
+    },
     sequence,
 };
 use xee_name::{Name, Namespaces, VariableNames};
@@ -49,12 +51,18 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
         program
             .set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
         program.set_transform_evaluator(Box::new(crate::transform::XsltTransformEvaluator));
+        program.set_initial_focus_mode(if request.context_item_supplied {
+            InitialFocusMode::Full
+        } else {
+            InitialFocusMode::ItemOnly
+        });
         program.set_source(request.xpath.clone());
 
-        let context_item = request
-            .context_item
-            .clone()
-            .or_else(|| context.context_item().cloned());
+        let context_item = if request.context_item_supplied {
+            request.context_item.clone()
+        } else {
+            context.context_item().cloned()
+        };
         let dynamic_context = context.clone_for_program(&program, context_item, variables);
         program
             .runnable(&dynamic_context)
@@ -114,7 +122,10 @@ fn variables_for_request(
     };
 
     for (key, value) in with_params.entries() {
-        let name: Name = key.clone().try_into()?;
+        let name: Name = match key.clone().try_into() {
+            Ok(name) => name,
+            Err(_) => return Err(error::Error::XTTE3165),
+        };
         variable_names.insert(name.clone());
         variables.insert(name, value.clone());
     }

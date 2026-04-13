@@ -688,10 +688,20 @@ pub enum Error {
     /// It is a type error if xsl:apply-templates is evaluated in a mode with
     /// typed="yes" and the selected nodes are untyped.
     XTTE3100,
+    /// xsl:evaluate with-params keys are not QNames.
+    ///
+    /// It is a type error if the supplied parameter map for xsl:evaluate uses
+    /// keys that are not xs:QName values.
+    XTTE3165,
     /// Shallow copy
     ///
     /// Shallow copy of sequence of more than one item is not allowed.
     XTTE3180,
+    /// xsl:evaluate context item is not a single item.
+    ///
+    /// It is a type error if the context-item attribute of xsl:evaluate
+    /// supplies a sequence of more than one item.
+    XTTE3210,
     /// Function item in complex content
     ///
     /// The result sequence to be added as content cannot contain a function

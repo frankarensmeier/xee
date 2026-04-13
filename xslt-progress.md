@@ -4,6 +4,39 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-13 20:43 CEST
+
+### Status snapshot
+
+- Checkpoint focus: `xsl:evaluate` context-item semantics and `with-params`
+  QName-key validation.
+- Filtered vendor regression sweep: 4838 passed, 0 failed, 0 error — clean.
+- Filter baseline change: none.
+- Focused validation: 10 `xsl:evaluate` compiler tests passing.
+
+### xsl:evaluate context-item semantics
+
+- Fixed the runtime bridge so omitted `context-item` and explicit
+  `context-item="()"` are no longer conflated.
+- Omitted `context-item` now inherits only the current item; it does not
+  synthesize `position()` / `last()` as `1`.
+- Explicit `context-item` is validated as zero-or-one item; sequences of more
+  than one item now raise `XTTE3210`.
+- Added focused regressions for absent context (`XPDY0002`), explicit empty
+  context (`XPDY0002`), and multi-item context (`XTTE3210`).
+
+### xsl:evaluate with-params validation
+
+- Added `XTTE3165` and validate that `with-params` map keys are `xs:QName`
+  values before exposing them as dynamic XPath variables.
+- Added a focused regression covering string-keyed maps.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler --test test_xslt test_xsl_evaluate_` passed.
+- `cargo test -p xee-interpreter --lib` still has one unrelated existing
+  failure: `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+
 ## 2026-04-13 18:49 CEST
 
 ### Status snapshot

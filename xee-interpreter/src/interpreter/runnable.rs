@@ -15,6 +15,7 @@ use crate::stack;
 use crate::{error, string};
 
 use super::program::FunctionInfo;
+use super::program::InitialFocusMode;
 use super::Interpreter;
 use super::Program;
 
@@ -53,10 +54,17 @@ impl<'a> Runnable<'a> {
         let mut interpreter = Interpreter::new(self, xot);
 
         let context_info = if let Some(context_item) = self.dynamic_context.context_item() {
-            ContextInfo {
-                item: context_item.clone().into(),
-                position: ibig!(1).into(),
-                size: ibig!(1).into(),
+            match self.program.initial_focus_mode() {
+                InitialFocusMode::Full => ContextInfo {
+                    item: context_item.clone().into(),
+                    position: ibig!(1).into(),
+                    size: ibig!(1).into(),
+                },
+                InitialFocusMode::ItemOnly => ContextInfo {
+                    item: context_item.clone().into(),
+                    position: stack::Value::Absent,
+                    size: stack::Value::Absent,
+                },
             }
         } else {
             ContextInfo {

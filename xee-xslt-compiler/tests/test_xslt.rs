@@ -6048,6 +6048,103 @@ fn test_xsl_evaluate_reports_xtde3160_for_private_stylesheet_function() {
 }
 
 #[test]
+fn test_xsl_evaluate_reports_xpdy0002_without_context_item() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform version="3.0"
+               xmlns:fn="http://www.w3.org/2005/xpath-functions"
+               xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:xs="http://www.w3.org/2001/XMLSchema"
+               exclude-result-prefixes="xs fn">
+  <xsl:param name="e3">fn:position()</xsl:param>
+
+  <xsl:template match="/">
+    <out>
+      <a>
+        <xsl:evaluate xpath="($e3)"/>
+      </a>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XPDY0002);
+}
+
+#[test]
+fn test_xsl_evaluate_reports_xpdy0002_with_explicit_empty_context_item() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:param name="e3">@x</xsl:param>
+
+  <xsl:template match="/">
+    <out>
+      <a><xsl:evaluate xpath="($e3)" context-item="()"/></a>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XPDY0002);
+}
+
+#[test]
+fn test_xsl_evaluate_reports_xtte3210_for_context_item_sequence() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:param name="e1">true()</xsl:param>
+  <xsl:param name="e3">@x</xsl:param>
+
+  <xsl:template match="/">
+    <out>
+      <a><xsl:evaluate xpath="($e3)" context-item="1 to (1 + count($e1))"/></a>
+    </out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTTE3210);
+}
+
+#[test]
+fn test_xsl_evaluate_reports_xtte3165_for_non_qname_with_param_keys() {
+    let mut xot = Xot::new();
+  let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:map="http://www.w3.org/2005/xpath-functions/map"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema" version="3.0">
+  <xsl:template match="/">
+        <out>
+            <xsl:variable name="map" select="map { 'beast' : xs:integer(666) }"/>
+            <xsl:variable name="xpath2" select="'$beast + 1'"/>
+            <xsl:evaluate xpath="$xpath2" with-params="$map"/>
+        </out>
+    </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTTE3165);
+}
+
+#[test]
 fn test_xsl_number_value_supports_docbook_picture_set() {
     let mut xot = Xot::new();
     let output = evaluate(

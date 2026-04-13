@@ -2579,6 +2579,21 @@ impl<'a> IrConverter<'a> {
 
         let (context_item_atom, context_item_bindings) =
             self.optional_evaluate_argument(evaluate.context_item.as_ref())?;
+        let (context_item_supplied_atom, context_item_supplied_bindings) =
+            if evaluate.context_item.is_some() {
+                (
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String("supplied".to_string())),
+                        (0..0).into(),
+                    ),
+                    Bindings::empty(),
+                )
+            } else {
+                let empty_sequence = self.empty_sequence();
+                Bindings::empty()
+                    .bind_expr_no_span(&mut self.variables, empty_sequence.value)
+                    .atom_bindings()
+            };
         let (namespace_context_atom, namespace_context_bindings) =
             self.optional_evaluate_argument(evaluate.namespace_context.as_ref())?;
         let (with_params_atom, with_params_bindings) =
@@ -2589,10 +2604,11 @@ impl<'a> IrConverter<'a> {
         let expr = self.static_function_call_expr(
             "xslt-evaluate",
             FN_NAMESPACE,
-            5,
+            6,
             vec![
                 xpath_atom,
                 context_item_atom,
+                context_item_supplied_atom,
                 namespace_context_atom,
                 with_params_atom,
                 base_uri_atom,
@@ -2600,6 +2616,7 @@ impl<'a> IrConverter<'a> {
         );
         Ok(xpath_bindings
             .concat(context_item_bindings)
+            .concat(context_item_supplied_bindings)
             .concat(namespace_context_bindings)
             .concat(with_params_bindings)
             .concat(base_uri_bindings)
