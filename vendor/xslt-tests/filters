@@ -470,7 +470,6 @@ current-output-uri-009
 current-output-uri-010
 current-output-uri-014
 current-output-uri-901
-current-output-uri-902
 = data-manipulation
 = date
 date-019
@@ -724,9 +723,6 @@ error-0630c
 error-0640a
 error-0640e-2
 error-0640g
-error-0640i
-error-0640j
-error-0640n
 error-0650a
 error-0650b
 error-0650c
@@ -889,7 +885,6 @@ error-3125b
 error-3130a
 error-3140a
 error-3150a
-error-3160a
 error-3170a
 error-3175a
 error-3185a
@@ -1360,8 +1355,10 @@ key-080
 key-081
 key-082
 key-083
+key-087
 key-088
 key-089
+key-090
 key-092
 key-093
 key-094

@@ -367,6 +367,8 @@ impl<'a> DeclarationCompiler<'a> {
                 name: global_variable.name.clone(),
                 function_id,
                 original_name: global_variable.original_name.clone(),
+                public_name: global_variable.public_name.clone(),
+                public_arity: global_variable.public_arity,
                 external: global_variable.external,
                 required: global_variable.required,
             },

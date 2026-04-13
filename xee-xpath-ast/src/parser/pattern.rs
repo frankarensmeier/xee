@@ -218,6 +218,7 @@ where
             let axis = match axis {
                 ast::Axis::Attribute => pattern::ForwardAxis::Attribute,
                 ast::Axis::Child => pattern::ForwardAxis::Child,
+                ast::Axis::Namespace => pattern::ForwardAxis::Namespace,
                 _ => unreachable!(),
             };
             (axis, node_test)

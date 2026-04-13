@@ -327,6 +327,14 @@ mod tests {
     }
 
     #[test]
+    fn test_static_function_call_prefixed_reserved_local_name() {
+        let mut namespaces = Namespaces::default();
+        namespaces.add(&[("eval", "http://example.com/eval")]);
+        let expr = parse(parser().expr_single, tokens("eval:node()"), Cow::Owned(namespaces));
+        assert!(expr.is_ok());
+    }
+
+    #[test]
     fn test_static_function_call_q() {
         assert_ron_snapshot!(ast::ExprSingle::parse("Q{http://example.com}something()"));
     }
@@ -339,6 +347,14 @@ mod tests {
     #[test]
     fn test_named_function_ref() {
         assert_ron_snapshot!(ast::ExprSingle::parse("my_function#2"));
+    }
+
+    #[test]
+    fn test_named_function_ref_prefixed_reserved_local_name() {
+        let mut namespaces = Namespaces::default();
+        namespaces.add(&[("eval", "http://example.com/eval")]);
+        let expr = parse(parser().expr_single, tokens("eval:node#0"), Cow::Owned(namespaces));
+        assert!(expr.is_ok());
     }
 
     #[test]

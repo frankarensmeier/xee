@@ -1420,3 +1420,27 @@ fn test_keyword_qname_and() {
         &[("ex", "http://example.com/ex")]
     ));
 }
+
+/// Regression: regex-syntax-0986 overflows the stack matching [\i] against 69K tokens.
+/// This test reproduces the exact pattern: every $s in tokenize($big, ',') satisfies matches($s, '^([\i])$')
+#[test]
+fn test_large_every_satisfies_matches_name_start_char() {
+    // Build a comma-separated string of 69000 single NameStartChar characters
+    let big: String = (0..69000u32)
+        .map(|i| {
+            let c = (b'A' + (i % 26) as u8) as char;
+            if i == 0 {
+                c.to_string()
+            } else {
+                format!(",{}", c)
+            }
+        })
+        .collect();
+
+    let xpath = format!(
+        "every $s in tokenize('{}', ',') satisfies matches($s, '^([\\i])$')",
+        big
+    );
+    let result = run(&xpath);
+    assert!(result.is_ok(), "expression should not overflow: {:?}", result.err());
+}

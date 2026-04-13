@@ -48,3 +48,12 @@ ron = "0.8.1"
 
 # [profile.test.package.xot]
 # opt-level = 3
+
+# The logos crate generates recursive DFA state machines that overflow the stack
+# when lexing long string literals (>20K chars). opt-level=1 enables tail-call
+# optimization which eliminates the recursion. See logos#384.
+[profile.dev.package.xee-xpath-lexer]
+opt-level = 1
+
+[profile.test.package.xee-xpath-lexer]
+opt-level = 1

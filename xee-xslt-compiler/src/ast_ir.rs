@@ -1476,6 +1476,8 @@ impl<'a> IrConverter<'a> {
                     globals.push(ir::GlobalVariable {
                         name,
                         original_name: Some(var.name.clone()),
+                        public_name: None,
+                        public_arity: None,
                         external: false,
                         required: false,
                         params: expr.0,
@@ -1500,6 +1502,8 @@ impl<'a> IrConverter<'a> {
                     globals.push(ir::GlobalVariable {
                         name,
                         original_name: Some(param.name.clone()),
+                        public_name: None,
+                        public_arity: None,
                         external: true,
                         required: param.required,
                         params: expr.0,
@@ -1528,9 +1532,18 @@ impl<'a> IrConverter<'a> {
                         );
                         Ok((params, expr))
                     })?;
+                    let (public_name, public_arity) = match function.visibility {
+                        Some(ast::VisibilityWithAbstract::Public)
+                        | Some(ast::VisibilityWithAbstract::Final) => {
+                            (Some(function.name.clone()), Some(arity))
+                        }
+                        _ => (None, None),
+                    };
                     globals.push(ir::GlobalVariable {
                         name,
                         original_name: None,
+                        public_name,
+                        public_arity,
                         external: false,
                         required: false,
                         params,

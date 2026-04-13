@@ -9,7 +9,7 @@ use crate::interpreter::Interpreter;
 use crate::pattern::pattern_core::PredicateMatcher;
 use crate::sequence::{Item, Sequence};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PatternLookup<V: Clone> {
     pub(crate) patterns: Vec<(Pattern<function::InlineFunctionId>, V)>,
 }

@@ -5961,6 +5961,93 @@ fn test_xsl_evaluate_uses_namespace_context() {
 }
 
 #[test]
+fn test_xsl_evaluate_calls_public_stylesheet_function() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:my="http://example.com/my"
+               version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:evaluate xpath="'my:double(21)'"/>
+    </out>
+  </xsl:template>
+
+  <xsl:function name="my:double" visibility="public">
+    <xsl:param name="value"/>
+    <xsl:sequence select="$value * 2"/>
+  </xsl:function>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out xmlns:my=\"http://example.com/my\">42</out>"
+    );
+}
+
+#[test]
+fn test_xsl_evaluate_calls_final_stylesheet_function_with_reserved_local_name() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item/></doc>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:eval="http://example.com/eval"
+               version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:evaluate xpath="'eval:node(/*/item)'"/>
+    </out>
+  </xsl:template>
+
+  <xsl:function name="eval:node" visibility="final">
+    <xsl:param name="node" as="element()"/>
+    <xsl:sequence select="name($node)"/>
+  </xsl:function>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+  assert_eq!(
+    xml(&xot, output),
+    "<out xmlns:eval=\"http://example.com/eval\">item</out>"
+  );
+}
+
+#[test]
+fn test_xsl_evaluate_reports_xtde3160_for_private_stylesheet_function() {
+    let mut xot = Xot::new();
+    let error = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:my="http://example.com/my"
+               version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:evaluate xpath="'my:double(21)'"/>
+    </out>
+  </xsl:template>
+
+  <xsl:function name="my:double">
+    <xsl:param name="value"/>
+    <xsl:sequence select="$value * 2"/>
+  </xsl:function>
+</xsl:transform>"#,
+    )
+    .unwrap_err();
+
+  assert_eq!(error.value(), error::Error::XTDE3160);
+}
+
+#[test]
 fn test_xsl_number_value_supports_docbook_picture_set() {
     let mut xot = Xot::new();
     let output = evaluate(
@@ -6649,4 +6736,81 @@ fn test_iterate_multi_param_three_params_shared_variable() {
         "iter 4: all should be T, got: {}",
         result
     );
+}
+
+/// Regression: regex-syntax-0986 overflows the stack matching [\i] against 69K tokens via XSLT.
+/// This reproduces the exact pattern: an xsl:param with a large string, tokenized then matched.
+#[test]
+fn test_large_every_satisfies_matches_via_xslt_named_template() {
+    // Build the comma-separated match input with diverse Unicode NameStartChar
+    // characters, matching the scale (~69K tokens) and character diversity of
+    // the vendor regex-syntax-0986 test case.
+    let name_start_chars: Vec<char> = (0u32..=0x10FFFFu32)
+        .filter_map(|cp| {
+            let c = char::from_u32(cp)?;
+            // XML NameStartChar: ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | ...
+            match c {
+                ':' | '_' | 'A'..='Z' | 'a'..='z' => Some(c),
+                '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{2FF}' => Some(c),
+                '\u{370}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' => Some(c),
+                '\u{200C}'..='\u{200D}' => Some(c),
+                '\u{2070}'..='\u{218F}' => Some(c),
+                '\u{2C00}'..='\u{2FEF}' => Some(c),
+                '\u{3001}'..='\u{D7FF}' => Some(c),
+                '\u{F900}'..='\u{FDCF}' => Some(c),
+                '\u{FDF0}'..='\u{FFFD}' => Some(c),
+                '\u{10000}'..='\u{EFFFF}' => Some(c),
+                _ => None,
+            }
+        })
+        .take(69031)
+        .collect();
+
+    let big: String = name_start_chars
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if i == 0 {
+                c.to_string()
+            } else {
+                format!(",{}", c)
+            }
+        })
+        .collect();
+
+    let xslt = format!(
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  exclude-result-prefixes="xs">
+  <xsl:param name="match" as="xs:string" select="'{big}'"/>
+  <xsl:template name="go">
+    <xsl:choose>
+      <xsl:when test="every $s in tokenize($match, ',') satisfies matches($s, '^([\i])$')">
+        <true/>
+      </xsl:when>
+      <xsl:otherwise>
+        <false/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:template>
+</xsl:transform>"#,
+        big = big
+    );
+
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &xslt,
+        std::path::Path::new("/tmp/test.xsl"),
+        "go",
+    );
+    assert!(
+        output.is_ok(),
+        "XSLT evaluation should not overflow: {:?}",
+        output.err()
+    );
+    let result = xml(&xot, output.unwrap());
+    assert_eq!(result, "<true/>");
 }

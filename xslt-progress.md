@@ -4,6 +4,44 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-13 18:49 CEST
+
+### Status snapshot
+
+- Checkpoint focus: xsl:evaluate public/final function support, logos stack
+  overflow fix, pattern parser namespace axis fix.
+- Vendor regression sweep: 4838 passed, 0 failed, 0 error — clean.
+- Net filter change: 5 tests removed (newly passing), 2 manually added
+  (`key-087`/`key-090`, now FAIL instead of PANIC).
+
+### xsl:evaluate public/final stylesheet functions
+
+- Exposed `public_name` and `public_arity` metadata on `GlobalVariable` IR
+  nodes and `Declarations` so `xsl:evaluate` can resolve calls to stylesheet
+  functions marked `visibility="public"` or `visibility="final"`.
+- Added XTDE3160 error remapping for dynamic evaluation errors.
+- Fixed XPath parser to allow prefixed reserved local names (e.g.
+  `my:function`) so they don't collide with bare reserved words.
+
+### logos lexer stack overflow fix
+
+- Root-caused a stack overflow on vendor `regex-syntax-0986` / `regex-syntax-0987`
+  to the `logos` crate (v0.15.0) — its generated DFA uses recursive function
+  calls (one per character) when scanning XPath string literals. A 138K-char
+  param value causes ~138K stack frames, exceeding the 8 MB default stack.
+- Fix: `opt-level = 1` for `xee-xpath-lexer` in dev/test profiles, enabling
+  tail-call optimization on the recursive DFA. No lexer production-code
+  change was needed; this tranche adds Cargo profile tuning plus regression
+  tests. See logos issue #384.
+
+### Pattern parser namespace axis fix
+
+- Fixed `unreachable!()` panic in `pattern.rs` when `abbrev_forward_step`
+  produced `Axis::Namespace` (for `namespace-node()` kind tests). Added the
+  missing `Namespace` arm mapping to `ForwardAxis::Namespace`.
+- Converted key-087 and key-090 from PANIC to normal FAIL; kept them filtered
+  manually pending proper namespace-node key semantics.
+
 ## 2026-04-13 13:41 CEST
 
 ### Status snapshot

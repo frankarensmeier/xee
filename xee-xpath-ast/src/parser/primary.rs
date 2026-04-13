@@ -134,6 +134,9 @@ pub(crate) fn check_reserved(
     name: &ast::NameS,
     span: Span,
 ) -> std::result::Result<(), ParserError> {
+    if !name.value.prefix().is_empty() || !name.value.namespace().is_empty() {
+        return Ok(());
+    }
     let local_name = name.value.local_name();
     check_reserved_str(local_name, span)
 }

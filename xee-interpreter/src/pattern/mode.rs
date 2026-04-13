@@ -19,7 +19,7 @@ impl ModeId {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ModeLookup<V: Clone> {
     pub(crate) modes: HashMap<ModeId, PatternLookup<V>>,
 }

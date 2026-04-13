@@ -668,6 +668,11 @@ pub enum Error {
     /// is not available in the static context (deferred from XPST0017 in
     /// backwards-compatible mode).
     XTDE1425,
+    /// Invalid target expression for xsl:evaluate.
+    ///
+    /// It is a non-recoverable dynamic error if static analysis of the target
+    /// expression of xsl:evaluate fails.
+    XTDE3160,
     /// Variable value does not match declared type.
     ///
     /// It is a type error if the value of a variable does not match the

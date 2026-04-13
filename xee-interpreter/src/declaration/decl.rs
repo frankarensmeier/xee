@@ -11,6 +11,8 @@ pub struct GlobalVariableDeclaration {
     pub name: function::Name,
     pub function_id: function::InlineFunctionId,
     pub original_name: Option<OwnedName>,
+    pub public_name: Option<OwnedName>,
+    pub public_arity: Option<u8>,
     pub external: bool,
     pub required: bool,
 }
@@ -92,7 +94,7 @@ pub struct TemplateRule {
     pub module_path: Vec<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Declarations {
     pub mode_lookup: ModeLookup<TemplateRule>,
     modes: HashMap<ModeId, ModeDeclaration>,

@@ -91,6 +91,10 @@ impl<'a> DynamicContext<'a> {
         self.program.static_context()
     }
 
+    pub fn program(&self) -> &Program {
+        self.program
+    }
+
     /// Access the context item, if any.
     pub fn context_item(&self) -> Option<&sequence::Item> {
         self.context_item.as_ref()
