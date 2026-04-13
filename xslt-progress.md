@@ -4,6 +4,58 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-13 23:08 CEST
+
+### Status snapshot
+
+- Checkpoint focus: make the vendor `xsl:evaluate` suite actually run in the
+  XSLT testrunner by advertising the right dependency feature flags.
+- Testrunner unit tests: 24 passed, 0 failed.
+- Result: `tests/insn/evaluate/_evaluate-test-set.xml` is no longer skipped as
+  unsupported; it now exposes the real remaining `xsl:evaluate` frontier.
+
+### Testrunner dependency advertisement
+
+- Added XSLT testrunner support flags for `dynamic_evaluation`,
+  `higher_order_functions`, and `XPath_3.1`.
+- Kept the older camelCase `higherOrderFunctions` spelling alongside the vendor
+  snake_case spelling so existing XPath-side expectations are not tightened by
+  accident.
+- Added unit tests to keep those feature advertisements from silently
+  regressing.
+
+### Newly exposed vendor evaluate baseline
+
+- A direct `all` run of the vendor evaluate set now reaches real execution
+  instead of reporting the whole set unsupported.
+- Confirmed non-pass cases before the later crash frontier:
+  `evaluate-018d` errors with `XTTE0570`, `evaluate-019` reports unsupported
+  expression `XPST0081`, `evaluate-020` fails its assertion, and
+  `evaluate-023` returns a node instead of the required type error.
+- The filtered vendor sweep now reaches `evaluate` and additionally shows
+  `evaluate-002` and `evaluate-027` failing in batch mode.
+
+### Newly exposed crash frontier
+
+- `evaluate-046` remains unsupported because it depends on streaming.
+- The testrunner path stack-overflows on at least `evaluate-047`,
+  `evaluate-048`, `evaluate-049`, and `evaluate-051` when run from the vendor
+  suite.
+- `evaluate-050` and `evaluate-052` pass individually, so the immediate next
+  work is not generic `xsl:evaluate` support but the remaining batch/runtime
+  crash and wrong-result cases.
+
+### Validation notes
+
+- `cargo test -p xee-testrunner` passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/evaluate/_evaluate-test-set.xml`
+  now executes the suite instead of skipping it, but aborts later with a stack
+  overflow.
+- `target/debug/xee-testrunner -v check vendor/xslt-tests` now reaches the
+  `evaluate` section and aborts with the same late stack overflow, so the
+  filtered vendor sweep is no longer clean after enabling real evaluate
+  coverage.
+
 ## 2026-04-13 22:13 CEST
 
 ### Status snapshot

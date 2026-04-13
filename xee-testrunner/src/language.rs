@@ -96,6 +96,18 @@ impl Language for XsltLanguage {
             },
             DependencySpec {
                 type_: "feature".to_string(),
+                value: "higher_order_functions".to_string(),
+            },
+            DependencySpec {
+                type_: "feature".to_string(),
+                value: "dynamic_evaluation".to_string(),
+            },
+            DependencySpec {
+                type_: "feature".to_string(),
+                value: "XPath_3.1".to_string(),
+            },
+            DependencySpec {
+                type_: "feature".to_string(),
                 value: "serialization".to_string(),
             },
             DependencySpec {
@@ -104,5 +116,40 @@ impl Language for XsltLanguage {
             },
         ];
         KnownDependencies::new(&specs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dependency::{Dependencies, Dependency};
+
+    fn xslt_feature_dependency(value: &str) -> Dependencies {
+        Dependencies::new(vec![Dependency {
+            spec: DependencySpec {
+                type_: "feature".to_string(),
+                value: value.to_string(),
+            },
+            satisfied: true,
+        }])
+    }
+
+    #[test]
+    fn test_xslt_known_dependencies_support_dynamic_evaluation() {
+        assert!(xslt_feature_dependency("dynamic_evaluation")
+            .is_supported(&XsltLanguage::known_dependencies()));
+    }
+
+    #[test]
+    fn test_xslt_known_dependencies_support_higher_order_functions_vendor_spelling() {
+        assert!(xslt_feature_dependency("higher_order_functions")
+            .is_supported(&XsltLanguage::known_dependencies()));
+    }
+
+    #[test]
+    fn test_xslt_known_dependencies_support_xpath_31_feature_flag() {
+        assert!(
+            xslt_feature_dependency("XPath_3.1").is_supported(&XsltLanguage::known_dependencies())
+        );
     }
 }
