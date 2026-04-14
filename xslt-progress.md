@@ -4,6 +4,50 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 22:03 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the next adjacent principal `xsl:result-document`
+  residue after the AVT tranche, namely duplicate writes to the principal
+  output URI.
+- Result: `result-document-1001` through `1006` now pass.
+- Filter baseline change: none.
+- `update.py` remains deferred until the full vendor suite is green.
+
+### Principal output URI collisions
+
+- Principal-result writes are now rejected with `XTDE1490` when more than one
+  result tree targets the principal output destination.
+- This covers all six vendor shapes in the `1001` tranche:
+  implicit principal output followed by `href=""`, explicit `href=""`
+  followed by implicit output, implicit output followed by `xsl:result-document`
+  without `href`, two explicit principal-targeting result-document
+  instructions, and the nested secondary-document cases that route back to the
+  principal destination.
+- The fix is intentionally narrow: it reuses the existing `href=""` principal
+  routing and adds the missing duplicate-target check at principal merge time
+  instead of changing secondary-document URI handling.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler test_xslt_vendor_result_document_1001_raises_xtde1490 -- --exact`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-100`
+  passed: `1001` through `1006` all green.
+- Back-checks still pass for the earlier dynamic-serialization tranche:
+  `result-document-0401` and `result-document-0901`.
+- `cargo test -p xee-xslt-compiler` still shows the same six unrelated
+  baseline failures.
+- `cargo test -p xee-interpreter` still shows the same unrelated baseline
+  failure in `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+
+### Next frontier
+
+- The next adjacent `result-document` residue is `result-document-1101`, where
+  `xsl:result-document` inside temporary output state is still unsupported;
+  that expands into the `1101`-series `XTDE1480` cases.
+
 ## 2026-04-14 21:57 CEST
 
 ### Status snapshot

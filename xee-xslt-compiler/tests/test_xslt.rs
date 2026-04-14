@@ -1241,6 +1241,18 @@ fn test_result_document_dynamic_method_avt_sets_principal_output_method() {
     ));
   }
 
+  #[test]
+  fn test_xslt_vendor_result_document_1001_raises_xtde1490() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/result-document/result-document-1001.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_base(&mut xot, "<doc/>", &xslt, &stylesheet_path)
+      .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE1490);
+  }
+
 #[test]
 fn test_recursive_attribute_set_reentry_raises_xtde0640() {
     let error = parse(

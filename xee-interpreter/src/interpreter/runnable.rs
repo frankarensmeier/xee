@@ -136,8 +136,17 @@ impl<'a> Runnable<'a> {
         &self,
         result: sequence::Sequence,
     ) -> error::SpannedResult<sequence::Sequence> {
-        self.dynamic_context
-            .principal_result_documents()
+        let principal_result_documents = self.dynamic_context.principal_result_documents();
+        if principal_result_documents.len() > 1
+            || (!principal_result_documents.is_empty() && !result.is_empty())
+        {
+            return Err(SpannedError {
+                error: error::Error::XTDE1490,
+                span: Some(self.program.span().into()),
+            });
+        }
+
+        principal_result_documents
             .into_iter()
             .try_fold(result, |acc, sequence| acc.concat(sequence))
             .map_err(|error| SpannedError {
