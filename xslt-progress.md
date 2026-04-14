@@ -4,6 +4,44 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 22:13 CEST
+
+### Status snapshot
+
+- Checkpoint focus: trim the non-`result-document` compile blockers that stop
+  the shared `result-document-1101.xsl` stylesheet from even reaching the
+  temporary-output-state checks.
+- Result: `xsl:key` declarations can now use sequence-constructor bodies
+  instead of requiring `use=`.
+- Filter baseline change: none.
+- `update.py` remains deferred until the full vendor suite is green.
+
+### Key sequence-constructor bodies
+
+- `xsl:key` lowering now accepts a sequence constructor as the key-use body and
+  compiles it as the runtime key function when `use=` is absent.
+- A focused regression now covers a basic lookup where the key value is
+  produced by `<xsl:sequence select="@id"/>` inside the key body.
+- This removes one shared stylesheet-level blocker from the
+  `result-document-1101` family, which previously failed before the temporary
+  output-state behavior could be observed.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler test_key_sequence_constructor_body_lookup -- --exact`
+  passed.
+- `cargo test -p xee-xslt-compiler` still shows the same six unrelated
+  baseline failures.
+
+### Next frontier
+
+- `result-document-1101` is still blocked by another shared stylesheet compile
+  gap: `xsl:perform-sort` is not parsed/lowered yet (`Failed parsing XSLT:
+  Unsupported("Unknown sequence constructor: PerformSort")`).
+- After that compile blocker is removed, the remaining intended work for the
+  `1101` series is to enforce `XTDE1480` when `xsl:result-document` is invoked
+  in temporary output state.
+
 ## 2026-04-14 22:03 CEST
 
 ### Status snapshot

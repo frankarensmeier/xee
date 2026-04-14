@@ -1975,46 +1975,23 @@ impl<'a> IrConverter<'a> {
     ) -> error::SpannedResult<()> {
         // Compile the use expression (or sequence constructor) into a function
         // that takes a context node and returns the key value(s).
-        let use_function = if let Some(use_expr) = &key.use_ {
-            // use= attribute: compile as an expression evaluated with context node
-            let context_names = self.variables.push_context();
-            let bindings = self.expression(use_expr)?;
-            self.variables.pop_context();
-            ir::FunctionDefinition {
-                params: vec![
-                    ir::Param {
-                        name: context_names.item,
-                        type_: None,
-                        default: None,
-                        required: false,
-                        original_name: None,
-                        tunnel: false,
-                    },
-                    ir::Param {
-                        name: context_names.position,
-                        type_: None,
-                        default: None,
-                        required: false,
-                        original_name: None,
-                        tunnel: false,
-                    },
-                    ir::Param {
-                        name: context_names.last,
-                        type_: None,
-                        default: None,
-                        required: false,
-                        original_name: None,
-                        tunnel: false,
-                    },
-                ],
-                return_type: None,
-                body: Box::new(bindings.expr()),
-            }
+        let context_names = self.variables.push_context();
+        let bindings = if let Some(use_expr) = &key.use_ {
+            self.expression(use_expr)?
+        } else if !key.sequence_constructor.is_empty() {
+            self.sequence_constructor(&key.sequence_constructor)?
         } else {
+            self.variables.pop_context();
             return Err(error::Error::Unsupported(
-                "xsl:key without use= attribute is not yet supported".to_string(),
+                "xsl:key without use= attribute or body is not yet supported".to_string(),
             )
             .into());
+        };
+        self.variables.pop_context();
+        let use_function = ir::FunctionDefinition {
+            params: Self::context_params(&context_names),
+            return_type: None,
+            body: Box::new(bindings.expr()),
         };
 
         // Compile the match pattern

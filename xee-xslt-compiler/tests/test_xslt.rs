@@ -6783,6 +6783,27 @@ fn test_key_basic_lookup() {
 }
 
 #[test]
+fn test_key_sequence_constructor_body_lookup() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<doc><item id="a" val="alpha"/><item id="b" val="beta"/><item id="c" val="gamma"/></doc>"#,
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:key name="items" match="item">
+    <xsl:sequence select="@id"/>
+  </xsl:key>
+  <xsl:template match="/">
+    <out><xsl:value-of select="key('items', 'c')/@val"/></out>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>gamma</out>");
+}
+
+#[test]
 fn test_key_with_third_argument() {
     let mut xot = Xot::new();
     let output = evaluate(
