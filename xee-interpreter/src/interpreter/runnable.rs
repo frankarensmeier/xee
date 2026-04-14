@@ -130,7 +130,6 @@ impl<'a> Runnable<'a> {
                 error,
                 span: Some(self.program.span().into()),
             })
-            .and_then(|sequence| self.merge_principal_result_documents(sequence))
     }
 
     fn merge_principal_result_documents(
@@ -159,6 +158,7 @@ impl<'a> Runnable<'a> {
         xot: &'a mut Xot,
     ) -> error::SpannedResult<sequence::Sequence> {
         self.run_named_template_value(name, xot)
+            .and_then(|sequence| self.merge_principal_result_documents(sequence))
     }
 
     /// Run the program, expect a single item as the result.

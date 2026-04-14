@@ -1252,7 +1252,7 @@ fn store_result_document(
 }
 
 #[xpath_fn(
-    "fn:store-principal-result-document($content as item()*, $method as xs:string, $byte_order_mark as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string, $html_version as xs:string, $use_character_maps as xs:string, $version as xs:string) as item()*",
+    "fn:store-principal-result-document($content as item()*, $method as xs:string, $byte_order_mark as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $item_separator as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string, $html_version as xs:string, $use_character_maps as xs:string, $version as xs:string) as item()*",
     context_first
 )]
 fn store_principal_result_document(
@@ -1265,6 +1265,7 @@ fn store_principal_result_document(
     doctype_system: &str,
     include_content_type: &str,
     media_type: &str,
+    item_separator: &str,
     omit_xml_declaration: &str,
     standalone: &str,
     html_version: &str,
@@ -1292,6 +1293,13 @@ fn store_principal_result_document(
     }
     if !media_type.is_empty() {
         parameters.media_type = Some(media_type.to_string());
+    }
+    if !item_separator.is_empty() {
+        parameters.item_separator = if item_separator == "#absent" {
+            sequence::SerializationParameters::default().item_separator
+        } else {
+            item_separator.to_string()
+        };
     }
     if !omit_xml_declaration.is_empty() {
         parameters.omit_xml_declaration = parse_boolean(omit_xml_declaration)?;

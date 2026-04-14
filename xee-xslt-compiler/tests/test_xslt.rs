@@ -6,7 +6,7 @@ use xee_interpreter::{
     context::{StaticContext, StaticContextBuilder},
     declaration::OnMultipleMatch,
     error,
-    sequence::Sequence,
+  sequence::{QNameOrString, Sequence},
     xml::Documents,
 };
 use xee_name::{Namespaces, FN_NAMESPACE};
@@ -1087,6 +1087,72 @@ fn test_nested_result_document_without_href_writes_to_principal_output() {
 
     let secondary = context.secondary_result_document("secondary.xml").unwrap();
     assert_eq!(xml(&xot, secondary), "<secondary/>");
+}
+
+#[test]
+fn test_initial_template_result_document_without_href_writes_principal_output_once() {
+    let mut xot = Xot::new();
+    let program = parse(
+        StaticContextBuilder::default().build(),
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template name="xsl:initial-template">
+    <xsl:result-document>
+      <primary>principal</primary>
+    </xsl:result-document>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    let dynamic_context_builder = program.dynamic_context_builder();
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    assert_eq!(xml(&xot, output), "<primary>principal</primary>");
+}
+
+#[test]
+fn test_result_document_dynamic_method_avt_sets_principal_output_method() {
+    let mut xot = Xot::new();
+    let program = parse(
+        StaticContextBuilder::default().build(),
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+  <xsl:template match="/">
+    <xsl:result-document method="{/doc/foo}">
+      <html>
+        <head>
+          <title/>
+        </head>
+        <body>hello</body>
+      </html>
+    </xsl:result-document>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+
+    let root = xot.parse("<doc><foo>text</foo></doc>").unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<html><head><title/></head><body>hello</body></html>"
+    );
+    assert!(matches!(
+        context.principal_result_document_parameters().unwrap().method,
+        QNameOrString::String(ref method) if method == "text"
+    ));
 }
 
 #[test]
@@ -6507,6 +6573,21 @@ fn test_xsl_evaluate_vendor_evaluate_051_keeps_escaped_inline_functions_callable
     assert_eq!(
       xml(&xot, output),
       "<out><a>A</a><b>B</b>Pride and Prejudice</out>"
+    );
+  }
+
+  #[test]
+  fn test_xslt_vendor_arrays_304() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/type/arrays/arrays-304.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output =
+      evaluate_with_stylesheet_base_without_context(&mut xot, &xslt, &stylesheet_path).unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out>1 2 3 4 1 2 3 4 1 2 3 4 1 2 3 4 1 2 3 4 3 4 1 2</out>"
     );
   }
 

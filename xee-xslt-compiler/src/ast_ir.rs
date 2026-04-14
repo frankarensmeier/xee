@@ -1376,6 +1376,7 @@ impl<'a> IrConverter<'a> {
         method: Option<&ast::OutputMethod>,
     ) -> error::SpannedResult<Option<String>> {
         Ok(match method {
+            Some(ast::OutputMethod::Adaptive) => Some("adaptive".to_string()),
             Some(ast::OutputMethod::Xml) => Some("xml".to_string()),
             Some(ast::OutputMethod::Html) => Some("html".to_string()),
             Some(ast::OutputMethod::Xhtml) => Some("xhtml".to_string()),
@@ -2249,6 +2250,9 @@ impl<'a> IrConverter<'a> {
         serialization.doctype_public = output.doctype_public.clone();
         serialization.doctype_system = output.doctype_system.clone();
         match &output.method {
+            Some(ast::OutputMethod::Adaptive) => {
+                serialization.method = QNameOrString::String("adaptive".to_string())
+            }
             Some(ast::OutputMethod::Xml) => {
                 serialization.method = QNameOrString::String("xml".to_string())
             }
@@ -3173,9 +3177,7 @@ impl<'a> IrConverter<'a> {
             Some(ast::Validation::Strict | ast::Validation::Lax | ast::Validation::Preserve)
         ) || result_document.type_.is_some()
             || result_document.allow_duplicate_names.is_some()
-            || result_document.build_tree.is_some()
             || result_document.escape_uri_attributes.is_some()
-            || result_document.item_separator.is_some()
             || result_document.json_node_output_method.is_some()
             || result_document.normalization_form.is_some()
             || result_document.parameter_document.is_some()
@@ -3185,6 +3187,31 @@ impl<'a> IrConverter<'a> {
                 "xsl:result-document serialization attributes are not supported yet",
             ))
             .into());
+        }
+
+        if let Some(build_tree) = &result_document.build_tree {
+            let build_tree_literal = self
+                .static_value_template(build_tree)
+                .ok_or_else(|| error::SpannedError {
+                    error: error::Error::Unsupported(
+                        "Dynamic xsl:result-document @build-tree is not supported yet"
+                            .to_string(),
+                    ),
+                    span: Some((result_document.span.start..result_document.span.end).into()),
+                })?;
+            let build_tree_literal = Self::validate_boolean_literal(&build_tree_literal)?;
+            if matches!(build_tree_literal.as_str(), "yes" | "true" | "1") {
+                return Err(error::Error::Unsupported(String::from(
+                    "xsl:result-document @build-tree='yes' is not supported yet",
+                ))
+                .into());
+            }
+            if result_document.href.is_some() {
+                return Err(error::Error::Unsupported(String::from(
+                    "xsl:result-document @build-tree='no' with @href is not supported yet",
+                ))
+                .into());
+            }
         }
 
         let (content_atom, content_bindings) = if result_document.sequence_constructor.is_empty() {
@@ -3211,23 +3238,37 @@ impl<'a> IrConverter<'a> {
             None => None,
         };
 
-        let method_literal = if let Some(method) = &result_document.method {
-            self.static_value_template(method)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @method is not supported yet".to_string(),
+        let (method_atom, method_bindings) = if let Some(method) = &result_document.method {
+            if let Some(method_literal) = self.static_value_template(method) {
+                (
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(method_literal)),
+                        (0..0).into(),
                     ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?
+                    Bindings::empty(),
+                )
+            } else {
+                self.attribute_value_template(method)?.atom_bindings()
+            }
         } else if let Some(output) = formatted_output.as_ref() {
-            Self::output_method_literal(output.method.as_ref())?.unwrap_or_default()
+            (
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(
+                        Self::output_method_literal(output.method.as_ref())?.unwrap_or_default(),
+                    )),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            )
         } else {
-            String::new()
+            (
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(String::new())),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            )
         };
-        let method_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(method_literal)),
-            (0..0).into(),
-        );
 
         let byte_order_mark_literal = if let Some(byte_order_mark) = &result_document.bye_order_mark
         {
@@ -3357,6 +3398,40 @@ impl<'a> IrConverter<'a> {
             ir::Atom::Const(ir::Const::String(media_type_literal)),
             (0..0).into(),
         );
+
+        let (item_separator_atom, item_separator_bindings) = if let Some(item_separator) =
+            &result_document.item_separator
+        {
+            if let Some(item_separator_literal) = self.static_value_template(item_separator) {
+                (
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(item_separator_literal)),
+                        (0..0).into(),
+                    ),
+                    Bindings::empty(),
+                )
+            } else {
+                self.attribute_value_template(item_separator)?.atom_bindings()
+            }
+        } else if let Some(output) = formatted_output.as_ref() {
+            (
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(
+                        output.item_separator.clone().unwrap_or_default(),
+                    )),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            )
+        } else {
+            (
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(String::new())),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            )
+        };
 
         let omit_xml_declaration_literal = if let Some(omit_xml_declaration) =
             &result_document.omit_xml_declaration
@@ -3509,7 +3584,7 @@ impl<'a> IrConverter<'a> {
         let expr = self.static_function_call_expr(
             "store-principal-result-document",
             FN_NAMESPACE,
-            13,
+            14,
             vec![
                 content_atom,
                 method_atom,
@@ -3519,6 +3594,7 @@ impl<'a> IrConverter<'a> {
                 doctype_system_atom,
                 include_content_type_atom,
                 media_type_atom,
+                item_separator_atom,
                 omit_xml_declaration_atom,
                 standalone_atom,
                 html_version_atom,
@@ -3526,13 +3602,17 @@ impl<'a> IrConverter<'a> {
                 version_atom,
             ],
         );
-        Ok(content_bindings.concat(html_version_bindings).bind_expr(
-            &mut self.variables,
-            Spanned::new(
-                expr,
-                (result_document.span.start..result_document.span.end).into(),
-            ),
-        ))
+        Ok(content_bindings
+            .concat(method_bindings)
+            .concat(item_separator_bindings)
+            .concat(html_version_bindings)
+            .bind_expr(
+                &mut self.variables,
+                Spanned::new(
+                    expr,
+                    (result_document.span.start..result_document.span.end).into(),
+                ),
+            ))
     }
 
     fn sequence_constructor_content(

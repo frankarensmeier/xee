@@ -1490,31 +1490,33 @@ fn serialize_for_assertion(
         }
     };
 
-    if matches!(method, Some("text")) {
-        let node = sequence.normalize(
-            &context.serialization_parameters().item_separator,
-            documents.xot_mut(),
-        )?;
-        return Ok(documents.xot().string_value(node));
-    }
+    let has_principal_result_documents = !context.principal_result_documents().is_empty();
 
-    let mut params = if context.principal_result_documents().is_empty() {
-        SerializationParameters {
-            omit_xml_declaration: true,
-            ..Default::default()
-        }
-    } else {
+    let mut params = if has_principal_result_documents {
         context
             .principal_result_document_parameters()
             .unwrap_or_else(|| context.serialization_parameters().clone())
+    } else {
+        context.serialization_parameters().clone()
     };
 
-    if let Some(method) = method {
-        params.method = QNameOrString::String(method.to_string());
-        if method == "html" || method == "xhtml" {
-            set_html_media_type(&mut params);
+    let principal_result_method_is_xml = matches!(
+        &params.method,
+        QNameOrString::String(method) if method == "xml"
+    ) || matches!(
+        &params.method,
+        QNameOrString::QName(name)
+            if name.namespace().is_empty() && name.local_name() == "xml"
+    );
+
+    if !has_principal_result_documents {
+        if let Some(method) = method {
+            params.method = QNameOrString::String(method.to_string());
+            if method == "html" || method == "xhtml" {
+                set_html_media_type(&mut params);
+            }
         }
-    } else if !context.principal_result_documents().is_empty() {
+    } else if method.is_none() && principal_result_method_is_xml {
         let normalized = sequence.normalize(&params.item_separator, documents.xot_mut())?;
         if let Ok(document_element) = documents.xot().document_element(normalized) {
             if let Some(name) = documents.xot().node_name(document_element) {
@@ -1543,6 +1545,7 @@ mod tests {
     use std::{path::PathBuf, vec};
 
     use iri_string::types::IriStr;
+    use xee_interpreter::{context::StaticContextBuilder, function};
 
     use super::*;
 
@@ -1663,5 +1666,134 @@ mod tests {
         normalize_xml_for_comparison(&mut xot, actual);
 
         assert!(xot.deep_equal(expected, actual));
+    }
+
+    #[test]
+    fn test_serialize_for_assertion_uses_stylesheet_serialization_defaults() {
+        let program = xee_xslt_compiler::parse(
+            StaticContextBuilder::default().build(),
+            r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:output method="adaptive" item-separator="|"/>
+</xsl:transform>"#,
+        )
+        .unwrap();
+
+        let builder = program.dynamic_context_builder();
+        let context = builder.build();
+        let mut documents = Documents::new();
+        let attr_name = documents.xot_mut().add_name("a");
+        let attribute = documents
+            .xot_mut()
+            .new_attribute_node(attr_name, "5".to_string());
+        let map = function::Map::new(vec![(
+            "a".to_string().into(),
+            Sequence::from(vec![Item::from(1_i64)]),
+        )])
+        .unwrap();
+        let sequence = Sequence::from(vec![
+            Item::from(function::Function::Map(map)),
+            Item::from(attribute),
+        ]);
+
+        assert_eq!(
+            serialize_for_assertion(&context, &mut documents, &sequence, None).unwrap(),
+            "map{\"a\":1}|a=\"5\""
+        );
+    }
+
+    #[test]
+    fn test_serialize_for_assertion_handles_output_0707_style_sequence() {
+        let program = xee_xslt_compiler::parse(
+            StaticContextBuilder::default().build(),
+            r#"
+<xsl:transform xmlns="http://www.w3.org/1999/xhtml" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+   version="3.0">
+   <xsl:output method="adaptive" encoding="us-ascii"/>
+   <xsl:template name="xsl:initial-template">
+      <xsl:map>
+         <xsl:map-entry key="'a'" select="1"/>
+      </xsl:map>
+      <xsl:sequence select="name#1"/>
+      <xsl:sequence select="1 to 5"/>
+      <xsl:attribute name="att"/>
+      <xsl:comment>Non-ascii char &#xaa;</xsl:comment>
+   </xsl:template>
+</xsl:transform>"#,
+        )
+        .unwrap();
+
+        let mut documents = Documents::new();
+        let builder = program.dynamic_context_builder();
+        let context = builder.build();
+        let runnable = program.runnable(&context);
+        let sequence = runnable
+            .named_template("initial-template", documents.xot_mut())
+            .unwrap();
+
+        assert!(context.principal_result_documents().is_empty());
+        assert!(serialize_for_assertion(&context, &mut documents, &sequence, None).is_ok());
+    }
+
+    #[test]
+    fn test_serialize_for_assertion_uses_principal_result_document_parameters() {
+        let program = xee_xslt_compiler::parse(
+            StaticContextBuilder::default().build(),
+            r##"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+    <xsl:template name="xsl:initial-template">
+        <xsl:result-document method="xml" item-separator="#absent" build-tree="no" omit-xml-declaration="yes">
+            <xsl:comment>begin</xsl:comment>
+            <xsl:sequence select="1 to 2"/>
+            <xsl:comment>end</xsl:comment>
+        </xsl:result-document>
+    </xsl:template>
+</xsl:transform>"##,
+        )
+        .unwrap();
+
+        let mut documents = Documents::new();
+        let builder = program.dynamic_context_builder();
+        let context = builder.build();
+        let runnable = program.runnable(&context);
+        let sequence = runnable
+            .named_template("initial-template", documents.xot_mut())
+            .unwrap();
+
+        assert_eq!(
+            serialize_for_assertion(&context, &mut documents, &sequence, Some("text")).unwrap(),
+            "<!--begin-->1 2<!--end-->"
+        );
+    }
+
+    #[test]
+    fn test_serialize_for_assertion_skips_html_probe_for_json_principal_output() {
+        let program = xee_xslt_compiler::parse(
+            StaticContextBuilder::default().build(),
+            r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template name="xsl:initial-template">
+    <xsl:result-document method="json">
+      <xsl:map>
+        <xsl:map-entry key="'a'" select="22"/>
+      </xsl:map>
+    </xsl:result-document>
+  </xsl:template>
+</xsl:transform>"#,
+        )
+        .unwrap();
+
+        let mut documents = Documents::new();
+        let builder = program.dynamic_context_builder();
+        let context = builder.build();
+        let runnable = program.runnable(&context);
+        let sequence = runnable
+            .named_template("initial-template", documents.xot_mut())
+            .unwrap();
+
+        assert_eq!(
+            serialize_for_assertion(&context, &mut documents, &sequence, None).unwrap(),
+            r#"{"a":22}"#
+        );
     }
 }

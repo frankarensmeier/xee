@@ -201,6 +201,7 @@ pub(crate) fn serialize_sequence(
 ) -> error::Result<String> {
     if let Some(local_name) = parameters.method.local_name() {
         match local_name {
+            "adaptive" => serialize_adaptive(arg, parameters, xot),
             "xml" => serialize_xml(arg, parameters, xot),
             "html" => serialize_html(arg, parameters, xot),
             "xhtml" => serialize_xhtml(arg, parameters, xot),
@@ -211,6 +212,158 @@ pub(crate) fn serialize_sequence(
     } else {
         Err(error::Error::SEPM0016)
     }
+}
+
+fn serialize_adaptive(
+    arg: &Sequence,
+    parameters: SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    let serialized = serialize_adaptive_items(arg.iter(), &parameters.item_separator, &parameters, xot)?;
+    Ok(apply_byte_order_mark(serialized, &parameters))
+}
+
+fn serialize_adaptive_items<'a>(
+    items: impl Iterator<Item = Item>,
+    separator: &str,
+    parameters: &SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    let mut serialized = Vec::new();
+    for item in items {
+        serialized.push(serialize_adaptive_item(item, parameters, xot)?);
+    }
+    Ok(serialized.join(separator))
+}
+
+fn serialize_adaptive_item(
+    item: Item,
+    parameters: &SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    match item {
+        Item::Atomic(atomic) => Ok(atomic.xpath_representation()),
+        Item::Node(node) => serialize_adaptive_node(node, parameters, xot),
+        Item::Function(function) => serialize_adaptive_function(&function, parameters, xot),
+    }
+}
+
+fn serialize_adaptive_node(
+    node: xot::Node,
+    parameters: &SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    match xot.value(node) {
+        xot::Value::Attribute(attribute) => {
+            let (local_name, namespace) = xot.name_ns_str(attribute.name());
+            let name = adaptive_node_name(local_name, namespace);
+            Ok(format!(
+                "{}=\"{}\"",
+                name,
+                escape_attribute_value(attribute.value())
+            ))
+        }
+        xot::Value::Namespace(namespace) => {
+            let prefix = xot.prefix_str(namespace.prefix());
+            let name = if prefix.is_empty() {
+                "xmlns".to_string()
+            } else {
+                format!("xmlns:{}", prefix)
+            };
+            Ok(format!(
+                "{}=\"{}\"",
+                name,
+                escape_attribute_value(xot.namespace_str(namespace.namespace()))
+            ))
+        }
+        _ => {
+            let mut xml_parameters = parameters.clone();
+            xml_parameters.method = QNameOrString::String("xml".to_string());
+            xml_parameters.omit_xml_declaration = true;
+            let sequence: Sequence = vec![node].into();
+            serialize_xml(&sequence, xml_parameters, xot)
+        }
+    }
+}
+
+fn serialize_adaptive_function(
+    function: &function::Function,
+    parameters: &SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    match function {
+        function::Function::Array(array) => serialize_adaptive_array(array, parameters, xot),
+        function::Function::Map(map) => serialize_adaptive_map(map, parameters, xot),
+        _ => Ok("function(*)".to_string()),
+    }
+}
+
+fn serialize_adaptive_array(
+    array: &function::Array,
+    parameters: &SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    let mut members = Vec::with_capacity(array.len());
+    for member in array.iter() {
+        members.push(serialize_adaptive_member_sequence(member, parameters, xot)?);
+    }
+    Ok(format!("[{}]", members.join(",")))
+}
+
+fn serialize_adaptive_map(
+    map: &function::Map,
+    parameters: &SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    let mut entries = Vec::with_capacity(map.len());
+    for (key, value) in map.entries() {
+        entries.push(format!(
+            "{}:{}",
+            key.xpath_representation(),
+            serialize_adaptive_member_sequence(value, parameters, xot)?
+        ));
+    }
+    entries.sort();
+    Ok(format!("map{{{}}}", entries.join(",")))
+}
+
+fn serialize_adaptive_member_sequence(
+    sequence: &Sequence,
+    parameters: &SerializationParameters,
+    xot: &mut Xot,
+) -> Result<String, error::Error> {
+    match sequence.len() {
+        0 => Ok("()".to_string()),
+        1 => serialize_adaptive_item(sequence.iter().next().unwrap(), parameters, xot),
+        _ => Ok(format!(
+            "({})",
+            serialize_adaptive_items(sequence.iter(), ", ", parameters, xot)?
+        )),
+    }
+}
+
+fn adaptive_node_name(local_name: &str, namespace: &str) -> String {
+    if namespace.is_empty() {
+        local_name.to_string()
+    } else {
+        format!("Q{{{}}}{}", namespace, local_name)
+    }
+}
+
+fn escape_attribute_value(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\t' => escaped.push_str("&#x9;"),
+            '\n' => escaped.push_str("&#xA;"),
+            '\r' => escaped.push_str("&#xD;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn serialize_text(
@@ -810,6 +963,34 @@ mod tests {
         assert_eq!(
             params.json_node_output_method,
             QNameOrString::String("xml".to_string())
+        );
+    }
+
+    #[test]
+    fn test_serialize_adaptive_map_element_and_attribute_sequence() {
+        let mut xot = Xot::new();
+        let map = Map::new(vec![(
+            "a".to_string().into(),
+            sequence::Sequence::from(vec![atomic::Atomic::from(22)]),
+        )])
+        .unwrap();
+        let elem_name = xot.add_name("elem");
+        let element = xot.new_element(elem_name);
+        let attr_name = xot.add_name("a");
+        let attribute = xot.new_attribute_node(attr_name, "5".to_string());
+
+        let sequence = Sequence::from(vec![
+            Item::from(function::Function::Map(map)),
+            Item::from(element),
+            Item::from(attribute),
+        ]);
+        let mut params = SerializationParameters::new();
+        params.method = QNameOrString::String("adaptive".to_string());
+        params.item_separator = "|".to_string();
+
+        assert_eq!(
+            serialize_sequence(&sequence, params, &mut xot).unwrap(),
+            "map{\"a\":22}|<elem/>|a=\"5\""
         );
     }
 }

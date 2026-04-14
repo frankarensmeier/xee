@@ -4,6 +4,67 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 21:33 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the adaptive serialization frontier opened by
+  `arrays-304`, then carry that through the adjacent principal
+  `xsl:result-document` cases.
+- Result: `arrays-304`, `output-0707`, and the `result-document-03*` slice now
+  pass end-to-end, including principal-output method/item-separator handling
+  and initial-template result-document execution.
+- Filter baseline change: none.
+- `update.py` deliberately deferred until the full vendor suite is green.
+
+### Adaptive serialization support
+
+- Added shared runtime support for `method="adaptive"` in the interpreter
+  serializer, covering atomics, nodes, arrays, maps, and generic function
+  items.
+- Compiler lowering now accepts adaptive output declarations and preserves the
+  method in serialization parameters instead of rejecting it as unsupported.
+- This closes `arrays-304` and the adaptive assertion path exercised by
+  `output-0707`.
+
+### Principal result-document serialization
+
+- `xsl:result-document` without `href` now carries its effective serialization
+  parameters through principal-result storage, including `item-separator` and
+  dynamic `@method` AVTs.
+- `build-tree="no"` is now accepted for principal result documents, while the
+  still-unsupported cases remain guarded (`build-tree="yes"`, and
+  `build-tree="no"` with `href`).
+- The interpreter no longer merges principal result-document output twice when
+  the run starts through `xsl:initial-template`.
+
+### Assertion-layer fixes
+
+- Testrunner serialization assertions now default to stylesheet/program
+  serialization parameters when there is no principal result document.
+- When a principal result document exists, assertions now honor the stored
+  result-document parameters instead of flattening the sequence through a
+  generic text path.
+- HTML auto-detection is limited to actual XML principal outputs, so JSON and
+  adaptive principal outputs no longer hit `SENR0001` during assertion
+  serialization.
+
+### Validation notes
+
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/type/arrays/_arrays-test-set.xml`
+  passed: `62/62`.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/decl/output/_output-test-set.xml output-0707`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-03`
+  passed: `0301` through `0305` all green.
+- Focused regressions added for adaptive assertion defaults, principal
+  result-document parameter handling, principal JSON serialization, arrays-304,
+  initial-template principal output merging, and dynamic principal
+  `xsl:result-document @method` AVTs.
+- The next confirmed residue after this checkpoint is
+  `result-document-0401`, currently blocked on dynamic
+  `xsl:result-document @cdata-section-elements`.
+
 ## 2026-04-14 15:29 CEST
 
 ### Status snapshot
