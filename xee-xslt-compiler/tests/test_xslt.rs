@@ -1313,6 +1313,42 @@ fn test_xslt_vendor_result_document_1101_tranche_raises_xtde1480_under_xslt20() 
 }
 
 #[test]
+fn test_xslt_vendor_result_document_1142_function_body_raises_xtde1480() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/result-document/result-document-1130.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let error = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "l",
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE1480);
+}
+
+#[test]
+fn test_xslt_vendor_result_document_1144_accumulator_rule_raises_xtde1480() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/result-document/result-document-1130.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let error = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "n",
+    )
+    .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE1480);
+}
+
+#[test]
 fn test_recursive_attribute_set_reentry_raises_xtde0640() {
     let error = parse(
         StaticContextBuilder::default().build(),

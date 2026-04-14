@@ -1,6 +1,6 @@
 use std::{cell::RefCell, ops::Deref, rc::Rc};
 
-use ahash::{HashMap, HashMapExt};
+use ahash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use iri_string::types::{IriStr, IriString};
 
 use crate::declaration::OnMultipleMatch;
@@ -199,6 +199,7 @@ impl<'a> DynamicContextBuilder<'a> {
             self.secondary_result_documents.clone(),
             self.principal_result_documents.clone(),
             self.principal_result_document_parameters.clone(),
+            HashSet::new(),
             self.on_multiple_match,
         )
     }

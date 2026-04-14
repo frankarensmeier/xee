@@ -33,6 +33,8 @@ struct IrConverter<'a> {
     overridden_static_context: Option<StaticContext>,
     initial_mode: ast::ApplyTemplatesModeValue,
     xslt_functions: HashMap<(OwnedName, u8), OwnedName>,
+    accumulator_declarations: HashMap<OwnedName, PreprocessedDeclaration>,
+    referenced_accumulators: HashSet<OwnedName>,
     namespace_aliases: HashMap<String, String>,
     attribute_sets: HashMap<(String, String), Vec<ast::AttributeSet>>,
     named_outputs: HashMap<(String, String), (i64, ast::Output)>,
@@ -887,6 +889,8 @@ impl<'a> IrConverter<'a> {
             overridden_static_context: None,
             initial_mode,
             xslt_functions: HashMap::new(),
+            accumulator_declarations: HashMap::new(),
+            referenced_accumulators: HashSet::new(),
             namespace_aliases: HashMap::new(),
             attribute_sets: HashMap::new(),
             named_outputs: HashMap::new(),
@@ -1109,6 +1113,7 @@ impl<'a> IrConverter<'a> {
         self.collect_character_maps(declarations);
         self.collect_named_templates_with_absent_context(declarations);
         self.collect_namespace_aliases(declarations);
+        self.collect_accumulators(declarations);
         // Register global variable/param names early so $var references resolve.
         let global_vars = self.collect_global_variables(declarations)?;
 
@@ -1122,6 +1127,8 @@ impl<'a> IrConverter<'a> {
                 this.declaration(&mut ir_declarations, declaration)
             })?;
         }
+
+        self.compile_referenced_accumulators(&mut ir_declarations)?;
 
         // Move accumulated number patterns into IR declarations
         ir_declarations.number_patterns = std::mem::take(&mut self.number_patterns);
@@ -1619,6 +1626,24 @@ impl<'a> IrConverter<'a> {
         }
     }
 
+    fn collect_accumulators(&mut self, declarations: &[PreprocessedDeclaration]) {
+        for declaration in declarations {
+            let ast::Declaration::Accumulator(accumulator) = &declaration.declaration else {
+                continue;
+            };
+
+            let should_replace = self
+                .accumulator_declarations
+                .get(&accumulator.name)
+                .map(|existing| declaration.import_precedence >= existing.import_precedence)
+                .unwrap_or(true);
+            if should_replace {
+                self.accumulator_declarations
+                    .insert(accumulator.name.clone(), declaration.clone());
+            }
+        }
+    }
+
     fn apply_namespace_alias(&self, name: &ast::Name) -> ast::Name {
         let Some(namespace) = self.namespace_aliases.get(name.namespace()) else {
             return name.clone();
@@ -1683,6 +1708,43 @@ impl<'a> IrConverter<'a> {
             | DecimalFormat(_) | CharacterMap(_) | NamespaceAlias(_) | ImportSchema(_)
             | UsePackage(_) | GlobalContextItem(_) | Accumulator(_) => Ok(()),
         }
+    }
+
+    fn compile_referenced_accumulators(
+        &mut self,
+        declarations: &mut ir::Declarations,
+    ) -> error::SpannedResult<()> {
+        let mut compiled = HashSet::new();
+
+        loop {
+            let pending = self
+                .referenced_accumulators
+                .iter()
+                .filter(|name| !compiled.contains(*name))
+                .cloned()
+                .collect::<Vec<_>>();
+            if pending.is_empty() {
+                break;
+            }
+
+            for name in pending {
+                compiled.insert(name.clone());
+
+                let Some(declaration) = self.accumulator_declarations.get(&name).cloned() else {
+                    continue;
+                };
+                let ast::Declaration::Accumulator(accumulator) = &declaration.declaration else {
+                    continue;
+                };
+
+                let accumulator_definition = self.with_declaration_base_uri(&declaration, |this| {
+                    this.accumulator(accumulator)
+                })?;
+                declarations.accumulators.push(accumulator_definition);
+            }
+        }
+
+        Ok(())
     }
 
     fn collect_global_variables(
@@ -2051,6 +2113,70 @@ impl<'a> IrConverter<'a> {
         Ok(())
     }
 
+    fn accumulator(
+        &mut self,
+        accumulator: &ast::Accumulator,
+    ) -> error::SpannedResult<ir::AccumulatorDefinition> {
+        let mut rules = Vec::with_capacity(accumulator.rules.len());
+        for rule in &accumulator.rules {
+            rules.push(self.accumulator_rule(rule)?);
+        }
+
+        Ok(ir::AccumulatorDefinition {
+            name: accumulator.name.clone(),
+            rules,
+        })
+    }
+
+    fn accumulator_rule(
+        &mut self,
+        rule: &ast::AccumulatorRule,
+    ) -> error::SpannedResult<ir::AccumulatorRuleDefinition> {
+        let context_names = self.variables.push_context();
+        self.variables.push_scope();
+
+        let value_original_name = OwnedName::new("value".to_string(), String::new(), String::new());
+        let value_name = self.variables.declare_var_name(&value_original_name);
+
+        let bindings = if let Some(select) = &rule.select {
+            self.expression(select)?
+        } else if !rule.sequence_constructor.is_empty() {
+            self.sequence_constructor(&rule.sequence_constructor)?
+        } else {
+            Bindings::empty()
+        };
+
+        self.variables.pop_scope();
+        self.variables.pop_context();
+
+        let mut params = Self::context_params(&context_names);
+        params.push(ir::Param {
+            name: value_name,
+            type_: None,
+            default: None,
+            required: false,
+            original_name: Some("value".to_string()),
+            tunnel: false,
+        });
+
+        let pattern = transform_pattern(&rule.match_.pattern, |expr| self.pattern_predicate(expr))?;
+        let phase = match rule.phase {
+            Some(ast::AccumulatorPhase::End) => ir::AccumulatorPhase::End,
+            Some(ast::AccumulatorPhase::Start) | None => ir::AccumulatorPhase::Start,
+        };
+
+        Ok(ir::AccumulatorRuleDefinition {
+            pattern,
+            phase,
+            probe_temporary_output_state: !rule.sequence_constructor.is_empty(),
+            rule_function: ir::FunctionDefinition {
+                params,
+                return_type: None,
+                body: Box::new(bindings.expr()),
+            },
+        })
+    }
+
     fn template(
         &mut self,
         declarations: &mut ir::Declarations,
@@ -2219,7 +2345,9 @@ impl<'a> IrConverter<'a> {
             });
         }
 
-        let bindings = self.sequence_constructor(&function.sequence_constructor)?;
+        let bindings = self.sequence_constructor_with_temporary_output_state(
+            &function.sequence_constructor,
+        )?;
 
         self.variables.pop_scope();
         self.variables.pop_context();
@@ -2582,6 +2710,7 @@ impl<'a> IrConverter<'a> {
             Choose(choose) => self.choose(choose),
             ForEach(for_each) => self.for_each(for_each),
             ForEachGroup(for_each_group) => self.for_each_group(for_each_group),
+            Merge(merge) => self.merge(merge),
             Iterate(iterate) => self.iterate(iterate),
             NextIteration(next_iteration) => self.next_iteration(next_iteration),
             NextMatch(next_match) => self.next_match(next_match),
@@ -4746,20 +4875,28 @@ impl<'a> IrConverter<'a> {
             .bind_expr_no_span(&mut self.variables, ir::Expr::XmlDocument(ir::XmlRoot {}))
             .atom_bindings();
 
-        if sequence_constructor.is_empty() {
-            return Ok(document_bindings);
-        }
-
-        let (child_atom, child_bindings) = self
-            .sequence_constructor_with_temporary_output_state(sequence_constructor)?
-            .atom_bindings();
-        let append_expr = ir::Expr::XmlAppend(ir::XmlAppend {
-            parent: document_atom,
-            child: child_atom,
-        });
-        Ok(document_bindings
-            .concat(child_bindings)
-            .bind_expr_no_span(&mut self.variables, append_expr))
+        let tree_bindings = if sequence_constructor.is_empty() {
+            document_bindings
+        } else {
+            let (child_atom, child_bindings) = self
+                .sequence_constructor_with_temporary_output_state(sequence_constructor)?
+                .atom_bindings();
+            let append_expr = ir::Expr::XmlAppend(ir::XmlAppend {
+                parent: document_atom,
+                child: child_atom,
+            });
+            document_bindings
+                .concat(child_bindings)
+                .bind_expr_no_span(&mut self.variables, append_expr)
+        };
+        let (tree_atom, tree_bindings) = tree_bindings.atom_bindings();
+        let mark_expr = self.static_function_call_expr(
+            "xslt-mark-temporary-tree",
+            FN_NAMESPACE,
+            1,
+            vec![tree_atom],
+        );
+        Ok(tree_bindings.bind_expr_no_span(&mut self.variables, mark_expr))
     }
 
     fn empty_sequence(&mut self) -> ir::ExprS {
@@ -4856,6 +4993,89 @@ impl<'a> IrConverter<'a> {
             &mut self.variables,
             ir::Expr::Atom(sorted_atom),
         ))
+    }
+
+    fn merge(&mut self, merge: &ast::Merge) -> error::SpannedResult<Bindings> {
+        let mut bindings = Bindings::empty();
+        let mut source_atoms = Vec::new();
+        let mut key_function_atoms = Vec::new();
+
+        for merge_source in &merge.merge_sources {
+            let (source_atom, source_bindings) = self.expression(&merge_source.select)?.atom_bindings();
+            bindings = bindings.concat(source_bindings);
+            source_atoms.push(source_atom);
+
+            let (key_function_atom, key_function_bindings) =
+                self.merge_source_key_function(merge_source)?;
+            bindings = bindings.concat(key_function_bindings);
+            key_function_atoms.push(key_function_atom);
+        }
+
+        let (sources_atom, source_array_bindings) = self.square_array_atom(source_atoms);
+        let (key_functions_atom, key_function_array_bindings) =
+            self.square_array_atom(key_function_atoms);
+        bindings = bindings
+            .concat(source_array_bindings)
+            .concat(key_function_array_bindings);
+
+        let expr = self.static_function_call_expr(
+            "xslt-unsupported-merge",
+            FN_NAMESPACE,
+            2,
+            vec![sources_atom, key_functions_atom],
+        );
+        Ok(bindings.bind_expr_no_span(&mut self.variables, expr))
+    }
+
+    fn merge_source_key_function(
+        &mut self,
+        merge_source: &ast::MergeSource,
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
+        let param_name = self.variables.new_name();
+        let context_names = self.variables.push_context();
+        let mut merged_key_bindings: Option<Bindings> = None;
+
+        for merge_key in &merge_source.merge_keys {
+            let key_bindings = if let Some(select) = &merge_key.select {
+                self.expression(select)?
+            } else if !merge_key.sequence_constructor.is_empty() {
+                self.sequence_constructor_with_temporary_output_state(&merge_key.sequence_constructor)?
+            } else {
+                self.variables.context_item((0..0).into())?
+            };
+            let key_bindings = self.atomized_key_bindings(key_bindings, SortDataType::Text)?;
+            merged_key_bindings = Some(match merged_key_bindings {
+                Some(existing) => self.comma_bindings(existing, key_bindings),
+                None => key_bindings,
+            });
+        }
+
+        let return_bindings = merged_key_bindings.unwrap_or_else(|| {
+            let empty_sequence = self.empty_sequence();
+            Bindings::empty().bind_expr_no_span(&mut self.variables, empty_sequence.value)
+        });
+        self.variables.pop_context();
+
+        let body = ir::Expr::Map(ir::Map {
+            context_names,
+            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), (0..0).into()),
+            return_expr: Box::new(return_bindings.expr()),
+        });
+        let function = ir::Expr::FunctionDefinition(ir::FunctionDefinition {
+            params: vec![ir::Param {
+                name: param_name,
+                type_: None,
+                default: None,
+                required: false,
+                original_name: None,
+                tunnel: false,
+            }],
+            return_type: None,
+            body: Box::new(Spanned::new(body, (0..0).into())),
+        });
+
+        let bindings = Bindings::empty().bind_expr_no_span(&mut self.variables, function);
+        Ok(bindings.atom_bindings())
     }
 
     fn for_each_group(
@@ -6165,7 +6385,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_expr(
-        &self,
+        &mut self,
         expr: &mut xpath_ast::ExprS,
         namespaces: &[ast::LiteralNamespace],
     ) {
@@ -6175,7 +6395,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_expr_or_empty(
-        &self,
+        &mut self,
         expr: &mut xpath_ast::ExprOrEmptyS,
         namespaces: &[ast::LiteralNamespace],
     ) {
@@ -6187,7 +6407,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_expr_single(
-        &self,
+        &mut self,
         expr: &mut xpath_ast::ExprSingleS,
         namespaces: &[ast::LiteralNamespace],
     ) {
@@ -6249,7 +6469,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_path_expr(
-        &self,
+        &mut self,
         path_expr: &mut xpath_ast::PathExpr,
         namespaces: &[ast::LiteralNamespace],
     ) {
@@ -6259,7 +6479,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_step_expr(
-        &self,
+        &mut self,
         step: &mut xpath_ast::StepExprS,
         namespaces: &[ast::LiteralNamespace],
     ) {
@@ -6295,7 +6515,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_primary_expr(
-        &self,
+        &mut self,
         primary: &mut xpath_ast::PrimaryExprS,
         namespaces: &[ast::LiteralNamespace],
     ) -> Vec<xpath_ast::Postfix> {
@@ -6339,6 +6559,8 @@ impl<'a> IrConverter<'a> {
                         return Vec::new();
                     }
                 }
+
+                self.rewrite_static_accumulator_name(function_call, namespaces);
 
                 for argument in &mut function_call.arguments {
                     self.rewrite_user_function_references_expr_single(argument, namespaces);
@@ -6410,7 +6632,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_postfix(
-        &self,
+        &mut self,
         postfix: &mut xpath_ast::Postfix,
         namespaces: &[ast::LiteralNamespace],
     ) {
@@ -6430,13 +6652,74 @@ impl<'a> IrConverter<'a> {
     }
 
     fn rewrite_user_function_references_key_specifier(
-        &self,
+        &mut self,
         key_specifier: &mut xpath_ast::KeySpecifier,
         namespaces: &[ast::LiteralNamespace],
     ) {
         if let xpath_ast::KeySpecifier::Expr(expr) = key_specifier {
             self.rewrite_user_function_references_expr_or_empty(expr, namespaces);
         }
+    }
+
+    fn rewrite_static_accumulator_name(
+        &mut self,
+        function_call: &mut xpath_ast::FunctionCall,
+        namespaces: &[ast::LiteralNamespace],
+    ) {
+        if function_call.arguments.len() != 1 {
+            return;
+        }
+        let namespace = function_call.name.value.namespace();
+        if !namespace.is_empty() && namespace != FN_NAMESPACE {
+            return;
+        }
+        let function_name = function_call.name.value.local_name();
+        if function_name != "accumulator-before" && function_name != "accumulator-after" {
+            return;
+        }
+
+        let Some(lexical_qname) = Self::static_string_literal(&function_call.arguments[0]) else {
+            return;
+        };
+        let Some((local_name, namespace_uri)) =
+            self.resolve_static_qname_with_default(&lexical_qname, namespaces, "")
+        else {
+            return;
+        };
+
+        let rewritten = if namespace_uri.is_empty() {
+            local_name.clone()
+        } else {
+            format!("Q{{{namespace_uri}}}{local_name}")
+        };
+
+        if let Some(literal) = Self::static_string_literal_mut(&mut function_call.arguments[0]) {
+            *literal = rewritten;
+        }
+
+        let hidden_name = if function_name == "accumulator-before" {
+            "xslt-accumulator-before"
+        } else {
+            "xslt-accumulator-after"
+        };
+        function_call.name = Spanned::new(
+            Name::new(hidden_name.to_string(), FN_NAMESPACE.to_string(), String::new()),
+            function_call.name.span,
+        );
+        function_call.arguments.push(Self::context_item_argument());
+
+        self.referenced_accumulators.insert(OwnedName::new(
+            local_name,
+            namespace_uri,
+            String::new(),
+        ));
+    }
+
+    fn context_item_argument() -> xpath_ast::ExprSingleS {
+        let span = (0..0).into();
+        let primary = Spanned::new(xpath_ast::PrimaryExpr::ContextItem, span);
+        let step = Spanned::new(xpath_ast::StepExpr::PrimaryExpr(primary), span);
+        Spanned::new(xpath_ast::ExprSingle::Path(xpath_ast::PathExpr { steps: vec![step] }), span)
     }
 
     fn rewrite_static_format_number_decimal_format_name(

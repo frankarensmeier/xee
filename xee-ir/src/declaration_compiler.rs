@@ -91,6 +91,7 @@ impl<'a> DeclarationCompiler<'a> {
         // by name from call-template instructions
         self.compile_templates(declarations)?;
         self.compile_global_variables(declarations)?;
+        self.compile_accumulators(declarations)?;
         self.compile_keys(declarations)?;
         self.compile_number_patterns(declarations)?;
 
@@ -152,6 +153,12 @@ impl<'a> DeclarationCompiler<'a> {
 
         for function_binding in &declarations.functions {
             self.register_modes_in_function_definition(&function_binding.main);
+        }
+
+        for accumulator in &declarations.accumulators {
+            for rule in &accumulator.rules {
+                self.register_modes_in_function_definition(&rule.rule_function);
+            }
         }
 
         for rule in &declarations.rules {
@@ -380,6 +387,53 @@ impl<'a> DeclarationCompiler<'a> {
         for key in &declarations.keys {
             self.compile_key(key)?;
         }
+        Ok(())
+    }
+
+    fn compile_accumulators(
+        &mut self,
+        declarations: &ir::Declarations,
+    ) -> error::SpannedResult<()> {
+        for accumulator in &declarations.accumulators {
+            self.compile_accumulator(accumulator)?;
+        }
+        Ok(())
+    }
+
+    fn compile_accumulator(
+        &mut self,
+        accumulator: &ir::AccumulatorDefinition,
+    ) -> error::SpannedResult<()> {
+        let mut function_compiler = self.function_compiler();
+        let mut rules = Vec::with_capacity(accumulator.rules.len());
+
+        for rule in &accumulator.rules {
+            let function_id =
+                function_compiler.compile_function_id(&rule.rule_function, (0..0).into())?;
+            let pattern = transform_pattern(&rule.pattern, |function_definition| {
+                function_compiler.compile_function_id(function_definition, (0..0).into())
+            })?;
+            let phase = match rule.phase {
+                ir::AccumulatorPhase::Start => {
+                    xee_interpreter::declaration::AccumulatorPhase::Start
+                }
+                ir::AccumulatorPhase::End => xee_interpreter::declaration::AccumulatorPhase::End,
+            };
+
+            rules.push(xee_interpreter::declaration::AccumulatorRuleDeclaration {
+                pattern,
+                phase,
+                probe_temporary_output_state: rule.probe_temporary_output_state,
+                function_id,
+            });
+        }
+
+        self.program
+            .declarations
+            .add_accumulator(xee_interpreter::declaration::AccumulatorDeclaration {
+                name: accumulator.name.clone(),
+                rules,
+            });
         Ok(())
     }
 

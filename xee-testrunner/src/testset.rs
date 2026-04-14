@@ -74,6 +74,8 @@ impl<L: Language> TestSet<L> {
             }
             renderer.render_test_case(out, test_case)?;
 
+            *run_context.documents = xee_xpath::Documents::new();
+
             let outcome = catch_unwind(AssertUnwindSafe(|| runner.run(run_context, catalog, self)))
                 .unwrap_or(TestOutcome::Panic);
 

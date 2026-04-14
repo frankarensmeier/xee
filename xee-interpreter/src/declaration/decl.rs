@@ -36,6 +36,26 @@ pub struct KeyDeclaration {
     pub use_function_id: function::InlineFunctionId,
 }
 
+#[derive(Debug, Clone)]
+pub struct AccumulatorDeclaration {
+    pub name: OwnedName,
+    pub rules: Vec<AccumulatorRuleDeclaration>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccumulatorRuleDeclaration {
+    pub pattern: Pattern<function::InlineFunctionId>,
+    pub phase: AccumulatorPhase,
+    pub probe_temporary_output_state: bool,
+    pub function_id: function::InlineFunctionId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccumulatorPhase {
+    Start,
+    End,
+}
+
 /// A compiled count or from pattern for xsl:number, stored in Declarations
 /// so runtime functions can access it by index.
 #[derive(Debug, Clone)]
@@ -100,6 +120,7 @@ pub struct Declarations {
     modes: HashMap<ModeId, ModeDeclaration>,
     pub global_variables: Vec<GlobalVariableDeclaration>,
     pub named_templates: Vec<NamedTemplateDeclaration>,
+    pub accumulators: Vec<AccumulatorDeclaration>,
     pub keys: Vec<KeyDeclaration>,
     pub number_patterns: Vec<NumberPatternDeclaration>,
     pub serialization_params: SerializationParameters,
@@ -115,6 +136,7 @@ impl Declarations {
             modes: HashMap::new(),
             global_variables: Vec::new(),
             named_templates: Vec::new(),
+            accumulators: Vec::new(),
             keys: Vec::new(),
             number_patterns: Vec::new(),
             serialization_params: SerializationParameters::new(),
@@ -142,6 +164,16 @@ impl Declarations {
 
     pub fn add_named_template(&mut self, named_template: NamedTemplateDeclaration) {
         self.named_templates.push(named_template);
+    }
+
+    pub fn add_accumulator(&mut self, accumulator: AccumulatorDeclaration) {
+        self.accumulators.push(accumulator);
+    }
+
+    pub fn accumulator_by_name(&self, name: &OwnedName) -> Option<&AccumulatorDeclaration> {
+        self.accumulators
+            .iter()
+            .find(|accumulator| &accumulator.name == name)
     }
 
     pub fn named_template(&self, index: usize) -> &NamedTemplateDeclaration {

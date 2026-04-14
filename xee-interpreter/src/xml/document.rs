@@ -177,6 +177,11 @@ impl Documents {
         Some(self.get_by_handle(handle)?.root)
     }
 
+    /// Check whether a document root node belongs to this collection.
+    pub fn contains_root(&self, root: xot::Node) -> bool {
+        self.documents.iter().any(|document| document.root == root)
+    }
+
     /// Obtain a document by URI
     ///
     /// It's only possible to obtain a document by URI if it was added with a URI.

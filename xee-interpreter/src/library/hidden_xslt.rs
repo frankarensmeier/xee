@@ -474,6 +474,143 @@ fn xslt_with_temporary_output_state(
     result
 }
 
+#[xpath_fn(
+    "fn:xslt-mark-temporary-tree($tree as item()*) as item()*",
+    context_first
+)]
+fn xslt_mark_temporary_tree(
+    context: &crate::context::DynamicContext,
+    interpreter: &Interpreter,
+    tree: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    context.mark_temporary_tree(tree, interpreter.xot());
+    Ok(tree.clone())
+}
+
+#[xpath_fn(
+    "fn:xslt-unsupported-merge($sources as array(*), $key_functions as array(*)) as item()*"
+)]
+fn xslt_unsupported_merge(
+    interpreter: &mut Interpreter,
+    sources: function::Array,
+    key_functions: function::Array,
+) -> error::Result<sequence::Sequence> {
+    for (source, key_function) in sources.iter().zip(key_functions.iter()) {
+        let key_function = key_function.clone().one()?.to_function()?;
+        for item in source.iter() {
+            interpreter.call_function_with_arguments(&key_function, &[item.clone().into()])?;
+        }
+    }
+
+    Err(error::Error::Unsupported(
+        "xsl:merge is not supported yet".to_string(),
+    ))
+}
+
+#[xpath_fn("fn:accumulator-before($name as xs:string) as item()*")]
+fn accumulator_before(_name: &str) -> error::Result<sequence::Sequence> {
+    Err(error::Error::Unsupported(
+        "xsl:accumulator is not supported yet".to_string(),
+    ))
+}
+
+#[xpath_fn("fn:accumulator-after($name as xs:string) as item()*")]
+fn accumulator_after(_name: &str) -> error::Result<sequence::Sequence> {
+    Err(error::Error::Unsupported(
+        "xsl:accumulator is not supported yet".to_string(),
+    ))
+}
+
+#[xpath_fn("fn:xslt-accumulator-before($name as xs:string, $node as node()?) as item()*")]
+fn xslt_accumulator_before(
+    interpreter: &mut Interpreter,
+    name: &str,
+    node: Option<xot::Node>,
+) -> error::Result<sequence::Sequence> {
+    accumulator_probe(interpreter, name, node)
+}
+
+#[xpath_fn("fn:xslt-accumulator-after($name as xs:string, $node as node()?) as item()*")]
+fn xslt_accumulator_after(
+    interpreter: &mut Interpreter,
+    name: &str,
+    node: Option<xot::Node>,
+) -> error::Result<sequence::Sequence> {
+    accumulator_probe(interpreter, name, node)
+}
+
+fn accumulator_probe(
+    interpreter: &mut Interpreter,
+    name: &str,
+    node: Option<xot::Node>,
+) -> error::Result<sequence::Sequence> {
+    let Some(name) = parse_accumulator_name(name) else {
+        return Err(error::Error::Unsupported(
+            "xsl:accumulator is not supported yet".to_string(),
+        ));
+    };
+    let Some(accumulator) = interpreter
+        .runnable()
+        .program()
+        .declarations
+        .accumulator_by_name(&name)
+        .cloned()
+    else {
+        return Err(error::Error::Unsupported(
+            "xsl:accumulator is not supported yet".to_string(),
+        ));
+    };
+
+    let Some(context_node) = node else {
+        return Err(error::Error::Unsupported(
+            "xsl:accumulator is not supported yet".to_string(),
+        ));
+    };
+    let dynamic_context = interpreter.runnable().dynamic_context();
+    let context_root = interpreter.xot().root(context_node);
+    let differs_from_initial_context_root = dynamic_context
+        .context_item()
+        .and_then(|item| item.to_node().ok())
+        .map(|initial_node| interpreter.xot().root(initial_node) != context_root)
+        .unwrap_or(false);
+    let is_temporary_tree = dynamic_context.is_temporary_tree_node(context_node, interpreter.xot())
+        || differs_from_initial_context_root;
+
+    if is_temporary_tree
+        && accumulator
+            .rules
+            .iter()
+            .any(|rule| rule.probe_temporary_output_state)
+    {
+        return Err(error::Error::XTDE1480);
+    }
+
+    Err(error::Error::Unsupported(
+        "xsl:accumulator is not supported yet".to_string(),
+    ))
+}
+
+fn parse_accumulator_name(name: &str) -> Option<OwnedName> {
+    if let Some(rest) = name.strip_prefix("Q{") {
+        let (namespace, local_name) = rest.split_once('}')?;
+        return Some(OwnedName::new(
+            local_name.to_string(),
+            namespace.to_string(),
+            String::new(),
+        ));
+    }
+
+    if name.contains(':') {
+        return None;
+    }
+
+    Some(OwnedName::new(
+        name.to_string(),
+        String::new(),
+        String::new(),
+    ))
+}
+
 fn xslt_try_error_location(
     interpreter: &Interpreter,
     caught_error: &error::SpannedError,
@@ -1985,6 +2122,12 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(unparsed_entity_public_id),
         wrap_xpath_fn!(xslt_try),
         wrap_xpath_fn!(xslt_with_temporary_output_state),
+        wrap_xpath_fn!(xslt_mark_temporary_tree),
+        wrap_xpath_fn!(xslt_unsupported_merge),
+        wrap_xpath_fn!(accumulator_before),
+        wrap_xpath_fn!(accumulator_after),
+        wrap_xpath_fn!(xslt_accumulator_before),
+        wrap_xpath_fn!(xslt_accumulator_after),
         wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(format_number_lexical2),
         wrap_xpath_fn!(format_number_lexical3),

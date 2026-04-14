@@ -1,4 +1,4 @@
-use ahash::{AHashMap, HashMap, HashMapExt};
+use ahash::{AHashMap, HashMap, HashMapExt, HashSet};
 use iri_string::types::{IriStr, IriString};
 use std::{cell::RefCell, fmt::Debug};
 
@@ -45,6 +45,7 @@ pub struct DynamicContext<'a> {
     secondary_result_documents: RefCell<HashMap<String, sequence::Sequence>>,
     principal_result_documents: RefCell<Vec<sequence::Sequence>>,
     principal_result_document_parameters: RefCell<Vec<sequence::SerializationParameters>>,
+    temporary_tree_roots: RefCell<HashSet<xot::Node>>,
     temporary_output_state_depth: RefCell<usize>,
     on_multiple_match: OnMultipleMatch,
 }
@@ -65,6 +66,7 @@ impl<'a> DynamicContext<'a> {
         secondary_result_documents: HashMap<String, sequence::Sequence>,
         principal_result_documents: Vec<sequence::Sequence>,
         principal_result_document_parameters: Vec<sequence::SerializationParameters>,
+        temporary_tree_roots: HashSet<xot::Node>,
         on_multiple_match: OnMultipleMatch,
     ) -> Self {
         Self {
@@ -83,6 +85,7 @@ impl<'a> DynamicContext<'a> {
             principal_result_document_parameters: RefCell::new(
                 principal_result_document_parameters,
             ),
+            temporary_tree_roots: RefCell::new(temporary_tree_roots),
             temporary_output_state_depth: RefCell::new(0),
             on_multiple_match,
         }
@@ -195,6 +198,20 @@ impl<'a> DynamicContext<'a> {
         *self.temporary_output_state_depth.borrow() > 0
     }
 
+    pub fn mark_temporary_tree(&self, sequence: &sequence::Sequence, xot: &xot::Xot) {
+        let mut roots = self.temporary_tree_roots.borrow_mut();
+        for item in sequence.iter() {
+            let sequence::Item::Node(node) = item else {
+                continue;
+            };
+            roots.insert(xot.root(node));
+        }
+    }
+
+    pub fn is_temporary_tree_node(&self, node: xot::Node, xot: &xot::Xot) -> bool {
+        self.temporary_tree_roots.borrow().contains(&xot.root(node))
+    }
+
     pub fn serialization_parameters(&self) -> &sequence::SerializationParameters {
         &self.program.declarations.serialization_params
     }
@@ -223,6 +240,7 @@ impl<'a> DynamicContext<'a> {
             HashMap::new(),
             Vec::new(),
             Vec::new(),
+            self.temporary_tree_roots.borrow().clone(),
             self.on_multiple_match,
         )
     }

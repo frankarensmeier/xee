@@ -465,6 +465,7 @@ pub struct Declarations {
     pub modes: HashMap<Option<xmlname::OwnedName>, Mode>,
     pub functions: Vec<FunctionBinding>,
     pub global_variables: Vec<GlobalVariable>,
+    pub accumulators: Vec<AccumulatorDefinition>,
     pub keys: Vec<KeyDefinition>,
     pub number_patterns: Vec<NumberPatternDefinition>,
     pub main: FunctionDefinition,
@@ -478,12 +479,33 @@ impl Declarations {
             modes: HashMap::new(),
             functions: Vec::new(),
             global_variables: Vec::new(),
+            accumulators: Vec::new(),
             keys: Vec::new(),
             number_patterns: Vec::new(),
             main,
             serialization_params: SerializationParameters::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccumulatorDefinition {
+    pub name: xmlname::OwnedName,
+    pub rules: Vec<AccumulatorRuleDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccumulatorRuleDefinition {
+    pub pattern: Pattern<FunctionDefinition>,
+    pub phase: AccumulatorPhase,
+    pub probe_temporary_output_state: bool,
+    pub rule_function: FunctionDefinition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccumulatorPhase {
+    Start,
+    End,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

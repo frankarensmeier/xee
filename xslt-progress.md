@@ -4,6 +4,62 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 23:15 CEST
+
+### Status snapshot
+
+- Checkpoint focus: finish the next `xsl:result-document` tranche by clearing
+  `result-document-1131` through `1144` after the earlier `1101` through
+  `1111` temporary-output-state work.
+- Result: the remaining live blockers in this shared stylesheet moved out of
+  the way. `1131` through `1144` now pass in focused vendor runs, including
+  the function-body case (`1142`) and the accumulator-rule case (`1144`).
+- Filter baseline change: none.
+- `update.py` remains deferred until the full vendor suite is green.
+
+### What moved this slice
+
+- XSLT function bodies now execute under temporary output state, so
+  `xsl:result-document` inside stylesheet functions correctly raises
+  `XTDE1480`.
+- The vendor runner now resets its shared `Documents` store before each test
+  case, which removed the batch-only `XTDE1490` cross-case contamination that
+  showed up in `1133` through `1136` and `1138`.
+- Temporary trees are now marked explicitly at runtime when they are built,
+  instead of trying to infer them later from the shared document collection.
+- `accumulator-before()` / `accumulator-after()` calls from XSLT are now
+  rewritten to hidden helpers that carry the actual current context node, and
+  referenced accumulator declarations are compiled on demand. That is still a
+  narrow accumulator path, but it is enough to surface the temporary-tree
+  `XTDE1480` behavior needed by `1144` without trying to claim full
+  accumulator support.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler test_xslt_vendor_result_document_1142_function_body_raises_xtde1480 -- --exact`
+  passed.
+- `cargo test -p xee-xslt-compiler test_xslt_vendor_result_document_1144_accumulator_rule_raises_xtde1480 -- --exact`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-113`
+  passed with `1131` through `1139` all green.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-114`
+  passed with `1140` through `1144` all green.
+- `cargo test -p xee-xslt-compiler` still shows the same six unrelated
+  baseline failures.
+- `cargo test -p xee-interpreter` still shows the same unrelated baseline
+  failure `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+- `cargo run -p xee-testrunner -- -v check vendor/xslt-tests` still reports a
+  broader dirty branch baseline (`Passed: 5038 Failed: 39 Error: 97 WrongE:
+  3`), but the `result-document-113*` / `114*` tranche is no longer part of
+  that open frontier.
+
+### Next frontier
+
+- The immediate `result-document-1130.xsl` temporary-output-state tranche is
+  now closed. The next useful step is to inspect the remaining failures from
+  the filtered vendor sweep and choose the next coherent shared-stylesheet or
+  instruction frontier to checkpoint.
+
 ## 2026-04-14 22:33 CEST
 
 ### Status snapshot
