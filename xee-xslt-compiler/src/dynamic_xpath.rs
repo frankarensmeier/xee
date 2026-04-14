@@ -31,7 +31,9 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
             request.namespace_context.as_ref(),
             interpreter.xot_mut(),
         )?;
-        namespaces.default_element_namespace = request.xpath_default_namespace.clone();
+        if request.namespace_context.is_none() {
+            namespaces.default_element_namespace = request.xpath_default_namespace.clone();
+        }
         let (variables, variable_names) = variables_for_request(request.with_params.as_ref())?;
         let mut static_context = context
             .static_context()
@@ -163,6 +165,10 @@ fn compile_dynamic_xpath(
     let mut program = Program::new(static_context, xpath.0.span);
     program.functions = caller_program.functions.clone();
     program.declarations = caller_program.declarations.clone();
+    // Dynamic XPath executes its compiled expression as the program entrypoint.
+    // Keeping stylesheet named templates here lets absent-context evaluation
+    // re-enter xsl:initial-template instead of running the expression.
+    program.declarations.named_templates.clear();
 
     let mut scopes = Scopes::new();
     let builder = FunctionBuilder::new(&mut program);

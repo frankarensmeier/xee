@@ -1325,7 +1325,20 @@ fn xslt_evaluate(
 
     evaluator
         .evaluate(&request, context, interpreter)
-        .map_err(|error| error.error)
+        .map_err(|error| normalize_xslt_evaluate_error(error.error))
+}
+
+fn normalize_xslt_evaluate_error(error: error::Error) -> error::Error {
+    match error {
+        error::Error::FODC0002 => error::Error::XTDE3160,
+        error::Error::Application(application_error)
+            if application_error.qname().local_name() == "FODC0002"
+                && application_error.qname().namespace() == "http://www.w3.org/2005/xqt-errors" =>
+        {
+            error::Error::XTDE3160
+        }
+        other => other,
+    }
 }
 
 fn absolute_result_document_uri(

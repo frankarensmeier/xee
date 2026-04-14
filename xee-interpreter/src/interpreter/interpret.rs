@@ -472,6 +472,7 @@ impl<'a> Interpreter<'a> {
                             RaisedError::XTTE0570 => error::Error::XTTE0570,
                             RaisedError::XTTE0590 => error::Error::XTTE0590,
                             RaisedError::XTMM9000 => error::Error::XTMM9000,
+                            RaisedError::XPTY0004 => error::Error::XPTY0004(None),
                         })?;
                     self.state.push(sequence);
                 }
@@ -784,6 +785,7 @@ impl<'a> Interpreter<'a> {
                         RaisedError::XTTE0570 => error::Error::XTTE0570,
                         RaisedError::XTTE0590 => error::Error::XTTE0590,
                         RaisedError::XTMM9000 => error::Error::XTMM9000,
+                        RaisedError::XPTY0004 => error::Error::XPTY0004(None),
                     };
                     return Err(error);
                 }

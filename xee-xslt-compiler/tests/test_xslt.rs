@@ -83,6 +83,28 @@ fn evaluate_named_template_with_stylesheet_base(
     runnable.named_template(template_name, xot)
 }
 
+fn evaluate_with_stylesheet_base_without_context(
+    xot: &mut Xot,
+    xslt: &str,
+    stylesheet_path: &std::path::Path,
+) -> error::SpannedResult<Sequence> {
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let static_context = static_context_builder.build();
+    let program = parse_with_base_dir(
+        static_context,
+        xslt,
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+
+    let dynamic_context_builder = program.dynamic_context_builder();
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    runnable.many(xot)
+}
+
 fn evaluate_with_processor_xslt_version(
     xot: &mut Xot,
     xml: &str,
@@ -6228,6 +6250,109 @@ fn test_xsl_evaluate_vendor_evaluate_049() {
     .unwrap();
 
     assert_eq!(xml(&xot, output), "<out>true</out>");
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_049_without_context_item() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-049.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output =
+        evaluate_with_stylesheet_base_without_context(&mut xot, &xslt, &stylesheet_path).unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>true</out>");
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_020_uses_namespace_context_default_namespace() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-020.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+    &mut xot,
+    r#"<document xmlns="http://saxon097.uri/"><path>following-sibling::data</path><data>Saxon is great</data></document>"#,
+    &xslt,
+    &stylesheet_path,
+  )
+  .unwrap();
+
+    assert!(xml(&xot, output).contains("evaluate-node : Saxon is great"));
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_023_enforces_as_type() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-023.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_base(
+    &mut xot,
+    r#"<document xmlns="http://saxon097.uri/"><path>following-sibling::data</path><data>Saxon is great</data></document>"#,
+    &xslt,
+    &stylesheet_path,
+  )
+  .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XPTY0004(None));
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_027_uses_namespace_context_over_xpath_default_namespace() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-027.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_with_stylesheet_base(
+    &mut xot,
+    r#"<a xmlns="http://a.uri/"><b xmlns="http://b.uri/"><c xmlns="http://c.uri/"><d xmlns="http://d.uri/">42</d></c></b></a>"#,
+    &xslt,
+    &stylesheet_path,
+  )
+  .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out xmlns=\"http://www.w3.org/1999/xhtml\">42</out>"
+    );
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_018d_uses_xtte0590_for_child_with_param_type_error() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-018d.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let error =
+        evaluate_with_stylesheet_base(&mut xot, "<add>$p1 + $p2</add>", &xslt, &stylesheet_path)
+            .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTTE0590);
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_047_normalizes_document_error_to_xtde3160() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-047.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_base_without_context(&mut xot, &xslt, &stylesheet_path)
+        .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE3160);
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_048_normalizes_document_error_to_xtde3160() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-048.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let error = evaluate_with_stylesheet_base_without_context(&mut xot, &xslt, &stylesheet_path)
+        .unwrap_err();
+
+    assert_eq!(error.error, error::Error::XTDE3160);
 }
 
 #[test]

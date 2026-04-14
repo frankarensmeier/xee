@@ -4,6 +4,49 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 09:09 CEST
+
+### Status snapshot
+
+- Checkpoint focus: remove the vendor `xsl:evaluate` absent-context stack
+  overflow, then clear the newly exposed namespace/type/document semantics.
+- Focused `xee-xslt-compiler` regressions added in this tranche: 9 passed, 0
+  failed.
+- Result: the vendor `evaluate` set no longer aborts at `evaluate-047` and now
+  passes through `evaluate-050`; the remaining live cases are `evaluate-002`
+  (temporary-tree document order), `evaluate-019` (`XPST0081` unsupported
+  expression), and `evaluate-051` (escaped inline-function panic).
+
+### Dynamic evaluate runtime fixes
+
+- Stopped dynamic XPath programs from inheriting stylesheet named templates.
+  Without that, absent-context `xsl:evaluate` re-entered
+  `xsl:initial-template` instead of running the compiled dynamic expression,
+  which is what caused the vendor stack overflow frontier in
+  `evaluate-047/048/049/051`.
+- Made `namespace-context` own the default element namespace when it is
+  supplied, instead of overwriting it with `xpath-default-namespace`.
+  This fixed the vendor namespace-context cases `evaluate-020` and
+  `evaluate-027`.
+- Added explicit `xsl:evaluate @as` result conversion using `XPTY0004`, which
+  fixed `evaluate-023`.
+- Switched child `xsl:with-param` conversions inside `xsl:evaluate` to use the
+  evaluate-specific `XTTE0590` path, which fixed `evaluate-018d`.
+- Normalized `document()` retrieval failures raised from `xsl:evaluate` to
+  `XTDE3160`, which fixed `evaluate-047` and the error-accepting branch of
+  `evaluate-048`.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler test_xsl_evaluate_vendor_evaluate_0 -- --nocapture`
+  passed with the new focused regressions.
+- `cargo test -p xee-xslt-compiler` still has 6 unrelated pre-existing test
+  failures outside this tranche.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/evaluate/_evaluate-test-set.xml`
+  now reports 39 passing vendor `evaluate` cases and 3 remaining live issues
+  (`evaluate-002`, `evaluate-019`, `evaluate-051`) instead of aborting earlier
+  with a stack overflow.
+
 ## 2026-04-13 23:08 CEST
 
 ### Status snapshot

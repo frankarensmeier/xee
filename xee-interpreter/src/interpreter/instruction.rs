@@ -8,6 +8,7 @@ pub enum RaisedError {
     XTTE0570,
     XTTE0590,
     XTMM9000,
+    XPTY0004,
 }
 
 impl RaisedError {
@@ -19,6 +20,7 @@ impl RaisedError {
             RaisedError::XTTE0590 => 3,
             RaisedError::XTMM9000 => 4,
             RaisedError::XTDE1425 => 5,
+            RaisedError::XPTY0004 => 6,
         }
     }
 
@@ -30,6 +32,7 @@ impl RaisedError {
             3 => RaisedError::XTTE0590,
             4 => RaisedError::XTMM9000,
             5 => RaisedError::XTDE1425,
+            6 => RaisedError::XPTY0004,
             _ => panic!("unknown raised error id: {value}"),
         }
     }

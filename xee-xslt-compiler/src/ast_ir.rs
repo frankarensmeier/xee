@@ -1681,6 +1681,21 @@ impl<'a> IrConverter<'a> {
         &mut self,
         with_param: &ast::WithParam,
     ) -> error::SpannedResult<(ir::WithParam, Bindings)> {
+        self.with_param_with_error(with_param, RaisedError::XTTE0570)
+    }
+
+    fn evaluate_with_param(
+        &mut self,
+        with_param: &ast::WithParam,
+    ) -> error::SpannedResult<(ir::WithParam, Bindings)> {
+        self.with_param_with_error(with_param, RaisedError::XTTE0590)
+    }
+
+    fn with_param_with_error(
+        &mut self,
+        with_param: &ast::WithParam,
+        error: RaisedError,
+    ) -> error::SpannedResult<(ir::WithParam, Bindings)> {
         if with_param.select.is_some()
             && Self::has_non_empty_binding_content(&with_param.sequence_constructor)
         {
@@ -1695,8 +1710,7 @@ impl<'a> IrConverter<'a> {
             self.sequence_constructor(&with_param.sequence_constructor)?
         };
 
-        let bindings =
-            self.convert_bindings(bindings, with_param.as_.as_ref(), RaisedError::XTTE0570)?;
+        let bindings = self.convert_bindings(bindings, with_param.as_.as_ref(), error)?;
         let (select_atom, bindings) = bindings.atom_bindings();
 
         Ok((
@@ -2636,7 +2650,7 @@ impl<'a> IrConverter<'a> {
                 base_uri_atom,
             ],
         );
-        Ok(xpath_bindings
+        let bindings = xpath_bindings
             .concat(context_item_bindings)
             .concat(context_item_supplied_bindings)
             .concat(namespace_context_bindings)
@@ -2645,7 +2659,9 @@ impl<'a> IrConverter<'a> {
             .bind_expr(
                 &mut self.variables,
                 Spanned::new(expr, (evaluate.span.start..evaluate.span.end).into()),
-            ))
+            );
+
+        self.convert_bindings(bindings, evaluate.as_.as_ref(), RaisedError::XPTY0004)
     }
 
     fn evaluate_with_params_argument(
@@ -2660,7 +2676,7 @@ impl<'a> IrConverter<'a> {
                 continue;
             };
 
-            let (param, value_bindings) = self.with_param(with_param)?;
+            let (param, value_bindings) = self.evaluate_with_param(with_param)?;
             let value_atom = param
                 .select
                 .expect("xsl:with-param lowering should always yield a select atom");
