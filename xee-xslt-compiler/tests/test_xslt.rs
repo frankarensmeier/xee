@@ -6265,6 +6265,26 @@ fn test_xsl_evaluate_vendor_evaluate_049_without_context_item() {
 }
 
 #[test]
+fn test_xsl_evaluate_vendor_evaluate_019_does_not_inherit_stylesheet_default_namespace() {
+  let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-019.xsl");
+  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(
+    &mut xot,
+    "<document><data>Saxon is great</data></document>",
+    &xslt,
+    &stylesheet_path,
+  )
+  .unwrap();
+
+  let serialized = xml(&xot, output);
+  assert!(serialized.contains(">normal xpath/xslt : Saxon is great<"));
+  assert!(serialized.contains(">evaluate : Saxon is great<"));
+  assert!(serialized.contains(">evaluate without namespaces : Saxon is great<"));
+}
+
+#[test]
 fn test_xsl_evaluate_vendor_evaluate_020_uses_namespace_context_default_namespace() {
     let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-020.xsl");
@@ -6353,6 +6373,21 @@ fn test_xsl_evaluate_vendor_evaluate_048_normalizes_document_error_to_xtde3160()
         .unwrap_err();
 
     assert_eq!(error.error, error::Error::XTDE3160);
+}
+
+#[test]
+fn test_xsl_evaluate_vendor_evaluate_051_keeps_escaped_inline_functions_callable() {
+  let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("../vendor/xslt-tests/tests/insn/evaluate/evaluate-051.xsl");
+  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+  let mut xot = Xot::new();
+  let output =
+    evaluate_with_stylesheet_base_without_context(&mut xot, &xslt, &stylesheet_path).unwrap();
+
+  assert_eq!(
+    xml(&xot, output),
+    "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><in>60</in></out>"
+  );
 }
 
 #[test]

@@ -129,6 +129,14 @@ impl Sequence {
     ) -> Self {
         // sort nodes by document order
         let mut nodes = s.into_iter().collect::<Vec<_>>();
+        // Assign document ids in a stable root-document order before asking for
+        // document-order sort keys. Otherwise the first-seen order from HashSet
+        // iteration can flip the relative order of nodes from different
+        // temporary trees.
+        nodes.sort_by_key(|n| stable_document_root_key(*n, annotations.xot));
+        for node in &nodes {
+            let _ = annotations.get(*node);
+        }
         nodes.sort_by_key(|n| annotations.get(*n));
         nodes.into()
     }
@@ -281,4 +289,20 @@ impl Sequence {
             }
         }
     }
+}
+
+fn stable_document_root_key(node: xot::Node, xot: &Xot) -> (usize, usize) {
+    let root = xot.all_reverse_preorder(node).last().unwrap_or(node);
+    stable_node_key(root)
+}
+
+fn stable_node_key(node: xot::Node) -> (usize, usize) {
+    let debug = format!("{node:?}");
+    let mut numbers = debug
+        .split(|ch: char| !ch.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<usize>().ok());
+    let index = numbers.next().unwrap_or_default();
+    let stamp = numbers.next().unwrap_or_default();
+    (index, stamp)
 }

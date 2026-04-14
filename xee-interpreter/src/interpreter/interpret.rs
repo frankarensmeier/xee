@@ -173,15 +173,13 @@ impl<'a> Interpreter<'a> {
                 EncodedInstruction::Closure => {
                     let function_id = self.read_u16();
                     let inline_function_id = function::InlineFunctionId(function_id as usize);
-                    let closure_function =
-                        self.runnable.program().inline_function(inline_function_id);
+                    let closure_function = self.current_program().inline_function(inline_function_id);
 
                     let mut closure_vars = Vec::with_capacity(closure_function.closure_names.len());
                     for _ in 0..closure_function.closure_names.len() {
                         closure_vars.push(self.state.pop_value());
                     }
-                    let function: function::Function =
-                        function::InlineFunctionData::new(inline_function_id, closure_vars).into();
+                    let function = self.inline_function_value(inline_function_id, closure_vars);
                     let item: sequence::Item = function.into();
                     self.state.push(item);
                 }
@@ -192,9 +190,8 @@ impl<'a> Interpreter<'a> {
                         .program()
                         .declarations
                         .named_template(template_id as usize);
-                    let function: function::Function =
-                        function::InlineFunctionData::new(named_template.function_id, Vec::new())
-                            .into();
+                    let function =
+                        self.inline_function_value(named_template.function_id, Vec::new());
                     let item: sequence::Item = function.into();
                     self.state.push(item);
                 }
@@ -447,7 +444,7 @@ impl<'a> Interpreter<'a> {
                         sequence_type,
                         self.runnable.static_context(),
                         self.state.xot(),
-                        &|function| self.runnable.function_info(function).signature(),
+                        &|function| function.signature(self.runnable.program()).clone(),
                     )?;
                     self.state.push(sequence);
                 }
@@ -463,7 +460,7 @@ impl<'a> Interpreter<'a> {
                             sequence_type,
                             self.runnable.static_context(),
                             self.state.xot(),
-                            &|function| self.runnable.function_info(function).signature(),
+                            &|function| function.signature(self.runnable.program()).clone(),
                         )
                         .map_err(|_| match raised_error {
                             RaisedError::XTDE0560 => error::Error::XTDE0560,
@@ -521,7 +518,7 @@ impl<'a> Interpreter<'a> {
                     let matches = sequence.sequence_type_matching(
                         sequence_type,
                         self.state.xot(),
-                        &|function| self.runnable.function_info(function).signature(),
+                        &|function| function.signature(self.runnable.program()).clone(),
                     );
                     if matches.is_ok() {
                         self.state.push(true);
@@ -537,7 +534,7 @@ impl<'a> Interpreter<'a> {
                     let matches = sequence.sequence_type_matching(
                         sequence_type,
                         self.state.xot(),
-                        &|function| self.runnable.function_info(function).signature(),
+                        &|function| function.signature(self.runnable.program()).clone(),
                     );
                     if matches.is_err() {
                         Err(error::Error::XPDY0050)?;
@@ -847,9 +844,37 @@ impl<'a> Interpreter<'a> {
     }
 
     pub(crate) fn current_inline_function(&self) -> &function::InlineFunction {
-        self.runnable
-            .program()
-            .inline_function(self.state.frame().function())
+        self.current_program().inline_function(self.state.frame().function())
+    }
+
+    fn current_program(&self) -> &super::Program {
+        self.state
+            .frame()
+            .owned_program()
+            .map(Rc::as_ref)
+            .unwrap_or_else(|| self.runnable.program())
+    }
+
+    fn current_owned_program(&self) -> Option<&Rc<super::Program>> {
+        self.state.frame().owned_program()
+    }
+
+    fn inline_function_value(
+        &self,
+        function_id: function::InlineFunctionId,
+        closure_vars: Vec<stack::Value>,
+    ) -> function::Function {
+        match self.current_owned_program() {
+            Some(program) => {
+                function::InlineFunctionData::new_with_program(
+                    Rc::clone(program),
+                    function_id,
+                    closure_vars,
+                )
+                .into()
+            }
+            None => function::InlineFunctionData::new(function_id, closure_vars).into(),
+        }
     }
 
     pub(crate) fn resolve_global_variable(
@@ -860,12 +885,7 @@ impl<'a> Interpreter<'a> {
             GlobalValueState::Resolved(value) => Ok(value),
             GlobalValueState::Resolving => Err(error::Error::XTDE0640),
             GlobalValueState::Uninitialized => {
-                let global = self
-                    .runnable
-                    .program()
-                    .declarations
-                    .global_variable(index)
-                    .clone();
+                let global = self.current_program().declarations.global_variable(index).clone();
                 if global.external {
                     let Some(original_name) = &global.original_name else {
                         return Err(error::Error::Unsupported(
@@ -888,8 +908,7 @@ impl<'a> Interpreter<'a> {
                 }
 
                 self.global_variables[index] = GlobalValueState::Resolving;
-                let function: function::Function =
-                    function::InlineFunctionData::new(global.function_id, Vec::new()).into();
+                let function = self.inline_function_value(global.function_id, Vec::new());
                 let context_arguments =
                     if let Some(context_item) = self.runnable.dynamic_context().context_item() {
                         [
@@ -922,11 +941,11 @@ impl<'a> Interpreter<'a> {
     }
 
     pub(crate) fn function_name(&self, function: &function::Function) -> Option<Name> {
-        self.runnable.function_info(function).name()
+        function.name(self.runnable.program())
     }
 
     pub(crate) fn function_arity(&self, function: &function::Function) -> usize {
-        self.runnable.function_info(function).arity()
+        function.arity(self.runnable.program())
     }
 
     fn call(&mut self, arity: u8) -> error::Result<()> {
@@ -1081,7 +1100,7 @@ impl<'a> Interpreter<'a> {
             function::Function::Static(data) => {
                 self.call_static(data.id, arity, &data.closure_vars)
             }
-            function::Function::Inline(data) => self.call_inline(data.id, arity),
+            function::Function::Inline(data) => self.call_inline(data, arity),
             function::Function::Array(array) => self.call_array(array, arity as usize),
             function::Function::Map(map) => self.call_map(map, arity as usize),
         }
@@ -1097,7 +1116,7 @@ impl<'a> Interpreter<'a> {
         arity: u8,
         closure_vars: &[stack::Value],
     ) -> error::Result<()> {
-        let static_function = self.runnable.program().static_function(static_function_id);
+        let static_function = self.current_program().static_function(static_function_id).clone();
         if arity as usize != static_function.arity() {
             return Err(error::Error::type_error(format!(
                 "function expects {} argument(s), got {}",
@@ -1105,8 +1124,8 @@ impl<'a> Interpreter<'a> {
                 arity
             )));
         }
-        let parameter_types = static_function.signature().parameter_types();
-        let arguments = self.coerce_arguments(parameter_types, arity)?;
+        let parameter_types = static_function.signature().parameter_types().to_vec();
+        let arguments = self.coerce_arguments(&parameter_types, arity)?;
         let result =
             static_function.invoke(self.runnable.dynamic_context, self, arguments, closure_vars)?;
         // pop the last item off
@@ -1117,12 +1136,13 @@ impl<'a> Interpreter<'a> {
 
     fn call_inline(
         &mut self,
-        function_id: function::InlineFunctionId,
+        function: &function::InlineFunctionData,
         arity: u8,
     ) -> error::Result<()> {
         // look up the function in order to access the parameters information
-        let function = self.runnable.program().inline_function(function_id);
-        let parameter_types = &function.signature.parameter_types();
+        let program = function.program.as_deref().unwrap_or_else(|| self.runnable.program());
+        let inline_function = program.inline_function(function.id);
+        let parameter_types = &inline_function.signature.parameter_types();
         if arity as usize != parameter_types.len() {
             return Err(error::Error::type_error(format!(
                 "function expects {} argument(s), got {}",
@@ -1139,7 +1159,8 @@ impl<'a> Interpreter<'a> {
             self.state.push_value(arg);
         }
 
-        self.state.push_frame(function_id, arity as usize)
+        self.state
+            .push_frame(function.id, arity as usize, function.program.clone())
     }
 
     fn coerce_inline_arguments(
@@ -1163,7 +1184,7 @@ impl<'a> Interpreter<'a> {
                         type_,
                         static_context,
                         xot,
-                        &|function| self.runnable.function_info(function).signature(),
+                        &|function| function.signature(self.runnable.program()).clone(),
                     )?
                     .into()
             } else {
@@ -1200,7 +1221,7 @@ impl<'a> Interpreter<'a> {
                     type_,
                     static_context,
                     xot,
-                    &|function| self.runnable.function_info(function).signature(),
+                    &|function| function.signature(self.runnable.program()).clone(),
                 )?;
                 arguments.push(sequence);
             } else {
@@ -1658,7 +1679,7 @@ impl<'a> Interpreter<'a> {
         size: IBig,
         options: &ApplyTemplatesOptions<'_>,
     ) -> error::Result<Option<sequence::Sequence>> {
-        let mode_declaration = self.runnable.program().declarations.mode(mode);
+        let mode_declaration = self.current_program().declarations.mode(mode);
         if self.mode_requires_typed_nodes(mode_declaration) && self.item_is_untyped_node(&item) {
             return Err(error::Error::XTTE3100);
         }
@@ -1678,7 +1699,7 @@ impl<'a> Interpreter<'a> {
 
         if let Some(function_id) = function_id {
             let position: IBig = (position + 1).into();
-            let function = function::InlineFunctionData::new(function_id, Vec::new()).into();
+            let function = self.inline_function_value(function_id, Vec::new());
             self.mode_stack.push(mode);
             self.template_rule_stack.push(function_id);
             let result = self.call_template_with_params(
@@ -1713,7 +1734,7 @@ impl<'a> Interpreter<'a> {
         tunnel_params: &function::Map,
         builtin_template_params_passthrough: bool,
     ) -> error::Result<Option<sequence::Sequence>> {
-        let mode_declaration = self.runnable.program().declarations.mode(mode);
+        let mode_declaration = self.current_program().declarations.mode(mode);
         match mode_declaration.on_no_match {
             declaration::ModeOnNoMatch::ShallowCopy => self.apply_builtin_shallow_copy_rule(
                 mode,
@@ -1991,8 +2012,11 @@ impl<'a> Interpreter<'a> {
         params: &function::Map,
         tunnel_params: &function::Map,
     ) -> error::Result<sequence::Sequence> {
-        let function_id = match function {
-            function::Function::Inline(data) => data.id,
+        let (function_id, program) = match function {
+            function::Function::Inline(data) => (
+                data.id,
+                data.program.as_deref().unwrap_or_else(|| self.runnable.program()),
+            ),
             _ => return Err(error::Error::type_error("expected a template function")),
         };
 
@@ -2002,18 +2026,8 @@ impl<'a> Interpreter<'a> {
         }
 
         let mut arguments = context_arguments.into_iter().collect::<Vec<_>>();
-        let parameter_types = self
-            .runnable
-            .function_info(function)
-            .signature()
-            .parameter_types()
-            .to_vec();
-        if let Some(template_params) = self
-            .runnable
-            .program()
-            .declarations
-            .template_params(function_id)
-        {
+        let parameter_types = function.signature(self.runnable.program()).parameter_types().to_vec();
+        if let Some(template_params) = program.declarations.template_params(function_id) {
             for (index, param) in template_params.iter().enumerate() {
                 let key = atomic::Atomic::from(param.name.as_str());
                 let value = if param.tunnel {
@@ -2061,7 +2075,7 @@ impl<'a> Interpreter<'a> {
                 parameter_type,
                 self.runnable.static_context(),
                 self.state.xot(),
-                &|function| self.runnable.function_info(function).signature(),
+                &|function| function.signature(self.runnable.program()).clone(),
             )
             .map(Some)
             .map_err(|_| error::Error::XTTE0590)
@@ -2224,7 +2238,7 @@ impl<'a> Interpreter<'a> {
         };
 
         if let Some(function_id) = next_function {
-            let function = function::InlineFunctionData::new(function_id, Vec::new()).into();
+            let function = self.inline_function_value(function_id, Vec::new());
             self.mode_stack.push(mode);
             self.template_rule_stack.push(function_id);
             let result = self.call_template_with_params(
@@ -2262,37 +2276,49 @@ impl<'a> Interpreter<'a> {
     // instruction in it to determine the span of the code that failed.
     fn current_span(&self) -> SourceSpan {
         let frame = self.state.frame();
-        let function = self.runnable.program().inline_function(frame.function());
+        let function = self.current_program().inline_function(frame.function());
         // we substract 1 to end up in the current instruction - this
         // because the ip is already on the next instruction
         function.spans[frame.ip - 1]
     }
 
     fn read_instruction(&mut self) -> EncodedInstruction {
-        let frame = self.state.frame_mut();
-        let function = self.runnable.program().inline_function(frame.function());
+        let function_id = self.state.frame().function();
+        let mut ip = self.state.frame().ip;
+        let function = self.current_program().inline_function(function_id);
         let chunk = &function.chunk;
-        read_instruction(chunk, &mut frame.ip)
+        let instruction = read_instruction(chunk, &mut ip);
+        self.state.frame_mut().ip = ip;
+        instruction
     }
 
     fn read_u16(&mut self) -> u16 {
-        let frame = &mut self.state.frame_mut();
-        let function = self.runnable.program().inline_function(frame.function());
+        let function_id = self.state.frame().function();
+        let mut ip = self.state.frame().ip;
+        let function = self.current_program().inline_function(function_id);
         let chunk = &function.chunk;
-        read_u16(chunk, &mut frame.ip)
+        let value = read_u16(chunk, &mut ip);
+        self.state.frame_mut().ip = ip;
+        value
     }
 
     fn read_i16(&mut self) -> i16 {
-        let frame = &mut self.state.frame_mut();
-        let function = self.runnable.program().inline_function(frame.function());
+        let function_id = self.state.frame().function();
+        let mut ip = self.state.frame().ip;
+        let function = self.current_program().inline_function(function_id);
         let chunk = &function.chunk;
-        read_i16(chunk, &mut frame.ip)
+        let value = read_i16(chunk, &mut ip);
+        self.state.frame_mut().ip = ip;
+        value
     }
 
     fn read_u8(&mut self) -> u8 {
-        let frame = &mut self.state.frame_mut();
-        let function = self.runnable.program().inline_function(frame.function());
+        let function_id = self.state.frame().function();
+        let mut ip = self.state.frame().ip;
+        let function = self.current_program().inline_function(function_id);
         let chunk = &function.chunk;
-        read_u8(chunk, &mut frame.ip)
+        let value = read_u8(chunk, &mut ip);
+        self.state.frame_mut().ip = ip;
+        value
     }
 }

@@ -243,7 +243,7 @@ impl<'a> DynamicContext<'a> {
     }
 
     /// Access information about a Function.
-    pub fn function_info<'b>(&self, function: &'b Function) -> interpreter::FunctionInfo<'a, 'b> {
+    pub fn function_info<'b>(&'b self, function: &'b Function) -> interpreter::FunctionInfo<'b> {
         self.program.function_info(function)
     }
 

@@ -215,11 +215,20 @@ impl Program {
         self.static_context.function_by_id(function_id)
     }
 
-    pub fn function_info<'a, 'b>(
-        &'a self,
-        function: &'b function::Function,
-    ) -> FunctionInfo<'a, 'b> {
-        FunctionInfo::new(function, self)
+    pub(crate) fn map_signature(&self) -> &function::Signature {
+        &self.map_signature
+    }
+
+    pub(crate) fn array_signature(&self) -> &function::Signature {
+        &self.array_signature
+    }
+
+    pub fn function_info<'a>(&'a self, function: &'a function::Function) -> FunctionInfo<'a> {
+        let program = match function {
+            function::Function::Inline(data) => data.program.as_deref().unwrap_or(self),
+            _ => self,
+        };
+        FunctionInfo::new(function, program)
     }
 
     /// Obtain a runnable version of this program, with a particular dynamic context.
@@ -257,55 +266,30 @@ impl Program {
 }
 
 /// Given a function provide information about it.
-pub struct FunctionInfo<'a, 'b> {
-    function: &'b function::Function,
+pub struct FunctionInfo<'a> {
+    function: &'a function::Function,
     program: &'a Program,
 }
 
-impl<'a, 'b> FunctionInfo<'a, 'b> {
-    pub(crate) fn new(
-        function: &'b function::Function,
-        program: &'a Program,
-    ) -> FunctionInfo<'a, 'b> {
+impl<'a> FunctionInfo<'a> {
+    pub(crate) fn new(function: &'a function::Function, program: &'a Program) -> FunctionInfo<'a> {
         FunctionInfo { function, program }
     }
 
     /// Return the arity of the function.
     pub fn arity(&self) -> usize {
-        match self.function {
-            function::Function::Inline(data) => self.program.inline_function(data.id).arity(),
-            function::Function::Static(data) => self.program.static_function(data.id).arity(),
-            function::Function::Array(_) => 1,
-            function::Function::Map(_) => 1,
-        }
+        self.function.arity(self.program)
     }
 
     /// Return the name of the function.
     ///
     /// Note that only static functions have names.
     pub fn name(&self) -> Option<Name> {
-        match self.function {
-            function::Function::Static(data) => {
-                let static_function = self.program.static_function(data.id);
-                static_function.name().cloned()
-            }
-            _ => None,
-        }
+        self.function.name(self.program)
     }
 
     /// Return the signature of the function.
     pub fn signature(&self) -> &'a function::Signature {
-        match &self.function {
-            function::Function::Static(data) => {
-                let static_function = self.program.static_function(data.id);
-                static_function.signature()
-            }
-            function::Function::Inline(data) => {
-                let inline_function = self.program.inline_function(data.id);
-                inline_function.signature()
-            }
-            function::Function::Map(_map) => &self.program.map_signature,
-            function::Function::Array(_array) => &self.program.array_signature,
-        }
+        self.function.signature(self.program)
     }
 }

@@ -210,7 +210,7 @@ impl<'a> Runnable<'a> {
         self.dynamic_context.implicit_timezone()
     }
 
-    pub fn function_info<'b>(&self, function: &'b Function) -> FunctionInfo<'a, 'b> {
+    pub fn function_info<'b>(&'b self, function: &'b Function) -> FunctionInfo<'b> {
         self.program.function_info(function)
     }
 }

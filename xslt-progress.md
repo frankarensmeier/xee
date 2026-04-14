@@ -4,6 +4,67 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 12:23 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the remaining vendor `xsl:evaluate` frontier after
+  the absent-context/runtime checkpoint, specifically `evaluate-051`,
+  `evaluate-019`, and batch-only `evaluate-002`.
+- Result: the vendor `evaluate` set is now green for every supported case
+  (42 passed / 0 failed / 0 error / 15 unsupported).
+- Filter baseline change: none.
+
+### Escaped dynamic inline functions
+
+- Dynamic `xsl:evaluate` results now rebind escaped inline functions to an
+  owned `Rc<Program>` before the temporary dynamic program drops.
+- Interpreter frames now carry an optional owning program, and inline/global
+  lookups resolve against the current frame program instead of always falling
+  back to the caller stylesheet program.
+- This fixes the remaining escaped-inline panic in vendor `evaluate-051` and
+  keeps returned function items callable after `xsl:evaluate` completes.
+
+### Assertion namespace context
+
+- The XSLT testrunner now preserves in-scope namespace bindings for
+  expression-based assertions (`assert`, `assert-eq`, `assert-deep-eq`,
+  `assert-permutation`) instead of treating assertion XPath as a bare string.
+- The built-in `xml` prefix is filtered back out when capturing those
+  namespaces so assertion structures stay stable while still honoring real
+  vendor prefixes such as the `h` prefix in `evaluate-019`.
+- This fixes `evaluate-019` in the runner layer without changing
+  `xsl:evaluate` parsing semantics, and keeps `evaluate-021` on the inherited
+  stylesheet `xpath-default-namespace` path that the spec expects.
+
+### Stable temporary-tree document order
+
+- Set-construction paths now pre-annotate nodes in a deterministic
+  root-document order before sorting by document order, instead of letting the
+  first `HashSet` iteration assign cross-document order implicitly.
+- This removes the batch-sensitive temporary-tree ordering instability behind
+  vendor `evaluate-002`.
+
+### Validation notes
+
+- `cargo test -p xee-testrunner` passed.
+- `cargo test -p xee-interpreter` still has one unrelated existing failure:
+  `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+- `cargo test -p xee-xslt-compiler` still has the same 6 unrelated existing
+  failures outside this tranche:
+  `test_apply_templates_current_falls_back_to_unnamed_mode_outside_template_rule`,
+  `test_document_instruction_satisfies_item_return_type`,
+  `test_for_each_descending_numeric_sort_places_nan_last`,
+  `test_mode_attributes_accept_whitespace_padded_values`,
+  `test_unused_local_variable_does_not_trigger_global_circularity`, and
+  `test_xsl_element_with_prefixed_name_uses_static_namespace`.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/evaluate/_evaluate-test-set.xml`
+  passed with `Total: 57 Supported: 42 Passed: 42 Failed: 0 Error: 0 WrongE: 0 Filtered: 0 Unsupported: 15`.
+- `cargo run -p xee-testrunner -- -v check vendor/xslt-tests` now runs to
+  completion again instead of aborting in `evaluate`, but the broader branch
+  baseline is still dirty: `Total: 14595 Supported: 9570 Passed: 4978 Failed:
+  33 Error: 166 WrongE: 3 Filtered: 4390 Unsupported: 5025`.
+
 ## 2026-04-14 09:09 CEST
 
 ### Status snapshot

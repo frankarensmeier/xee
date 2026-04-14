@@ -1,5 +1,6 @@
 use ahash::{HashMap, HashMapExt, HashSetExt};
 use iri_string::types::{IriAbsoluteString, IriReferenceStr, IriReferenceString};
+use std::rc::Rc;
 use xee_interpreter::{
     context::{self, DynamicContext},
     error, function,
@@ -69,10 +70,10 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
         } else {
             context.context_item().cloned()
         };
-        let dynamic_context = context.clone_for_program(&program, context_item, variables);
-        program
-            .runnable(&dynamic_context)
-            .many(interpreter.xot_mut())
+        let program = Rc::new(program);
+        let dynamic_context = context.clone_for_program(program.as_ref(), context_item, variables);
+        let result = program.runnable(&dynamic_context).many(interpreter.xot_mut())?;
+        Ok(result.with_owned_inline_program(program))
     }
 }
 

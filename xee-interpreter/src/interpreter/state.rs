@@ -11,6 +11,7 @@ use crate::error;
 use crate::function;
 use crate::sequence;
 use crate::stack;
+use super::program::Program;
 
 const FRAMES_MAX: usize = 256;
 
@@ -28,6 +29,7 @@ pub(crate) struct Frame {
     function: function::InlineFunctionId,
     base: usize,
     pub(crate) ip: usize,
+    owned_program: Option<Rc<Program>>,
 }
 
 impl Frame {
@@ -36,6 +38,10 @@ impl Frame {
     }
     pub(crate) fn base(&self) -> usize {
         self.base
+    }
+
+    pub(crate) fn owned_program(&self) -> Option<&Rc<Program>> {
+        self.owned_program.as_ref()
     }
 }
 
@@ -196,6 +202,7 @@ impl<'a> State<'a> {
             function: function_id,
             ip: 0,
             base: 0,
+            owned_program: None,
         });
     }
 
@@ -252,6 +259,7 @@ impl<'a> State<'a> {
         &mut self,
         function_id: function::InlineFunctionId,
         arity: usize,
+        owned_program: Option<Rc<Program>>,
     ) -> error::Result<()> {
         if self.frames.len() >= self.frames.capacity() {
             return Err(error::Error::StackOverflow);
@@ -260,6 +268,7 @@ impl<'a> State<'a> {
             function: function_id,
             ip: 0,
             base: self.stack.len() - arity,
+            owned_program,
         });
         Ok(())
     }

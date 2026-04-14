@@ -5,11 +5,15 @@
 // creation.rs contains various functions that create Sequence
 // compare.rs contains various comparison functions
 
+use std::rc::Rc;
+
 use xot::Xot;
 
 use crate::{
     atomic::{self, AtomicCompare},
     context, error, function,
+    interpreter::Program,
+    stack,
     string::Collation,
     xml,
 };
@@ -245,6 +249,10 @@ impl Sequence {
         }
     }
 
+    pub fn with_owned_inline_program(&self, program: Rc<Program>) -> Self {
+        bind_sequence_to_program(self, &program)
+    }
+
     pub(crate) fn general_comparison<O>(
         &self,
         other: &Self,
@@ -422,5 +430,72 @@ impl Sequence {
             (Sequence::Range(a), Sequence::Many(b)) => a.follows(b, annotations),
             (Sequence::Range(a), Sequence::Range(b)) => a.follows(b, annotations),
         }
+    }
+}
+
+fn bind_sequence_to_program(sequence: &Sequence, program: &Rc<Program>) -> Sequence {
+    Sequence::new(
+        sequence
+            .iter()
+            .map(|item| bind_item_to_program(&item, program))
+            .collect(),
+    )
+}
+
+fn bind_item_to_program(item: &Item, program: &Rc<Program>) -> Item {
+    match item {
+        Item::Atomic(atomic) => Item::Atomic(atomic.clone()),
+        Item::Node(node) => Item::Node(*node),
+        Item::Function(function) => Item::Function(bind_function_to_program(function, program)),
+    }
+}
+
+fn bind_value_to_program(value: &stack::Value, program: &Rc<Program>) -> stack::Value {
+    match value {
+        stack::Value::Absent => stack::Value::Absent,
+        stack::Value::Sequence(sequence) => bind_sequence_to_program(sequence, program).into(),
+    }
+}
+
+fn bind_function_to_program(
+    function: &function::Function,
+    program: &Rc<Program>,
+) -> function::Function {
+    match function {
+        function::Function::Static(data) => function::StaticFunctionData::new(
+            data.id,
+            data.closure_vars
+                .iter()
+                .map(|value| bind_value_to_program(value, program))
+                .collect(),
+        )
+        .into(),
+        function::Function::Inline(data) => {
+            let closure_vars = data
+                .closure_vars
+                .iter()
+                .map(|value| bind_value_to_program(value, program))
+                .collect();
+            function::InlineFunctionData::new_with_program(
+                Rc::clone(data.program.as_ref().unwrap_or(program)),
+                data.id,
+                closure_vars,
+            )
+            .into()
+        }
+        function::Function::Map(map) => {
+            let entries = map
+                .entries()
+                .map(|(key, value)| (key.clone(), bind_sequence_to_program(value, program)))
+                .collect();
+            let map = function::Map::new(entries).expect("existing map entries should stay valid");
+            function::Function::Map(map)
+        }
+        function::Function::Array(array) => function::Function::Array(function::Array::new(
+            array
+                .iter()
+                .map(|member| bind_sequence_to_program(member, program))
+                .collect(),
+        )),
     }
 }

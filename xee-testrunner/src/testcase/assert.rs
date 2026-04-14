@@ -16,7 +16,37 @@ use crate::catalog::LoadContext;
 
 use super::outcome::{TestOutcome, UnexpectedError};
 
-type XPathExpr = String;
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct XPathExpr {
+    expr: String,
+    namespaces: Vec<(String, String)>,
+}
+
+impl XPathExpr {
+    fn new(expr: impl Into<String>) -> Self {
+        Self {
+            expr: expr.into(),
+            namespaces: Vec::new(),
+        }
+    }
+
+    fn with_namespaces(expr: impl Into<String>, namespaces: Vec<(String, String)>) -> Self {
+        Self {
+            expr: expr.into(),
+            namespaces,
+        }
+    }
+
+    fn expr(&self) -> &str {
+        &self.expr
+    }
+
+    fn namespace_pairs(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.namespaces
+            .iter()
+            .map(|(prefix, uri)| (prefix.as_str(), uri.as_str()))
+    }
+}
 
 pub(crate) trait Assertable {
     fn assert_result(
@@ -218,8 +248,19 @@ impl fmt::Debug for AssertNot {
 pub struct Assert(XPathExpr);
 
 impl Assert {
-    pub(crate) fn new(expr: XPathExpr) -> Self {
-        Self(expr)
+    pub(crate) fn new(expr: impl Into<String>) -> Self {
+        Self(XPathExpr::new(expr))
+    }
+
+    pub(crate) fn new_with_namespaces(
+        expr: impl Into<String>,
+        namespaces: Vec<(String, String)>,
+    ) -> Self {
+        if namespaces.is_empty() {
+            Self::new(expr)
+        } else {
+            Self(XPathExpr::with_namespaces(expr, namespaces))
+        }
     }
 }
 
@@ -252,8 +293,19 @@ impl Assertable for Assert {
 pub struct AssertEq(XPathExpr);
 
 impl AssertEq {
-    pub(crate) fn new(expr: XPathExpr) -> Self {
-        Self(expr)
+    pub(crate) fn new(expr: impl Into<String>) -> Self {
+        Self(XPathExpr::new(expr))
+    }
+
+    pub(crate) fn new_with_namespaces(
+        expr: impl Into<String>,
+        namespaces: Vec<(String, String)>,
+    ) -> Self {
+        if namespaces.is_empty() {
+            Self::new(expr)
+        } else {
+            Self(XPathExpr::with_namespaces(expr, namespaces))
+        }
     }
 }
 
@@ -291,8 +343,19 @@ impl Assertable for AssertEq {
 pub struct AssertDeepEq(XPathExpr);
 
 impl AssertDeepEq {
-    pub(crate) fn new(expr: XPathExpr) -> Self {
-        Self(expr)
+    pub(crate) fn new(expr: impl Into<String>) -> Self {
+        Self(XPathExpr::new(expr))
+    }
+
+    pub(crate) fn new_with_namespaces(
+        expr: impl Into<String>,
+        namespaces: Vec<(String, String)>,
+    ) -> Self {
+        if namespaces.is_empty() {
+            Self::new(expr)
+        } else {
+            Self(XPathExpr::with_namespaces(expr, namespaces))
+        }
     }
 }
 
@@ -355,8 +418,19 @@ impl Assertable for AssertCount {
 pub struct AssertPermutation(XPathExpr);
 
 impl AssertPermutation {
-    pub(crate) fn new(expr: XPathExpr) -> Self {
-        Self(expr)
+    pub(crate) fn new(expr: impl Into<String>) -> Self {
+        Self(XPathExpr::new(expr))
+    }
+
+    pub(crate) fn new_with_namespaces(
+        expr: impl Into<String>,
+        namespaces: Vec<(String, String)>,
+    ) -> Self {
+        if namespaces.is_empty() {
+            Self::new(expr)
+        } else {
+            Self(XPathExpr::with_namespaces(expr, namespaces))
+        }
     }
 }
 
@@ -678,7 +752,7 @@ impl Assertable for AssertType {
         sequence: &Sequence,
     ) -> TestOutcome {
         let matches = sequence.matches_type(&self.0, documents.xot(), &|function| {
-            context.function_info(function).signature()
+            context.function_info(function).signature().clone()
         });
         match matches {
             Ok(matches) => {
@@ -1025,14 +1099,23 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
             }
         })?;
 
-        let assert_eq_query = queries.one("string()", |_, item| {
-            let eq: String = item.to_atomic()?.try_into()?;
-            Ok(TestCaseResult::AssertEq(AssertEq::new(eq)))
+        let assert_eq_contents_query = queries.one("string()", convert_string)?;
+        let assert_eq_query = queries.one(".", move |documents, item| {
+            let eq = assert_eq_contents_query.execute(documents, item)?;
+            let namespaces = assertion_namespaces(documents, item)?;
+            Ok(TestCaseResult::AssertEq(AssertEq::new_with_namespaces(
+                eq,
+                namespaces,
+            )))
         })?;
 
-        let assert_deep_eq_query = queries.one("string()", |_, item| {
-            let eq: String = item.to_atomic()?.try_into()?;
-            Ok(TestCaseResult::AssertDeepEq(AssertDeepEq::new(eq)))
+        let assert_deep_eq_contents_query = queries.one("string()", convert_string)?;
+        let assert_deep_eq_query = queries.one(".", move |documents, item| {
+            let eq = assert_deep_eq_contents_query.execute(documents, item)?;
+            let namespaces = assertion_namespaces(documents, item)?;
+            Ok(TestCaseResult::AssertDeepEq(
+                AssertDeepEq::new_with_namespaces(eq, namespaces),
+            ))
         })?;
 
         let string_value_contents = queries.one("string()", convert_string)?;
@@ -1054,9 +1137,14 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
             Ok(TestCaseResult::AssertType(AssertType::new(string_value)))
         })?;
 
-        let assert_query = queries.one("string()", |_, item| {
-            let xpath: String = item.to_atomic()?.try_into()?;
-            Ok(TestCaseResult::Assert(Assert::new(xpath)))
+        let assert_contents_query = queries.one("string()", convert_string)?;
+        let assert_query = queries.one(".", move |documents, item| {
+            let xpath = assert_contents_query.execute(documents, item)?;
+            let namespaces = assertion_namespaces(documents, item)?;
+            Ok(TestCaseResult::Assert(Assert::new_with_namespaces(
+                xpath,
+                namespaces,
+            )))
         })?;
 
         let serialization_contents_query = queries.one("string()", convert_string)?;
@@ -1083,11 +1171,13 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
             ))
         })?;
 
-        let assert_permutation_query = queries.one("string()", |_, item| {
-            let xpath: String = item.to_atomic()?.try_into()?;
-            Ok(TestCaseResult::AssertPermutation(AssertPermutation::new(
-                xpath,
-            )))
+        let assert_permutation_contents_query = queries.one("string()", convert_string)?;
+        let assert_permutation_query = queries.one(".", move |documents, item| {
+            let xpath = assert_permutation_contents_query.execute(documents, item)?;
+            let namespaces = assertion_namespaces(documents, item)?;
+            Ok(TestCaseResult::AssertPermutation(
+                AssertPermutation::new_with_namespaces(xpath, namespaces),
+            ))
         })?;
         let assert_result_document_uri_query = queries.one("@uri/string()", convert_string)?;
 
@@ -1307,13 +1397,38 @@ impl fmt::Display for Failure {
 }
 
 fn run_xpath(expr: &XPathExpr) -> error::Result<Sequence> {
+    let mut builder = context::StaticContextBuilder::default();
+    builder.namespaces(expr.namespace_pairs());
+    let static_context = builder.build();
+
     let queries = Queries::default();
-    let q = queries.sequence(expr)?;
+    let q = queries.sequence_with_context(expr.expr(), static_context)?;
 
     let mut documents = Documents::default();
 
     // we don't need any particular context to execute this query
     q.execute_build_context(&mut documents, |_build| {})
+}
+
+fn assertion_namespaces(
+    documents: &mut Documents,
+    item: &Item,
+) -> error::Result<Vec<(String, String)>> {
+    let node = item.to_node()?;
+    let xot = documents.xot();
+    Ok(xot
+        .namespaces_in_scope(node)
+        .filter_map(|(prefix_id, namespace_id)| {
+            let prefix = xot.prefix_str(prefix_id);
+            if prefix.is_empty() || prefix == "xml" {
+                return None;
+            }
+            Some((
+                prefix.to_string(),
+                xot.namespace_str(namespace_id).to_string(),
+            ))
+        })
+        .collect())
 }
 
 fn run_xpath_with_result(
@@ -1322,12 +1437,13 @@ fn run_xpath_with_result(
     documents: &mut Documents,
 ) -> error::Result<Sequence> {
     let mut builder = context::StaticContextBuilder::default();
+    builder.namespaces(expr.namespace_pairs());
     let name = Name::name("result");
     builder.variable_names([name.clone()]);
     let static_context = builder.build();
 
     let queries = Queries::default();
-    let q = queries.sequence_with_context(expr, static_context)?;
+    let q = queries.sequence_with_context(expr.expr(), static_context)?;
 
     let variables = AHashMap::from([(name, sequence.clone())]);
     let context_item = if sequence.len() == 1 {
@@ -1489,7 +1605,7 @@ mod tests {
         let document_node = documents.document_node(handle).unwrap();
         let sequence: Sequence = document_node.into();
 
-        let expr = "/result/a = 'true'".to_string();
+        let expr = XPathExpr::new("/result/a = 'true'");
         let result = run_xpath_with_result(&expr, &sequence, &mut documents).unwrap();
 
         assert!(result.effective_boolean_value().unwrap());
@@ -1506,7 +1622,7 @@ mod tests {
         let element_node = documents.xot().first_child(document_node).unwrap();
         let sequence: Sequence = element_node.into();
 
-        let expr = "/out = 'Goodbye Mars!'".to_string();
+        let expr = XPathExpr::new("/out = 'Goodbye Mars!'");
         let result = run_xpath_with_result(&expr, &sequence, &mut documents).unwrap();
 
         assert!(result.effective_boolean_value().unwrap());
@@ -1515,9 +1631,9 @@ mod tests {
     #[test]
     fn test_run_xpath_with_result_allows_function_item_results_via_result_variable() {
         let mut documents = Documents::new();
-        let sequence = run_xpath(&"map:entry('foo', 3)".to_string()).unwrap();
+        let sequence = run_xpath(&XPathExpr::new("map:entry('foo', 3)")).unwrap();
 
-        let expr = "$result?foo = 3".to_string();
+        let expr = XPathExpr::new("$result?foo = 3");
         let result = run_xpath_with_result(&expr, &sequence, &mut documents).unwrap();
 
         assert!(result.effective_boolean_value().unwrap());

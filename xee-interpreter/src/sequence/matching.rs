@@ -22,11 +22,11 @@ use super::iter::option;
 
 impl Sequence {
     /// Check a type for qee-qt assert-type
-    pub fn matches_type<'a>(
+    pub fn matches_type(
         &self,
         s: &str,
         xot: &Xot,
-        get_signature: &impl Fn(&function::Function) -> &'a function::Signature,
+        get_signature: &impl Fn(&function::Function) -> function::Signature,
     ) -> error::Result<bool> {
         let namespaces = Namespaces::default();
         let sequence_type = parse_sequence_type(s, &namespaces)?;
@@ -42,11 +42,11 @@ impl Sequence {
     }
 
     // sequence type matching for the purposes of instance of
-    pub(crate) fn sequence_type_matching<'a>(
+    pub(crate) fn sequence_type_matching(
         self,
         sequence_type: &ast::SequenceType,
         xot: &Xot,
-        get_signature: &impl Fn(&function::Function) -> &'a function::Signature,
+        get_signature: &impl Fn(&function::Function) -> function::Signature,
     ) -> error::Result<Self> {
         self.sequence_type_matching_convert(
             sequence_type,
@@ -57,12 +57,12 @@ impl Sequence {
     }
 
     // sequence type matching, including function conversion rules
-    pub(crate) fn sequence_type_matching_function_conversion<'a>(
+    pub(crate) fn sequence_type_matching_function_conversion(
         self,
         sequence_type: &ast::SequenceType,
-        context: &'a context::StaticContext,
+        context: &context::StaticContext,
         xot: &Xot,
-        get_signature: &impl Fn(&function::Function) -> &'a function::Signature,
+        get_signature: &impl Fn(&function::Function) -> function::Signature,
     ) -> error::Result<Self> {
         self.sequence_type_matching_convert(
             sequence_type,
@@ -345,10 +345,10 @@ impl Item {
         }
     }
 
-    pub(crate) fn function_arity_matching<'a>(
+    pub(crate) fn function_arity_matching(
         &self,
         function_test: &ast::FunctionTest,
-        get_signature: &impl Fn(&function::Function) -> &'a function::Signature,
+        get_signature: &impl Fn(&function::Function) -> function::Signature,
     ) -> error::Result<()> {
         match function_test {
             ast::FunctionTest::AnyFunctionTest => {
@@ -371,10 +371,10 @@ impl Item {
         }
     }
 
-    pub(crate) fn function_type_matching<'a>(
+    pub(crate) fn function_type_matching(
         &self,
         function_test: &ast::FunctionTest,
-        get_signature: &impl Fn(&function::Function) -> &'a function::Signature,
+        get_signature: &impl Fn(&function::Function) -> function::Signature,
     ) -> error::Result<()> {
         match function_test {
             ast::FunctionTest::AnyFunctionTest => {
@@ -391,7 +391,7 @@ impl Item {
                         signature.arity()
                     )));
                 }
-                if Self::function_type_matching_helper(typed_function_test, signature) {
+                if Self::function_type_matching_helper(typed_function_test, &signature) {
                     Ok(())
                 } else {
                     Err(error::Error::type_error(
@@ -801,7 +801,7 @@ mod tests {
         let right_result =
             right_sequence
                 .clone()
-                .sequence_type_matching(&sequence_type, &xot, &|_| &signature);
+                .sequence_type_matching(&sequence_type, &xot, &|_| signature.clone());
         assert_eq!(&right_result.unwrap(), &right_sequence);
     }
 
@@ -826,7 +826,7 @@ mod tests {
         let right_result =
             right_sequence
                 .clone()
-                .sequence_type_matching(&sequence_type, &xot, &|_| &signature);
+                .sequence_type_matching(&sequence_type, &xot, &|_| signature.clone());
         assert_eq!(&right_result.unwrap(), &right_sequence);
     }
 
@@ -851,7 +851,7 @@ mod tests {
         let right_result =
             right_sequence
                 .clone()
-                .sequence_type_matching(&sequence_type, &xot, &|_| &signature);
+                .sequence_type_matching(&sequence_type, &xot, &|_| signature.clone());
         assert_eq!(&right_result.unwrap(), &right_sequence);
     }
 
@@ -877,7 +877,7 @@ mod tests {
         let wrong_result =
             wrong_sequence
                 .clone()
-                .sequence_type_matching(&sequence_type, &xot, &|_| &signature);
+                .sequence_type_matching(&sequence_type, &xot, &|_| signature.clone());
         assert!(matches!(wrong_result, Err(error::Error::XPTY0004(_))));
     }
 }

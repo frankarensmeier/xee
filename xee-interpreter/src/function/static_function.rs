@@ -148,6 +148,7 @@ impl From<FunctionKind> for FunctionRule {
     }
 }
 
+#[derive(Clone)]
 pub struct StaticFunction {
     name: Name,
     signature: function::Signature,
