@@ -4,6 +4,73 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 21:57 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the remaining principal `xsl:result-document`
+  serialization-AVT residue after the earlier `03*` tranche.
+- Result: `result-document-0401`, `0501`, `0601`, `0701`, `0702`, `0703`,
+  `0801`, and `0901` now pass end-to-end.
+- Filter baseline change: none.
+- `update.py` remains deferred until the full vendor suite is green.
+
+### Principal result-document AVTs
+
+- Dynamic `xsl:result-document` AVTs now work for
+  `@cdata-section-elements`, `@doctype-system`, `@doctype-public`,
+  `@include-content-type`, `@media-type`, `@omit-xml-declaration`,
+  `@standalone`, `@output-version`, and dynamic named-output `@format`.
+- For the simple string/boolean/standalone cases, the compiler now lowers
+  AVTs to runtime strings instead of rejecting them as unsupported.
+- Principal result-document runtime application now preserves the static-path
+  merge semantics for named-output defaults when explicit result-document
+  overrides are present, including CDATA element sets, character maps, and
+  `doctype-public` paired with a named-output `doctype-system`.
+
+### Dynamic named-output format resolution
+
+- Dynamic `@format` is now resolved at runtime against the stylesheet's named
+  `xsl:output` declarations using the result-document instruction's in-scope
+  namespace bindings.
+- The compiler encodes named-output serialization settings and per-instruction
+  namespace bindings into the principal-result-document helper call, so the
+  runtime can select the correct named output before applying explicit
+  `xsl:result-document` overrides.
+- This closes `result-document-0901`, including the prefix-shadowing case
+  where the result-document element rebinding changes which named output the
+  AVT result refers to.
+
+### Validation notes
+
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0401`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0501`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0601`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0701`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0702`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0703`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0801`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0901`
+  passed.
+- `cargo test -p xee-xslt-compiler` still shows the same six unrelated
+  baseline failures.
+- `cargo test -p xee-interpreter` still shows the same unrelated baseline
+  failure in `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+
+### Next frontier
+
+- The next adjacent `result-document` residue is `result-document-1001`, which
+  now fails semantically rather than at compile time: xee returns both the
+  implicit principal result and the explicit `href=""` result instead of
+  raising the expected duplicate-URI error.
+
 ## 2026-04-14 21:33 CEST
 
 ### Status snapshot

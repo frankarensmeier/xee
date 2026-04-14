@@ -1346,6 +1346,49 @@ impl<'a> IrConverter<'a> {
             .join("|")
     }
 
+    fn encode_named_outputs(&mut self) -> error::SpannedResult<String> {
+        let mut outputs = self
+            .named_outputs
+            .iter()
+            .map(|((namespace, local_name), (_, output))| {
+                (namespace.clone(), local_name.clone(), output.clone())
+            })
+            .collect::<Vec<_>>();
+        outputs.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+
+        outputs
+            .into_iter()
+            .map(|(namespace, local_name, output)| {
+                let fields = vec![
+                    namespace,
+                    local_name,
+                    Self::output_method_literal(output.method.as_ref())?.unwrap_or_default(),
+                    output.byte_order_mark.to_string(),
+                    Self::qname_list_literal(&output.cdata_section_elements),
+                    output.doctype_public.unwrap_or_default(),
+                    output.doctype_system.unwrap_or_default(),
+                    output.include_content_type.to_string(),
+                    output.media_type.unwrap_or_default(),
+                    output.item_separator.unwrap_or_default(),
+                    output.omit_xml_declaration.to_string(),
+                    Self::output_standalone_literal(output.standalone.as_ref()).unwrap_or_default(),
+                    output
+                        .html_version
+                        .map(|html_version| html_version.to_string())
+                        .unwrap_or_default(),
+                    Self::encode_character_maps(&self.resolve_character_maps(&output.use_character_maps)?),
+                    output.version.unwrap_or_default(),
+                ];
+                Ok(fields
+                    .into_iter()
+                    .map(|field| Self::hex_encode(&field))
+                    .collect::<Vec<_>>()
+                    .join(","))
+            })
+            .collect::<error::SpannedResult<Vec<_>>>()
+            .map(|entries| entries.join(";"))
+    }
+
     fn resolve_named_output(
         &self,
         format: &ast::ValueTemplate<ast::EqName>,
@@ -1416,6 +1459,60 @@ impl<'a> IrConverter<'a> {
             "yes" | "true" | "1" | "no" | "false" | "0" => Ok(trimmed.to_string()),
             _ => Err(error::Error::XTSE0020.into()),
         }
+    }
+
+    fn value_template_or_literal_atom<V>(
+        &mut self,
+        value_template: Option<&ast::ValueTemplate<V>>,
+        default: String,
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)>
+    where
+        V: Clone + PartialEq + Eq,
+    {
+        Ok(if let Some(value_template) = value_template {
+            if let Some(literal) = self.static_value_template(value_template) {
+                (
+                    Spanned::new(ir::Atom::Const(ir::Const::String(literal)), (0..0).into()),
+                    Bindings::empty(),
+                )
+            } else {
+                self.attribute_value_template(value_template)?.atom_bindings()
+            }
+        } else {
+            (
+                Spanned::new(ir::Atom::Const(ir::Const::String(default)), (0..0).into()),
+                Bindings::empty(),
+            )
+        })
+    }
+
+    fn validated_value_template_or_literal_atom<V>(
+        &mut self,
+        value_template: Option<&ast::ValueTemplate<V>>,
+        default: String,
+        validator: fn(&str) -> error::SpannedResult<String>,
+    ) -> error::SpannedResult<(ir::AtomS, Bindings)>
+    where
+        V: Clone + PartialEq + Eq,
+    {
+        Ok(if let Some(value_template) = value_template {
+            if let Some(literal) = self.static_value_template(value_template) {
+                (
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(validator(&literal)?)),
+                        (0..0).into(),
+                    ),
+                    Bindings::empty(),
+                )
+            } else {
+                self.attribute_value_template(value_template)?.atom_bindings()
+            }
+        } else {
+            (
+                Spanned::new(ir::Atom::Const(ir::Const::String(default)), (0..0).into()),
+                Bindings::empty(),
+            )
+        })
     }
 
     fn qname_list_literal(names: &[ast::EqName]) -> String {
@@ -3233,10 +3330,60 @@ impl<'a> IrConverter<'a> {
             }
         };
 
-        let formatted_output = match &result_document.format {
-            Some(format) => Some(self.resolve_named_output(format, &result_document.namespaces)?),
-            None => None,
-        };
+        let (formatted_output, format_atom, format_bindings, format_namespaces_atom, named_outputs_atom) =
+            match &result_document.format {
+                Some(format) if self.static_value_template(format).is_some() => (
+                    Some(self.resolve_named_output(format, &result_document.namespaces)?),
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(String::new())),
+                        (0..0).into(),
+                    ),
+                    Bindings::empty(),
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(String::new())),
+                        (0..0).into(),
+                    ),
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(String::new())),
+                        (0..0).into(),
+                    ),
+                ),
+                Some(format) => {
+                    let (format_atom, format_bindings) =
+                        self.attribute_value_template(format)?.atom_bindings();
+                    (
+                        None,
+                        format_atom,
+                        format_bindings,
+                        Spanned::new(
+                            ir::Atom::Const(ir::Const::String(
+                                self.encode_literal_namespaces(&result_document.namespaces),
+                            )),
+                            (0..0).into(),
+                        ),
+                        Spanned::new(
+                            ir::Atom::Const(ir::Const::String(self.encode_named_outputs()?)),
+                            (0..0).into(),
+                        ),
+                    )
+                }
+                None => (
+                    None,
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(String::new())),
+                        (0..0).into(),
+                    ),
+                    Bindings::empty(),
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(String::new())),
+                        (0..0).into(),
+                    ),
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(String::new())),
+                        (0..0).into(),
+                    ),
+                ),
+            };
 
         let (method_atom, method_bindings) = if let Some(method) = &result_document.method {
             if let Some(method_literal) = self.static_value_template(method) {
@@ -3270,134 +3417,117 @@ impl<'a> IrConverter<'a> {
             )
         };
 
-        let byte_order_mark_literal = if let Some(byte_order_mark) = &result_document.bye_order_mark
-        {
-            let byte_order_mark_literal =
-                self.static_value_template(byte_order_mark)
-                    .ok_or_else(|| error::SpannedError {
-                        error: error::Error::Unsupported(
-                            "Dynamic xsl:result-document @byte-order-mark is not supported yet"
-                                .to_string(),
-                        ),
-                        span: Some((result_document.span.start..result_document.span.end).into()),
-                    })?;
-            Self::validate_boolean_literal(&byte_order_mark_literal)?
-        } else if let Some(output) = formatted_output.as_ref() {
-            output.byte_order_mark.to_string()
-        } else {
-            String::new()
-        };
-        let byte_order_mark_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(byte_order_mark_literal)),
-            (0..0).into(),
-        );
+        let (byte_order_mark_atom, byte_order_mark_bindings) =
+            self.validated_value_template_or_literal_atom(
+                result_document.bye_order_mark.as_ref(),
+                formatted_output
+                    .as_ref()
+                    .map(|output| output.byte_order_mark.to_string())
+                    .unwrap_or_default(),
+                Self::validate_boolean_literal,
+            )?;
 
-        let cdata_literal = if let Some(cdata_section_elements) =
+        let (cdata_atom, cdata_bindings) = if let Some(cdata_section_elements) =
             &result_document.cdata_section_elements
         {
-            let direct_literal = self
-                .static_value_template(cdata_section_elements)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @cdata-section-elements is not supported yet"
-                            .to_string(),
+            if let Some(direct_literal) = self.static_value_template(cdata_section_elements) {
+                let cdata_literal = if let Some(output) = formatted_output.as_ref() {
+                    Self::merge_literal_qname_lists(
+                        &output.cdata_section_elements,
+                        Some(direct_literal),
+                    )
+                } else {
+                    direct_literal
+                };
+                (
+                    Spanned::new(
+                        ir::Atom::Const(ir::Const::String(cdata_literal)),
+                        (0..0).into(),
                     ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?;
-            if let Some(output) = formatted_output.as_ref() {
-                Self::merge_literal_qname_lists(
-                    &output.cdata_section_elements,
-                    Some(direct_literal),
+                    Bindings::empty(),
                 )
             } else {
-                direct_literal
+                let dynamic_cdata = self.attribute_value_template(cdata_section_elements)?;
+                if let Some(output) = formatted_output.as_ref() {
+                    let static_cdata = Self::qname_list_literal(&output.cdata_section_elements);
+                    if static_cdata.is_empty() {
+                        dynamic_cdata.atom_bindings()
+                    } else {
+                        let (dynamic_cdata_atom, dynamic_cdata_bindings) =
+                            dynamic_cdata.atom_bindings();
+                        let expr = ir::Expr::FunctionCall(ir::FunctionCall {
+                            atom: Spanned::new(self.concat_atom(2), (0..0).into()),
+                            args: vec![
+                                Spanned::new(
+                                    ir::Atom::Const(ir::Const::String(format!(
+                                        "{static_cdata} "
+                                    ))),
+                                    (0..0).into(),
+                                ),
+                                dynamic_cdata_atom,
+                            ],
+                        });
+                        dynamic_cdata_bindings
+                            .bind_expr_no_span(&mut self.variables, expr)
+                            .atom_bindings()
+                    }
+                } else {
+                    dynamic_cdata.atom_bindings()
+                }
             }
         } else if let Some(output) = formatted_output.as_ref() {
-            Self::qname_list_literal(&output.cdata_section_elements)
+            (
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(Self::qname_list_literal(
+                        &output.cdata_section_elements,
+                    ))),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            )
         } else {
-            String::new()
+            (
+                Spanned::new(
+                    ir::Atom::Const(ir::Const::String(String::new())),
+                    (0..0).into(),
+                ),
+                Bindings::empty(),
+            )
         };
-        let cdata_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(cdata_literal)),
-            (0..0).into(),
-        );
 
-        let doctype_public_literal = if let Some(doctype_public) = &result_document.doctype_public {
-            self.static_value_template(doctype_public)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @doctype-public is not supported yet"
-                            .to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?
-        } else if let Some(output) = formatted_output.as_ref() {
-            output.doctype_public.clone().unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let doctype_public_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(doctype_public_literal)),
-            (0..0).into(),
-        );
+        let (doctype_public_atom, doctype_public_bindings) = self.value_template_or_literal_atom(
+            result_document.doctype_public.as_ref(),
+            formatted_output
+                .as_ref()
+                .and_then(|output| output.doctype_public.clone())
+                .unwrap_or_default(),
+        )?;
 
-        let doctype_system_literal = if let Some(doctype_system) = &result_document.doctype_system {
-            self.static_value_template(doctype_system)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @doctype-system is not supported yet"
-                            .to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?
-        } else if let Some(output) = formatted_output.as_ref() {
-            output.doctype_system.clone().unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let doctype_system_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(doctype_system_literal)),
-            (0..0).into(),
-        );
+        let (doctype_system_atom, doctype_system_bindings) = self.value_template_or_literal_atom(
+            result_document.doctype_system.as_ref(),
+            formatted_output
+                .as_ref()
+                .and_then(|output| output.doctype_system.clone())
+                .unwrap_or_default(),
+        )?;
 
-        let include_content_type_literal = if let Some(include_content_type) =
-            &result_document.include_content_type
-        {
-            self.static_value_template(include_content_type)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @include-content-type is not supported yet"
-                            .to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?
-        } else if let Some(output) = formatted_output.as_ref() {
-            output.include_content_type.to_string()
-        } else {
-            String::new()
-        };
-        let include_content_type_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(include_content_type_literal)),
-            (0..0).into(),
-        );
+        let (include_content_type_atom, include_content_type_bindings) =
+            self.validated_value_template_or_literal_atom(
+                result_document.include_content_type.as_ref(),
+                formatted_output
+                    .as_ref()
+                    .map(|output| output.include_content_type.to_string())
+                    .unwrap_or_default(),
+                Self::validate_boolean_literal,
+            )?;
 
-        let media_type_literal = if let Some(media_type) = &result_document.media_type {
-            self.static_value_template(media_type)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @media-type is not supported yet".to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?
-        } else if let Some(output) = formatted_output.as_ref() {
-            output.media_type.clone().unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let media_type_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(media_type_literal)),
-            (0..0).into(),
-        );
+        let (media_type_atom, media_type_bindings) = self.value_template_or_literal_atom(
+            result_document.media_type.as_ref(),
+            formatted_output
+                .as_ref()
+                .and_then(|output| output.media_type.clone())
+                .unwrap_or_default(),
+        )?;
 
         let (item_separator_atom, item_separator_bindings) = if let Some(item_separator) =
             &result_document.item_separator
@@ -3433,49 +3563,25 @@ impl<'a> IrConverter<'a> {
             )
         };
 
-        let omit_xml_declaration_literal = if let Some(omit_xml_declaration) =
-            &result_document.omit_xml_declaration
-        {
-            let omit_xml_declaration_literal = self
-                .static_value_template(omit_xml_declaration)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @omit-xml-declaration is not supported yet"
-                            .to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?;
-            Self::validate_boolean_literal(&omit_xml_declaration_literal)?
-        } else if let Some(output) = formatted_output.as_ref() {
-            output.omit_xml_declaration.to_string()
-        } else {
-            String::new()
-        };
-        let omit_xml_declaration_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(omit_xml_declaration_literal)),
-            (0..0).into(),
-        );
+        let (omit_xml_declaration_atom, omit_xml_declaration_bindings) =
+            self.validated_value_template_or_literal_atom(
+                result_document.omit_xml_declaration.as_ref(),
+                formatted_output
+                    .as_ref()
+                    .map(|output| output.omit_xml_declaration.to_string())
+                    .unwrap_or_default(),
+                Self::validate_boolean_literal,
+            )?;
 
-        let standalone_literal = if let Some(standalone) = &result_document.standalone {
-            let standalone_literal =
-                self.static_value_template(standalone)
-                    .ok_or_else(|| error::SpannedError {
-                        error: error::Error::Unsupported(
-                            "Dynamic xsl:result-document @standalone is not supported yet"
-                                .to_string(),
-                        ),
-                        span: Some((result_document.span.start..result_document.span.end).into()),
-                    })?;
-            Self::validate_standalone_literal(&standalone_literal)?
-        } else if let Some(output) = formatted_output.as_ref() {
-            Self::output_standalone_literal(output.standalone.as_ref()).unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let standalone_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(standalone_literal)),
-            (0..0).into(),
-        );
+        let (standalone_atom, standalone_bindings) =
+            self.validated_value_template_or_literal_atom(
+                result_document.standalone.as_ref(),
+                formatted_output
+                    .as_ref()
+                    .and_then(|output| Self::output_standalone_literal(output.standalone.as_ref()))
+                    .unwrap_or_default(),
+                Self::validate_standalone_literal,
+            )?;
 
         let (html_version_atom, html_version_bindings) = if let Some(html_version) =
             &result_document.html_version
@@ -3542,24 +3648,13 @@ impl<'a> IrConverter<'a> {
             (0..0).into(),
         );
 
-        let version_literal = if let Some(version) = &result_document.version {
-            self.static_value_template(version)
-                .ok_or_else(|| error::SpannedError {
-                    error: error::Error::Unsupported(
-                        "Dynamic xsl:result-document @output-version is not supported yet"
-                            .to_string(),
-                    ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
-                })?
-        } else if let Some(output) = formatted_output.as_ref() {
-            output.version.clone().unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let version_atom = Spanned::new(
-            ir::Atom::Const(ir::Const::String(version_literal)),
-            (0..0).into(),
-        );
+        let (version_atom, version_bindings) = self.value_template_or_literal_atom(
+            result_document.version.as_ref(),
+            formatted_output
+                .as_ref()
+                .and_then(|output| output.version.clone())
+                .unwrap_or_default(),
+        )?;
 
         if let Some(href) = &result_document.href {
             let (href_atom, href_bindings) = self.attribute_value_template(href)?.atom_bindings();
@@ -3584,9 +3679,12 @@ impl<'a> IrConverter<'a> {
         let expr = self.static_function_call_expr(
             "store-principal-result-document",
             FN_NAMESPACE,
-            14,
+            17,
             vec![
                 content_atom,
+                format_atom,
+                format_namespaces_atom,
+                named_outputs_atom,
                 method_atom,
                 byte_order_mark_atom,
                 cdata_atom,
@@ -3603,9 +3701,19 @@ impl<'a> IrConverter<'a> {
             ],
         );
         Ok(content_bindings
+            .concat(format_bindings)
             .concat(method_bindings)
+            .concat(byte_order_mark_bindings)
+            .concat(cdata_bindings)
+            .concat(doctype_public_bindings)
+            .concat(doctype_system_bindings)
+            .concat(include_content_type_bindings)
+            .concat(media_type_bindings)
             .concat(item_separator_bindings)
+            .concat(omit_xml_declaration_bindings)
+            .concat(standalone_bindings)
             .concat(html_version_bindings)
+            .concat(version_bindings)
             .bind_expr(
                 &mut self.variables,
                 Spanned::new(

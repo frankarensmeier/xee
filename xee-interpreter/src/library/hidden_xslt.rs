@@ -1252,12 +1252,15 @@ fn store_result_document(
 }
 
 #[xpath_fn(
-    "fn:store-principal-result-document($content as item()*, $method as xs:string, $byte_order_mark as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $item_separator as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string, $html_version as xs:string, $use_character_maps as xs:string, $version as xs:string) as item()*",
+    "fn:store-principal-result-document($content as item()*, $format as xs:string, $format_namespaces as xs:string, $named_outputs as xs:string, $method as xs:string, $byte_order_mark as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $item_separator as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string, $html_version as xs:string, $use_character_maps as xs:string, $version as xs:string) as item()*",
     context_first
 )]
 fn store_principal_result_document(
     context: &crate::context::DynamicContext,
     content: &sequence::Sequence,
+    format: &str,
+    format_namespaces: &str,
+    named_outputs: &str,
     method: &str,
     byte_order_mark: &str,
     cdata: &str,
@@ -1273,6 +1276,92 @@ fn store_principal_result_document(
     version: &str,
 ) -> error::Result<sequence::Sequence> {
     let mut parameters = context.serialization_parameters().clone();
+    let merge_with_named_output = if format.is_empty() {
+        false
+    } else {
+        let named_output = resolve_named_output_parameters(
+            context,
+            format,
+            format_namespaces,
+            named_outputs,
+        )?;
+        apply_serialization_parameter_strings(
+            context,
+            &mut parameters,
+            &named_output.method,
+            &named_output.byte_order_mark,
+            &named_output.cdata,
+            &named_output.doctype_public,
+            &named_output.doctype_system,
+            &named_output.include_content_type,
+            &named_output.media_type,
+            &named_output.item_separator,
+            &named_output.omit_xml_declaration,
+            &named_output.standalone,
+            &named_output.html_version,
+            &named_output.use_character_maps,
+            &named_output.version,
+            false,
+        )?;
+        true
+    };
+    apply_serialization_parameter_strings(
+        context,
+        &mut parameters,
+        method,
+        byte_order_mark,
+        cdata,
+        doctype_public,
+        doctype_system,
+        include_content_type,
+        media_type,
+        item_separator,
+        omit_xml_declaration,
+        standalone,
+        html_version,
+        use_character_maps,
+        version,
+        merge_with_named_output,
+    )?;
+    context.store_principal_result_document(content.clone(), parameters);
+    Ok(sequence::Sequence::default())
+}
+
+#[derive(Debug, Clone)]
+struct EncodedNamedOutput {
+    method: String,
+    byte_order_mark: String,
+    cdata: String,
+    doctype_public: String,
+    doctype_system: String,
+    include_content_type: String,
+    media_type: String,
+    item_separator: String,
+    omit_xml_declaration: String,
+    standalone: String,
+    html_version: String,
+    use_character_maps: String,
+    version: String,
+}
+
+fn apply_serialization_parameter_strings(
+    context: &crate::context::DynamicContext,
+    parameters: &mut sequence::SerializationParameters,
+    method: &str,
+    byte_order_mark: &str,
+    cdata: &str,
+    doctype_public: &str,
+    doctype_system: &str,
+    include_content_type: &str,
+    media_type: &str,
+    item_separator: &str,
+    omit_xml_declaration: &str,
+    standalone: &str,
+    html_version: &str,
+    use_character_maps: &str,
+    version: &str,
+    merge_with_existing: bool,
+) -> error::Result<()> {
     if !method.is_empty() {
         parameters.method = sequence::QNameOrString::String(method.to_string());
     }
@@ -1280,13 +1369,28 @@ fn store_principal_result_document(
         parameters.byte_order_mark = parse_boolean(byte_order_mark)?;
     }
     if !cdata.is_empty() {
-        parameters.cdata_section_elements = parse_cdata_section_elements(context, cdata)?;
+        let parsed = parse_cdata_section_elements(context, cdata)?;
+        if merge_with_existing {
+            for name in parsed {
+                if !parameters
+                    .cdata_section_elements
+                    .iter()
+                    .any(|existing| existing == &name)
+                {
+                    parameters.cdata_section_elements.push(name);
+                }
+            }
+        } else {
+            parameters.cdata_section_elements = parsed;
+        }
     }
     if !doctype_system.is_empty() {
         parameters.doctype_system = Some(doctype_system.to_string());
         if !doctype_public.is_empty() {
             parameters.doctype_public = Some(doctype_public.to_string());
         }
+    } else if merge_with_existing && !doctype_public.is_empty() && parameters.doctype_system.is_some() {
+        parameters.doctype_public = Some(doctype_public.to_string());
     }
     if !include_content_type.is_empty() {
         parameters.include_content_type = matches!(include_content_type, "yes" | "true" | "1");
@@ -1313,13 +1417,89 @@ fn store_principal_result_document(
         parameters.explicit_html_version = true;
     }
     if !use_character_maps.is_empty() {
-        parameters.use_character_maps = parse_character_maps(use_character_maps)?;
+        let parsed = parse_character_maps(use_character_maps)?;
+        if merge_with_existing {
+            for (character, replacement) in parsed {
+                parameters.use_character_maps.insert(character, replacement);
+            }
+        } else {
+            parameters.use_character_maps = parsed;
+        }
     }
     if !version.is_empty() {
         parameters.version = version.to_string();
     }
-    context.store_principal_result_document(content.clone(), parameters);
-    Ok(sequence::Sequence::default())
+    Ok(())
+}
+
+fn resolve_named_output_parameters(
+    context: &crate::context::DynamicContext,
+    format: &str,
+    format_namespaces: &str,
+    named_outputs: &str,
+) -> error::Result<EncodedNamedOutput> {
+    let (namespace, local_name) = resolve_result_document_format(context, format, format_namespaces)?;
+    for entry in named_outputs.split(';') {
+        if entry.is_empty() {
+            continue;
+        }
+        let fields = entry.split(',').collect::<Vec<_>>();
+        if fields.len() != 15 {
+            return Err(error::Error::FOCA0002);
+        }
+        let entry_namespace = decode_hex(fields[0])?;
+        let entry_local_name = decode_hex(fields[1])?;
+        if entry_namespace == namespace && entry_local_name == local_name {
+            return Ok(EncodedNamedOutput {
+                method: decode_hex(fields[2])?,
+                byte_order_mark: decode_hex(fields[3])?,
+                cdata: decode_hex(fields[4])?,
+                doctype_public: decode_hex(fields[5])?,
+                doctype_system: decode_hex(fields[6])?,
+                include_content_type: decode_hex(fields[7])?,
+                media_type: decode_hex(fields[8])?,
+                item_separator: decode_hex(fields[9])?,
+                omit_xml_declaration: decode_hex(fields[10])?,
+                standalone: decode_hex(fields[11])?,
+                html_version: decode_hex(fields[12])?,
+                use_character_maps: decode_hex(fields[13])?,
+                version: decode_hex(fields[14])?,
+            });
+        }
+    }
+    Err(error::Error::Unsupported(
+        "Unknown xsl:result-document @format".to_string(),
+    ))
+}
+
+fn resolve_result_document_format(
+    context: &crate::context::DynamicContext,
+    format: &str,
+    format_namespaces: &str,
+) -> error::Result<(String, String)> {
+    let format = format.trim();
+    if let Some(rest) = format.strip_prefix("Q{") {
+        let Some(close_brace) = rest.find('}') else {
+            return Err(error::Error::XTSE0020);
+        };
+        let namespace = &rest[..close_brace];
+        let local_name = &rest[close_brace + 1..];
+        if local_name.is_empty() {
+            return Err(error::Error::XTSE0020);
+        }
+        return Ok((namespace.to_string(), local_name.to_string()));
+    }
+
+    if let Some((prefix, local_name)) = format.split_once(':') {
+        let local_namespaces = decode_namespaces(format_namespaces, "")?;
+        let namespace = local_namespaces
+            .by_prefix(prefix)
+            .or_else(|| context.static_context().namespaces().by_prefix(prefix))
+            .ok_or(error::Error::XTSE0020)?;
+        return Ok((namespace.to_string(), local_name.to_string()));
+    }
+
+    Ok((String::new(), format.to_string()))
 }
 
 #[xpath_fn(

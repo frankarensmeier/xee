@@ -1155,6 +1155,92 @@ fn test_result_document_dynamic_method_avt_sets_principal_output_method() {
     ));
 }
 
+  #[test]
+  fn test_xslt_vendor_result_document_0401() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/result-document/result-document-0401.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let program = parse_with_base_dir(
+      static_context_builder.build(),
+      &xslt,
+      stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+    let root = xot
+      .parse("<doc><foo>item1</foo><foo>item</foo><elem>item3</elem><item>my:item5</item></doc>")
+      .unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    let serialized = output
+      .serialize(
+        context.principal_result_document_parameters().unwrap(),
+        &mut xot,
+      )
+      .unwrap();
+
+    assert!(serialized.contains("<item1><![CDATA[a & b]]></item1>"));
+    assert!(serialized.contains("<item2>a &amp; b</item2>"));
+    assert!(serialized.contains("<item3>a &amp; b</item3>"));
+    assert!(serialized.contains(
+      "<item3 xmlns=\"http://www.mytest.example.org\"><![CDATA[a & b]]></item3>",
+    ));
+    assert!(serialized.contains("<item4>a &amp; b</item4>"));
+    assert!(serialized.contains(
+      "<item5 xmlns=\"http://www.mytest.example.org\"><![CDATA[a & b]]></item5>",
+    ));
+  }
+
+  #[test]
+  fn test_xslt_vendor_result_document_0901() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/result-document/result-document-0901.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let program = parse_with_base_dir(
+      static_context_builder.build(),
+      &xslt,
+      stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+    let root = xot.parse("<doc><foo>one:</foo></doc>").unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    let params = context.principal_result_document_parameters().unwrap();
+    assert!(matches!(
+      params.method,
+      QNameOrString::String(ref method) if method == "xml"
+    ));
+
+    let serialized = output.serialize(params, &mut xot).unwrap();
+    assert!(serialized.starts_with("<?xml"));
+    assert!(serialized.contains(
+      "<out>This document should be serialized as xml, not as text because the named my:format has method \"xml\".</out>",
+    ));
+  }
+
 #[test]
 fn test_recursive_attribute_set_reentry_raises_xtde0640() {
     let error = parse(
