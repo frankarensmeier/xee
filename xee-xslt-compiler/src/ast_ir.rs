@@ -3817,12 +3817,43 @@ impl<'a> IrConverter<'a> {
             let (href_atom, href_bindings) = self.attribute_value_template(href)?.atom_bindings();
             let bindings = href_bindings
                 .concat(content_bindings)
-                .concat(html_version_bindings);
+                .concat(format_bindings)
+                .concat(method_bindings)
+                .concat(byte_order_mark_bindings)
+                .concat(cdata_bindings)
+                .concat(doctype_public_bindings)
+                .concat(doctype_system_bindings)
+                .concat(include_content_type_bindings)
+                .concat(media_type_bindings)
+                .concat(item_separator_bindings)
+                .concat(omit_xml_declaration_bindings)
+                .concat(standalone_bindings)
+                .concat(html_version_bindings)
+                .concat(version_bindings);
             let expr = self.static_function_call_expr(
                 "store-result-document",
                 FN_NAMESPACE,
-                2,
-                vec![href_atom, content_atom],
+                18,
+                vec![
+                    href_atom,
+                    content_atom,
+                    format_atom,
+                    format_namespaces_atom,
+                    named_outputs_atom,
+                    method_atom,
+                    byte_order_mark_atom,
+                    cdata_atom,
+                    doctype_public_atom,
+                    doctype_system_atom,
+                    include_content_type_atom,
+                    media_type_atom,
+                    item_separator_atom,
+                    omit_xml_declaration_atom,
+                    standalone_atom,
+                    html_version_atom,
+                    use_character_maps_atom,
+                    version_atom,
+                ],
             );
             return Ok(bindings.bind_expr(
                 &mut self.variables,

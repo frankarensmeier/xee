@@ -43,8 +43,12 @@ pub struct DynamicContext<'a> {
     // environment variables
     environment_variables: HashMap<String, String>,
     secondary_result_documents: RefCell<HashMap<String, sequence::Sequence>>,
+    secondary_result_document_parameters:
+        RefCell<HashMap<String, sequence::SerializationParameters>>,
     principal_result_documents: RefCell<Vec<sequence::Sequence>>,
     principal_result_document_parameters: RefCell<Vec<sequence::SerializationParameters>>,
+    assertion_serialization_parameters:
+        RefCell<Option<sequence::SerializationParameters>>,
     temporary_tree_roots: RefCell<HashSet<xot::Node>>,
     temporary_output_state_depth: RefCell<usize>,
     on_multiple_match: OnMultipleMatch,
@@ -64,6 +68,7 @@ impl<'a> DynamicContext<'a> {
         uri_collections: HashMap<IriString, sequence::Sequence>,
         environment_variables: HashMap<String, String>,
         secondary_result_documents: HashMap<String, sequence::Sequence>,
+        secondary_result_document_parameters: HashMap<String, sequence::SerializationParameters>,
         principal_result_documents: Vec<sequence::Sequence>,
         principal_result_document_parameters: Vec<sequence::SerializationParameters>,
         temporary_tree_roots: HashSet<xot::Node>,
@@ -81,10 +86,14 @@ impl<'a> DynamicContext<'a> {
             uri_collections,
             environment_variables,
             secondary_result_documents: RefCell::new(secondary_result_documents),
+            secondary_result_document_parameters: RefCell::new(
+                secondary_result_document_parameters,
+            ),
             principal_result_documents: RefCell::new(principal_result_documents),
             principal_result_document_parameters: RefCell::new(
                 principal_result_document_parameters,
             ),
+            assertion_serialization_parameters: RefCell::new(None),
             temporary_tree_roots: RefCell::new(temporary_tree_roots),
             temporary_output_state_depth: RefCell::new(0),
             on_multiple_match,
@@ -148,14 +157,32 @@ impl<'a> DynamicContext<'a> {
         self.environment_variables.keys().map(String::as_str)
     }
 
-    pub fn store_secondary_result_document(&self, href: String, sequence: sequence::Sequence) {
+    pub fn store_secondary_result_document(
+        &self,
+        href: String,
+        sequence: sequence::Sequence,
+        parameters: sequence::SerializationParameters,
+    ) {
         self.secondary_result_documents
             .borrow_mut()
-            .insert(href, sequence);
+            .insert(href.clone(), sequence);
+        self.secondary_result_document_parameters
+            .borrow_mut()
+            .insert(href, parameters);
     }
 
     pub fn secondary_result_document(&self, href: &str) -> Option<sequence::Sequence> {
         self.secondary_result_documents.borrow().get(href).cloned()
+    }
+
+    pub fn secondary_result_document_parameters(
+        &self,
+        href: &str,
+    ) -> Option<sequence::SerializationParameters> {
+        self.secondary_result_document_parameters
+            .borrow()
+            .get(href)
+            .cloned()
     }
 
     pub fn store_principal_result_document(
@@ -180,6 +207,19 @@ impl<'a> DynamicContext<'a> {
             .borrow()
             .last()
             .cloned()
+    }
+
+    pub fn assertion_serialization_parameters(
+        &self,
+    ) -> Option<sequence::SerializationParameters> {
+        self.assertion_serialization_parameters.borrow().clone()
+    }
+
+    pub fn set_assertion_serialization_parameters(
+        &self,
+        parameters: Option<sequence::SerializationParameters>,
+    ) {
+        *self.assertion_serialization_parameters.borrow_mut() = parameters;
     }
 
     pub fn push_temporary_output_state(&self) {
@@ -237,6 +277,7 @@ impl<'a> DynamicContext<'a> {
             self.default_uri_collection.clone(),
             self.uri_collections.clone(),
             self.environment_variables.clone(),
+            HashMap::new(),
             HashMap::new(),
             Vec::new(),
             Vec::new(),

@@ -1275,6 +1275,52 @@ fn test_result_document_dynamic_method_avt_sets_principal_output_method() {
   }
 
   #[test]
+  fn test_xslt_vendor_result_document_0212_secondary_output_uses_named_format() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/result-document/result-document-0212.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    let program = parse_with_base_dir(
+      static_context_builder.build(),
+      &xslt,
+      stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+    let root = xot.parse("<doc/>").unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    let output = runnable.many(&mut xot).unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out>This should be in the primary xml document</out>"
+    );
+
+    let secondary = context
+      .secondary_result_document("mult/multresult19.out")
+      .unwrap();
+    let parameters = context
+      .secondary_result_document_parameters("mult/multresult19.out")
+      .unwrap();
+    assert!(matches!(
+      parameters.method,
+      QNameOrString::String(ref method) if method == "html"
+    ));
+
+    let serialized = secondary.serialize(parameters, &mut xot).unwrap();
+    assert_eq!(serialized, "This should be in the secondary text document");
+  }
+
+  #[test]
   fn test_xslt_vendor_result_document_1001_raises_xtde1490() {
     let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
       .join("../vendor/xslt-tests/tests/insn/result-document/result-document-1001.xsl");

@@ -1366,7 +1366,7 @@ fn format_roman_number(number: i64, uppercase: bool) -> error::Result<String> {
 }
 
 #[xpath_fn(
-    "fn:store-result-document($href as xs:string, $content as item()*) as item()*",
+    "fn:store-result-document($href as xs:string, $content as item()*, $format as xs:string, $format_namespaces as xs:string, $named_outputs as xs:string, $method as xs:string, $byte_order_mark as xs:string, $cdata as xs:string, $doctype_public as xs:string, $doctype_system as xs:string, $include_content_type as xs:string, $media_type as xs:string, $item_separator as xs:string, $omit_xml_declaration as xs:string, $standalone as xs:string, $html_version as xs:string, $use_character_maps as xs:string, $version as xs:string) as item()*",
     context_first
 )]
 fn store_result_document(
@@ -1374,20 +1374,53 @@ fn store_result_document(
     interpreter: &mut Interpreter,
     href: &str,
     content: &sequence::Sequence,
+    format: &str,
+    format_namespaces: &str,
+    named_outputs: &str,
+    method: &str,
+    byte_order_mark: &str,
+    cdata: &str,
+    doctype_public: &str,
+    doctype_system: &str,
+    include_content_type: &str,
+    media_type: &str,
+    item_separator: &str,
+    omit_xml_declaration: &str,
+    standalone: &str,
+    html_version: &str,
+    use_character_maps: &str,
+    version: &str,
 ) -> error::Result<sequence::Sequence> {
     if context.in_temporary_output_state() {
         return Err(error::Error::XTDE1480);
     }
 
+    let parameters = resolve_result_document_parameters(
+        context,
+        format,
+        format_namespaces,
+        named_outputs,
+        method,
+        byte_order_mark,
+        cdata,
+        doctype_public,
+        doctype_system,
+        include_content_type,
+        media_type,
+        item_separator,
+        omit_xml_declaration,
+        standalone,
+        html_version,
+        use_character_maps,
+        version,
+    )?;
+
     if href.is_empty() {
-        context.store_principal_result_document(
-            content.clone(),
-            context.serialization_parameters().clone(),
-        );
+        context.store_principal_result_document(content.clone(), parameters);
         return Ok(sequence::Sequence::default());
     }
 
-    let document = content.normalize(" ", interpreter.xot_mut())?;
+    let document = content.normalize(&parameters.item_separator, interpreter.xot_mut())?;
     let uri = absolute_result_document_uri(context, href)?;
 
     {
@@ -1404,6 +1437,7 @@ fn store_result_document(
     context.store_secondary_result_document(
         href.to_string(),
         sequence::Sequence::from(vec![sequence::Item::Node(document)]),
+        parameters,
     );
     Ok(sequence::Sequence::default())
 }
@@ -1436,6 +1470,48 @@ fn store_principal_result_document(
         return Err(error::Error::XTDE1480);
     }
 
+    let parameters = resolve_result_document_parameters(
+        context,
+        format,
+        format_namespaces,
+        named_outputs,
+        method,
+        byte_order_mark,
+        cdata,
+        doctype_public,
+        doctype_system,
+        include_content_type,
+        media_type,
+        item_separator,
+        omit_xml_declaration,
+        standalone,
+        html_version,
+        use_character_maps,
+        version,
+    )?;
+    context.store_principal_result_document(content.clone(), parameters);
+    Ok(sequence::Sequence::default())
+}
+
+fn resolve_result_document_parameters(
+    context: &crate::context::DynamicContext,
+    format: &str,
+    format_namespaces: &str,
+    named_outputs: &str,
+    method: &str,
+    byte_order_mark: &str,
+    cdata: &str,
+    doctype_public: &str,
+    doctype_system: &str,
+    include_content_type: &str,
+    media_type: &str,
+    item_separator: &str,
+    omit_xml_declaration: &str,
+    standalone: &str,
+    html_version: &str,
+    use_character_maps: &str,
+    version: &str,
+) -> error::Result<sequence::SerializationParameters> {
     let mut parameters = context.serialization_parameters().clone();
     let merge_with_named_output = if format.is_empty() {
         false
@@ -1484,8 +1560,7 @@ fn store_principal_result_document(
         version,
         merge_with_named_output,
     )?;
-    context.store_principal_result_document(content.clone(), parameters);
-    Ok(sequence::Sequence::default())
+    Ok(parameters)
 }
 
 #[derive(Debug, Clone)]

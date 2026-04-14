@@ -4,6 +4,60 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 23:40 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the remaining `result-document-0212` hole after the
+  `1131` through `1144` tranche by making secondary `xsl:result-document`
+  writes keep their own serialization settings.
+- Result: `result-document-0212` is now green, the surrounding
+  `result-document-0210` through `0219` neighborhood stays green, and the
+  filtered vendor sweep dropped from `Failed: 39` to `Failed: 38`.
+- Filter baseline change: none.
+- `update.py` remains deferred until the full vendor suite is green.
+
+### What moved this slice
+
+- The compiler no longer drops `xsl:result-document` serialization arguments
+  when `@href` is present. The secondary-output path now receives the same
+  resolved `@format`, named-output, and explicit serialization parameters that
+  the principal-output path already used.
+- Runtime secondary result documents now store their own serialization
+  parameters alongside the captured result sequence.
+- The secondary-output runtime path now uses the resolved `item-separator`
+  instead of a hard-coded space when it normalizes content for URI tracking.
+- The testrunner now applies a secondary result document's own serialization
+  parameters while evaluating nested `assert-result-document` serialization
+  checks, instead of inheriting the principal result document's settings.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler test_xslt_vendor_result_document_0212_secondary_output_uses_named_format -- --exact`
+  passed.
+- `cargo test -p xee-testrunner secondary_result_document_parameters`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-0212`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/insn/result-document/_result-document-test-set.xml result-document-021`
+  passed with `0210` through `0219` all green.
+- `cargo test -p xee-testrunner` passed.
+- `cargo test -p xee-interpreter` still shows the same unrelated baseline
+  failure `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+- `cargo test -p xee-xslt-compiler` still shows the same six unrelated
+  baseline failures.
+- `cargo run -p xee-testrunner -- -v check vendor/xslt-tests` now reports the
+  broader dirty branch baseline as `Passed: 5039 Failed: 38 Error: 97 WrongE:
+  3`, and `result-document-0212` is no longer part of that open frontier.
+
+### Next frontier
+
+- The remaining red cases are now dominated by the `decl/output` serializer
+  cluster plus the nearby `disable-output-escaping` and
+  `current-output-uri-902` cases. The next useful checkpoint slice is likely
+  one of those output-serialization frontiers rather than more
+  `result-document-021x` cleanup.
+
 ## 2026-04-14 23:15 CEST
 
 ### Status snapshot

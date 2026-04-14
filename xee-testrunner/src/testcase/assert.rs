@@ -94,8 +94,14 @@ impl Assertable for AssertResultDocument {
         let Some(sequence) = context.secondary_result_document(&self.uri) else {
             return TestOutcome::Failed(Failure::ResultDocumentMissing(self.uri.clone()));
         };
+        let previous_parameters = context.assertion_serialization_parameters();
+        context.set_assertion_serialization_parameters(
+            context.secondary_result_document_parameters(&self.uri),
+        );
         let result: error::ValueResult<Sequence> = Ok(sequence);
-        self.result.assert_result(context, documents, &result)
+        let outcome = self.result.assert_result(context, documents, &result);
+        context.set_assertion_serialization_parameters(previous_parameters);
+        outcome
     }
 
     fn assert_value(
@@ -1490,9 +1496,13 @@ fn serialize_for_assertion(
         }
     };
 
-    let has_principal_result_documents = !context.principal_result_documents().is_empty();
+    let assertion_serialization_parameters = context.assertion_serialization_parameters();
+    let has_serialization_parameters = assertion_serialization_parameters.is_some()
+        || !context.principal_result_documents().is_empty();
 
-    let mut params = if has_principal_result_documents {
+    let mut params = if let Some(params) = assertion_serialization_parameters {
+        params
+    } else if !context.principal_result_documents().is_empty() {
         context
             .principal_result_document_parameters()
             .unwrap_or_else(|| context.serialization_parameters().clone())
@@ -1509,7 +1519,7 @@ fn serialize_for_assertion(
             if name.namespace().is_empty() && name.local_name() == "xml"
     );
 
-    if !has_principal_result_documents {
+    if !has_serialization_parameters {
         if let Some(method) = method {
             params.method = QNameOrString::String(method.to_string());
             if method == "html" || method == "xhtml" {
@@ -1795,5 +1805,48 @@ mod tests {
             serialize_for_assertion(&context, &mut documents, &sequence, None).unwrap(),
             r#"{"a":22}"#
         );
+    }
+
+    #[test]
+    fn test_assert_result_document_uses_secondary_result_document_parameters() {
+        let program = xee_xslt_compiler::parse(
+            StaticContextBuilder::default().build(),
+            r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:output name="named" method="html"/>
+  <xsl:output method="xml" indent="no"/>
+
+  <xsl:template name="xsl:initial-template">
+    <xsl:result-document href="">
+      <out>primary</out>
+    </xsl:result-document>
+    <xsl:result-document href="file:///secondary.out" format="named">
+      <xsl:text>secondary</xsl:text>
+    </xsl:result-document>
+  </xsl:template>
+</xsl:transform>"#,
+        )
+        .unwrap();
+
+        let mut documents = Documents::new();
+        let builder = program.dynamic_context_builder();
+        let context = builder.build();
+        let runnable = program.runnable(&context);
+        let result = runnable
+            .named_template("initial-template", documents.xot_mut())
+            .unwrap();
+
+        let assertion = AssertResultDocument::new(
+            "file:///secondary.out".to_string(),
+            TestCaseResult::AssertSerialization(AssertSerialization::new(
+                "secondary".to_string(),
+                Some("html".to_string()),
+            )),
+        );
+
+        assert!(matches!(
+            assertion.assert_result(&context, &mut documents, &Ok(result)),
+            TestOutcome::Passed
+        ));
     }
 }
