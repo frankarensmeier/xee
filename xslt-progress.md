@@ -4,6 +4,73 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 15:29 CEST
+
+### Status snapshot
+
+- Checkpoint focus: close the live `maps` / `arrays` residue left after the
+  `xsl:evaluate` checkpoint, especially reserved stylesheet names plus array
+  result construction and built-in template handling.
+- Result: vendor `maps-015` now passes and the arrays vendor set is down to
+  one remaining unsupported case, `arrays-304`
+  (`output method="adaptive"`).
+- Filter baseline change: none.
+
+### Reserved stylesheet names
+
+- Added `XTSE0080` validation for stylesheet-defined names in reserved
+  namespaces across functions, templates, variables, params, keys, outputs,
+  modes, character maps, attribute sets, accumulators, and named decimal
+  formats.
+- Preserved the `xsl:initial-template` exception so the built-in initial entry
+  point remains legal.
+- This fixes vendor `maps-015` without loosening the rest of the namespace
+  checks.
+
+### Hidden helpers and array construction
+
+- Added hidden `copy-of()` and `snapshot()` helpers for compiler-generated
+  calls, with `snapshot()` staying identity-preserving on this non-streaming
+  path instead of deep-copying nodes.
+- Result-tree construction now recursively expands arrays, and the built-in
+  template fallback now applies templates to array members instead of treating
+  every function item as an immediate `XTDE0450`.
+- This clears the square-array cluster that depended on `copy-of()`,
+  `snapshot()`, and array member flattening.
+
+### Source-document whitespace stripping
+
+- `xsl:source-document` loads now route through a hidden
+  `strip-space-document()` helper when the stylesheet declares
+  `xsl:strip-space elements="*"`.
+- That closes the remaining source-document array cases where whitespace-only
+  text nodes were preventing rooted/path-sensitive matches from seeing the same
+  tree shape as the stylesheet's strip-space rules.
+
+### Validation notes
+
+- `cargo test -p xee-testrunner` passed.
+- `cargo test -p xee-interpreter` still has one unrelated existing failure:
+  `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+- `cargo test -p xee-xslt-compiler` still has the same 6 unrelated existing
+  failures outside this tranche:
+  `test_apply_templates_current_falls_back_to_unnamed_mode_outside_template_rule`,
+  `test_document_instruction_satisfies_item_return_type`,
+  `test_for_each_descending_numeric_sort_places_nan_last`,
+  `test_mode_attributes_accept_whitespace_padded_values`,
+  `test_unused_local_variable_does_not_trigger_global_circularity`, and
+  `test_xsl_element_with_prefixed_name_uses_static_namespace`.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/type/maps/_maps-test-set.xml maps-015`
+  passed.
+- `cargo run -p xee-testrunner -- -v all vendor/xslt-tests/tests/type/arrays/_arrays-test-set.xml`
+  now reports `Total: 62 Supported: 62 Passed: 61 Failed: 0 Error: 1 WrongE:
+  0 Filtered: 0 Unsupported: 0`; the only remaining residue is `arrays-304`
+  with unsupported adaptive output.
+- `cargo run -p xee-testrunner -- -v check vendor/xslt-tests` now reports
+  `Total: 14595 Supported: 9570 Passed: 5043 Failed: 30 Error: 104 WrongE: 3
+  Filtered: 4390 Unsupported: 5025`, improving the broader filtered branch
+  baseline from the earlier `4978 passed / 33 failed / 166 error` snapshot.
+
 ## 2026-04-14 12:23 CEST
 
 ### Status snapshot

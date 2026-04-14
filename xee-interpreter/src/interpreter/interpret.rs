@@ -1561,6 +1561,20 @@ impl<'a> Interpreter<'a> {
         value: sequence::Sequence,
     ) -> error::Result<()> {
         let mut string_values = Vec::new();
+        self.xml_append_items(parent_node, &value, &mut string_values)?;
+        // if there are any string values left in the end
+        if !string_values.is_empty() {
+            self.xml_append_string_values(parent_node, &string_values);
+        }
+        Ok(())
+    }
+
+    fn xml_append_items(
+        &mut self,
+        parent_node: xot::Node,
+        value: &sequence::Sequence,
+        string_values: &mut Vec<String>,
+    ) -> error::Result<()> {
         for item in value.iter() {
             match item {
                 sequence::Item::Node(node) => {
@@ -1604,13 +1618,15 @@ impl<'a> Interpreter<'a> {
                     self.state.record_output_mutation();
                 }
                 sequence::Item::Atomic(atomic) => string_values.push(atomic.string_value()),
+                sequence::Item::Function(function::Function::Array(array)) => {
+                    for member in array.iter() {
+                        self.xml_append_items(parent_node, member, string_values)?;
+                    }
+                }
                 sequence::Item::Function(_) => return Err(error::Error::XTDE0450),
             }
         }
-        // if there are any string values left in the end
-        if !string_values.is_empty() {
-            self.xml_append_string_values(parent_node, &string_values);
-        }
+
         Ok(())
     }
 
@@ -1734,6 +1750,16 @@ impl<'a> Interpreter<'a> {
         tunnel_params: &function::Map,
         builtin_template_params_passthrough: bool,
     ) -> error::Result<Option<sequence::Sequence>> {
+        if let sequence::Item::Function(function::Function::Array(array)) = item {
+            return self.apply_builtin_array_rule(
+                mode,
+                array,
+                params,
+                tunnel_params,
+                builtin_template_params_passthrough,
+            );
+        }
+
         let mode_declaration = self.current_program().declarations.mode(mode);
         match mode_declaration.on_no_match {
             declaration::ModeOnNoMatch::ShallowCopy => self.apply_builtin_shallow_copy_rule(
@@ -1769,6 +1795,35 @@ impl<'a> Interpreter<'a> {
                 builtin_template_params_passthrough,
             ),
         }
+    }
+
+    fn apply_builtin_array_rule(
+        &mut self,
+        mode: pattern::ModeId,
+        array: function::Array,
+        params: &function::Map,
+        tunnel_params: &function::Map,
+        builtin_template_params_passthrough: bool,
+    ) -> error::Result<Option<sequence::Sequence>> {
+        let members = array
+            .iter()
+            .flat_map(|member| member.iter())
+            .collect::<Vec<_>>();
+        let empty_params = function::Map::new(Vec::new()).unwrap();
+        let params = if builtin_template_params_passthrough {
+            params
+        } else {
+            &empty_params
+        };
+
+        self.apply_templates_sequence(
+            mode,
+            members.into(),
+            params,
+            tunnel_params,
+            builtin_template_params_passthrough,
+        )
+        .map(Some)
     }
 
     fn apply_builtin_text_only_copy_rule(

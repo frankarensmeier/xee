@@ -42,6 +42,7 @@ struct IrConverter<'a> {
     secondary_result_document_depth: usize,
     named_templates_with_absent_context: HashSet<String>,
     template_continuation_available: bool,
+    strip_source_document_whitespace: bool,
     number_patterns: Vec<ir::NumberPatternDefinition>,
 }
 
@@ -58,6 +59,46 @@ struct PreprocessedModule {
     declarations: Vec<(ast::Declaration, Option<String>)>,
     module_path: Vec<usize>,
     stylesheet_uri: Option<String>,
+}
+
+const ARRAY_NAMESPACE: &str = "http://www.w3.org/2005/xpath-functions/array";
+const ERR_NAMESPACE: &str = "http://www.w3.org/2005/xqt-errors";
+const MAP_NAMESPACE: &str = "http://www.w3.org/2005/xpath-functions/map";
+const MATH_NAMESPACE: &str = "http://www.w3.org/2005/xpath-functions/math";
+const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
+const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
+const XSI_NAMESPACE: &str = "http://www.w3.org/2001/XMLSchema-instance";
+const XSLT_NAMESPACE: &str = "http://www.w3.org/1999/XSL/Transform";
+
+fn is_reserved_stylesheet_namespace(namespace: &str) -> bool {
+    matches!(
+        namespace,
+        XSLT_NAMESPACE
+            | FN_NAMESPACE
+            | MATH_NAMESPACE
+            | MAP_NAMESPACE
+            | ARRAY_NAMESPACE
+            | XML_NAMESPACE
+            | XS_NAMESPACE
+            | XSI_NAMESPACE
+            | ERR_NAMESPACE
+            | XMLNS_NAMESPACE
+    )
+}
+
+fn is_xsl_initial_template(name: &OwnedName) -> bool {
+    name.namespace() == XSLT_NAMESPACE && name.local_name() == "initial-template"
+}
+
+fn validate_non_reserved_stylesheet_name(
+    name: &OwnedName,
+    span: ast::Span,
+) -> error::SpannedResult<()> {
+    if is_reserved_stylesheet_namespace(name.namespace()) && !is_xsl_initial_template(name) {
+        return Err(error::Error::XTSE0080.with_ast_span((span.start..span.end).into()));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -855,6 +896,7 @@ impl<'a> IrConverter<'a> {
             secondary_result_document_depth: 0,
             named_templates_with_absent_context: HashSet::new(),
             template_continuation_available: false,
+            strip_source_document_whitespace: false,
             number_patterns: Vec::new(),
         }
     }
@@ -1013,6 +1055,9 @@ impl<'a> IrConverter<'a> {
         &mut self,
         declarations: &[PreprocessedDeclaration],
     ) -> error::SpannedResult<ir::Declarations> {
+        self.strip_source_document_whitespace =
+            self.should_strip_source_document_whitespace(declarations);
+        self.validate_reserved_declaration_names(declarations)?;
         self.register_xslt_function_names(declarations)?;
         self.collect_attribute_sets(declarations);
         self.validate_attribute_set_references()?;
@@ -1038,6 +1083,78 @@ impl<'a> IrConverter<'a> {
         ir_declarations.number_patterns = std::mem::take(&mut self.number_patterns);
 
         Ok(ir_declarations)
+    }
+
+    fn should_strip_source_document_whitespace(
+        &self,
+        declarations: &[PreprocessedDeclaration],
+    ) -> bool {
+        let strip_all = declarations.iter().any(|declaration| {
+            let ast::Declaration::StripSpace(strip_space) = &declaration.declaration else {
+                return false;
+            };
+
+            strip_space.elements.iter().any(|element| element == "*")
+        });
+
+        strip_all
+            && !declarations.iter().any(|declaration| {
+                matches!(declaration.declaration, ast::Declaration::PreserveSpace(_))
+            })
+    }
+
+    fn validate_reserved_declaration_names(
+        &self,
+        declarations: &[PreprocessedDeclaration],
+    ) -> error::SpannedResult<()> {
+        for declaration in declarations {
+            match &declaration.declaration {
+                ast::Declaration::Accumulator(accumulator) => {
+                    validate_non_reserved_stylesheet_name(&accumulator.name, accumulator.span)?;
+                }
+                ast::Declaration::AttributeSet(attribute_set) => {
+                    validate_non_reserved_stylesheet_name(&attribute_set.name, attribute_set.span)?;
+                }
+                ast::Declaration::CharacterMap(character_map) => {
+                    validate_non_reserved_stylesheet_name(&character_map.name, character_map.span)?;
+                }
+                ast::Declaration::DecimalFormat(decimal_format) => {
+                    if let Some(name) = &decimal_format.name {
+                        validate_non_reserved_stylesheet_name(name, decimal_format.span)?;
+                    }
+                }
+                ast::Declaration::Function(function) => {
+                    validate_non_reserved_stylesheet_name(&function.name, function.span)?;
+                }
+                ast::Declaration::Key(key) => {
+                    validate_non_reserved_stylesheet_name(&key.name, key.span)?;
+                }
+                ast::Declaration::Mode(mode) => {
+                    if let Some(name) = &mode.name {
+                        validate_non_reserved_stylesheet_name(name, mode.span)?;
+                    }
+                }
+                ast::Declaration::Output(output) => {
+                    if let Some(name) = &output.name {
+                        validate_non_reserved_stylesheet_name(name, output.span)?;
+                    }
+                }
+                ast::Declaration::Param(param) => {
+                    validate_non_reserved_stylesheet_name(&param.name, param.span)?;
+                }
+                ast::Declaration::Template(template) => {
+                    if let Some(name) = &template.name {
+                        validate_non_reserved_stylesheet_name(name, template.span)?;
+                    }
+                }
+                ast::Declaration::Variable(variable) => {
+                    validate_non_reserved_stylesheet_name(&variable.name, variable.span)?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
     }
 
     fn collect_namespace_aliases(&mut self, declarations: &[PreprocessedDeclaration]) {
@@ -5209,7 +5326,20 @@ impl<'a> IrConverter<'a> {
                 (source_document.span.start..source_document.span.end).into(),
             ),
         );
-        let (document_atom, bindings) = load_bindings.atom_bindings();
+        let (document_atom, load_bindings) = load_bindings.atom_bindings();
+        let (document_atom, bindings) = if self.strip_source_document_whitespace {
+            let strip_expr = self.static_function_call_expr(
+                "strip-space-document",
+                FN_NAMESPACE,
+                1,
+                vec![document_atom],
+            );
+            load_bindings
+                .bind_expr_no_span(&mut self.variables, strip_expr)
+                .atom_bindings()
+        } else {
+            (document_atom, load_bindings)
+        };
 
         let context_names = self.variables.push_context();
         let return_bindings = self.sequence_constructor(&source_document.sequence_constructor)?;

@@ -6390,6 +6390,145 @@ fn test_xsl_evaluate_vendor_evaluate_051_keeps_escaped_inline_functions_callable
   );
 }
 
+  #[test]
+  fn test_xslt_vendor_square_array_001() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/type/arrays/square-array-A.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "r-001",
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>4.95 6.58 4.95 4.95 16.47 16.47 A B</out>");
+  }
+
+  #[test]
+  fn test_xslt_vendor_square_array_010() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/type/arrays/square-array-A.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "r-010",
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>2</out>");
+  }
+
+  #[test]
+  fn test_xslt_vendor_square_array_002() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/type/arrays/square-array-A.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "r-002",
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out><PRICE>4.95</PRICE><PRICE>6.58</PRICE><PRICE>4.95</PRICE><PRICE>4.95</PRICE><PRICE>16.47</PRICE><PRICE>16.47</PRICE><a>A</a><b>B</b></out>"
+    );
+  }
+
+  #[test]
+  fn test_xslt_vendor_square_array_018() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/type/arrays/square-array-A.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "r-018",
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out>Pride and PrejudiceJane AustenModern Library2002-12-31English4.9518706796016863528.3 5.7 1.16.1</out>"
+    );
+  }
+
+  #[test]
+  fn test_xslt_vendor_square_array_022() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/type/arrays/square-array-A.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "r-022",
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out>Pride and Prejudice Jane Austen Modern Library</out>"
+    );
+  }
+
+  #[test]
+  fn test_xslt_vendor_square_array_122() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/type/arrays/square-array-B.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &xslt,
+      &stylesheet_path,
+      "r-022",
+    )
+    .unwrap();
+
+    assert_eq!(
+      xml(&xot, output),
+      "<out><a>A</a><b>B</b>Pride and Prejudice</out>"
+    );
+  }
+
+#[test]
+fn test_xslt_vendor_maps_015_rejects_reserved_function_namespace() {
+  let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("../vendor/xslt-tests/tests/type/maps/maps-015.xsl");
+  let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+  let mut static_context_builder = StaticContextBuilder::default();
+  let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+  static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+
+  let error = parse_with_base_dir(
+    static_context_builder.build(),
+    &xslt,
+    stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+  )
+  .unwrap_err();
+
+  assert_eq!(error.value(), error::Error::XTSE0080);
+}
+
 #[test]
 fn test_xsl_number_value_supports_docbook_picture_set() {
     let mut xot = Xot::new();

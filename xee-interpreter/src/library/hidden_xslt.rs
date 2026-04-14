@@ -287,6 +287,77 @@ fn current_grouping_key(interpreter: &Interpreter) -> error::Result<sequence::Se
     Ok(interpreter.current_grouping_key())
 }
 
+#[xpath_fn("fn:copy-of($arg as item()*) as item()*", context_first)]
+fn copy_of(
+    interpreter: &mut Interpreter,
+    arg: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    copy_sequence(interpreter, arg)
+}
+
+#[xpath_fn("fn:snapshot($arg as item()*) as item()*", context_first)]
+fn snapshot(
+    interpreter: &mut Interpreter,
+    arg: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    let _ = interpreter;
+    Ok(arg.clone())
+}
+
+#[xpath_fn("fn:strip-space-document($doc as node()?) as node()?")]
+fn strip_space_document(
+    interpreter: &mut Interpreter,
+    doc: Option<xot::Node>,
+) -> error::Result<Option<xot::Node>> {
+    let Some(doc) = doc else {
+        return Ok(None);
+    };
+
+    strip_whitespace_only_text_children(interpreter.xot_mut(), doc);
+    Ok(Some(doc))
+}
+
+fn copy_sequence(
+    interpreter: &mut Interpreter,
+    arg: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    let mut result = Vec::with_capacity(arg.len());
+    for item in arg.iter() {
+        let copy = match &item {
+            sequence::Item::Atomic(_) | sequence::Item::Function(_) => item.clone(),
+            sequence::Item::Node(node) => sequence::Item::Node(interpreter.xot_mut().clone_node(*node)),
+        };
+        result.push(copy);
+    }
+    Ok(result.into())
+}
+
+fn strip_whitespace_only_text_children(xot: &mut Xot, node: xot::Node) {
+    let mut to_remove = Vec::new();
+    for descendant in xot.descendants(node) {
+        let xot::Value::Text(text) = xot.value(descendant) else {
+            continue;
+        };
+
+        if !is_xml_whitespace(text.get()) {
+            continue;
+        }
+
+        if xot.parent(descendant).is_some_and(|parent| xot.is_element(parent)) {
+            to_remove.push(descendant);
+        }
+    }
+
+    for node in to_remove {
+        let _ = xot.remove(node);
+    }
+}
+
+fn is_xml_whitespace(s: &str) -> bool {
+    s.chars()
+        .all(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
+}
+
 // Returns the absolute URI of the resource being written to by the current
 // output destination. Returns empty sequence when the URI is not known.
 #[xpath_fn("fn:current-output-uri() as xs:anyURI?")]
@@ -1694,6 +1765,9 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_for_each_group_adjacent),
         wrap_xpath_fn!(current_group),
         wrap_xpath_fn!(current_grouping_key),
+        wrap_xpath_fn!(copy_of),
+        wrap_xpath_fn!(snapshot),
+        wrap_xpath_fn!(strip_space_document),
         wrap_xpath_fn!(current_output_uri),
         wrap_xpath_fn!(unparsed_entity_uri),
         wrap_xpath_fn!(unparsed_entity_public_id),

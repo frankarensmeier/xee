@@ -557,6 +557,13 @@ pub enum Error {
     /// It is a static error if an attribute defined for an XSLT instruction
     /// has a value that is not one of the permitted values.
     XTSE0020,
+    /// Reserved namespace used in a stylesheet-defined object name.
+    ///
+    /// It is a static error to use a reserved namespace in the name of a
+    /// named template, mode, attribute set, key, decimal-format, variable,
+    /// parameter, stylesheet function, named output definition, accumulator,
+    /// or character map.
+    XTSE0080,
     /// Requested initial template does not exist.
     ///
     /// It is a dynamic error if the supplied initial template name does not
