@@ -458,6 +458,22 @@ fn xslt_try(
     }
 }
 
+#[xpath_fn(
+    "fn:xslt-with-temporary-output-state($body as function(*)) as item()*",
+    context_first
+)]
+fn xslt_with_temporary_output_state(
+    context: &crate::context::DynamicContext,
+    interpreter: &mut Interpreter,
+    body: sequence::Item,
+) -> error::Result<sequence::Sequence> {
+    let body = body.to_function()?;
+    context.push_temporary_output_state();
+    let result = interpreter.call_function_with_arguments(&body, &[]);
+    context.pop_temporary_output_state();
+    result
+}
+
 fn xslt_try_error_location(
     interpreter: &Interpreter,
     caught_error: &error::SpannedError,
@@ -1222,6 +1238,10 @@ fn store_result_document(
     href: &str,
     content: &sequence::Sequence,
 ) -> error::Result<sequence::Sequence> {
+    if context.in_temporary_output_state() {
+        return Err(error::Error::XTDE1480);
+    }
+
     if href.is_empty() {
         context.store_principal_result_document(
             content.clone(),
@@ -1275,6 +1295,10 @@ fn store_principal_result_document(
     use_character_maps: &str,
     version: &str,
 ) -> error::Result<sequence::Sequence> {
+    if context.in_temporary_output_state() {
+        return Err(error::Error::XTDE1480);
+    }
+
     let mut parameters = context.serialization_parameters().clone();
     let merge_with_named_output = if format.is_empty() {
         false
@@ -1960,6 +1984,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(unparsed_entity_uri),
         wrap_xpath_fn!(unparsed_entity_public_id),
         wrap_xpath_fn!(xslt_try),
+        wrap_xpath_fn!(xslt_with_temporary_output_state),
         wrap_xpath_fn!(resolve_xslt_qname),
         wrap_xpath_fn!(format_number_lexical2),
         wrap_xpath_fn!(format_number_lexical3),

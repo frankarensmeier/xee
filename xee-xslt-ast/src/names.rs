@@ -98,6 +98,9 @@ impl SequenceConstructorName {
             SequenceConstructorName::OnNonEmpty => {
                 ast::OnNonEmpty::parse_sequence_constructor_item(attributes)
             }
+            SequenceConstructorName::PerformSort => {
+                ast::PerformSort::parse_sequence_constructor_item(attributes)
+            }
             SequenceConstructorName::ProcessingInstruction => {
                 ast::ProcessingInstruction::parse_sequence_constructor_item(attributes)
             }
@@ -121,11 +124,6 @@ impl SequenceConstructorName {
             SequenceConstructorName::WherePopulated => {
                 ast::WherePopulated::parse_sequence_constructor_item(attributes)
             }
-
-            _ => Err(ElementError::Unsupported(format!(
-                "Unknown sequence constructor: {:?}",
-                &self
-            ))),
         }
     }
 

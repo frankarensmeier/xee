@@ -1671,7 +1671,32 @@ impl InstructionParser for ast::Param {
     }
 }
 
-// TODO: xsl:perform-sort
+static PERFORM_SORT_CONTENT: ContentParseLock<(Vec<ast::Sort>, ast::SequenceConstructor)> =
+    OnceLock::new();
+
+impl InstructionParser for ast::PerformSort {
+    fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
+        let names = &content.state.names;
+        let span = content.span()?;
+        let parse = PERFORM_SORT_CONTENT.get_or_init(|| {
+            children(
+                instruction(names.xsl_sort)
+                    .many()
+                    .then(sequence_constructor()),
+            )
+        });
+        let (sorts, sequence_constructor) = parse(content)?;
+
+        Ok(ast::PerformSort {
+            select: attributes.optional(names.select, attributes.xpath())?,
+
+            sorts,
+            sequence_constructor,
+
+            span,
+        })
+    }
+}
 
 // TODO: xsl:preserve-space
 

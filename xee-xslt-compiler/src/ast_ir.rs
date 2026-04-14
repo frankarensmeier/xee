@@ -1051,6 +1051,50 @@ impl<'a> IrConverter<'a> {
         })
     }
 
+    fn processor_xslt_version(&self) -> u8 {
+        self.current_static_context().processor_xslt_version().unwrap_or(3)
+    }
+
+    fn with_temporary_output_state(&mut self, body: Bindings) -> error::SpannedResult<Bindings> {
+        let (body_atom, body_bindings) = self.zero_arg_closure(body);
+        let expr = self.static_function_call_expr(
+            "xslt-with-temporary-output-state",
+            FN_NAMESPACE,
+            1,
+            vec![body_atom],
+        );
+        Ok(body_bindings.bind_expr_no_span(&mut self.variables, expr))
+    }
+
+    fn sequence_constructor_with_temporary_output_state(
+        &mut self,
+        sequence_constructor: &ast::SequenceConstructor,
+    ) -> error::SpannedResult<Bindings> {
+        let body = self.sequence_constructor(sequence_constructor)?;
+        self.with_temporary_output_state(body)
+    }
+
+    fn select_or_sequence_constructor_with_temporary_output_state(
+        &mut self,
+        instruction: &impl ast::SelectOrSequenceConstructor,
+    ) -> error::SpannedResult<Bindings> {
+        if let Some(select) = instruction.select() {
+            self.expression(select)
+        } else {
+            self.sequence_constructor_with_temporary_output_state(instruction.sequence_constructor())
+        }
+    }
+
+    fn simple_content_bindings(
+        &mut self,
+        content_bindings: Bindings,
+        separator_atom: ir::AtomS,
+    ) -> Bindings {
+        let (content_atom, content_bindings) = content_bindings.atom_bindings();
+        let expr = self.simple_content_expr(content_atom, separator_atom);
+        content_bindings.bind_expr_no_span(&mut self.variables, expr)
+    }
+
     fn transform(
         &mut self,
         declarations: &[PreprocessedDeclaration],
@@ -1922,7 +1966,7 @@ impl<'a> IrConverter<'a> {
             let expr = self.empty_sequence();
             Bindings::new(self.variables.new_binding(expr.value, expr.span))
         } else {
-            self.sequence_constructor(&with_param.sequence_constructor)?
+            self.sequence_constructor_with_temporary_output_state(&with_param.sequence_constructor)?
         };
 
         let bindings = self.convert_bindings(bindings, with_param.as_.as_ref(), error)?;
@@ -1979,7 +2023,7 @@ impl<'a> IrConverter<'a> {
         let bindings = if let Some(use_expr) = &key.use_ {
             self.expression(use_expr)?
         } else if !key.sequence_constructor.is_empty() {
-            self.sequence_constructor(&key.sequence_constructor)?
+            self.sequence_constructor_with_temporary_output_state(&key.sequence_constructor)?
         } else {
             self.variables.pop_context();
             return Err(error::Error::Unsupported(
@@ -2227,7 +2271,9 @@ impl<'a> IrConverter<'a> {
             let default = if let Some(ast_param) = ast_param {
                 if !ast_param.sequence_constructor.is_empty() {
                     let expr_s = self
-                        .sequence_constructor(&ast_param.sequence_constructor)?
+                        .sequence_constructor_with_temporary_output_state(
+                            &ast_param.sequence_constructor,
+                        )?
                         .expr();
                     let expr_s =
                         self.convert_expr(expr_s, ast_param.as_.as_ref(), RaisedError::XTTE0590)?;
@@ -2530,6 +2576,7 @@ impl<'a> IrConverter<'a> {
             ApplyTemplates(apply_templates) => self.apply_templates(apply_templates),
             ApplyImports(apply_imports) => self.apply_imports(apply_imports),
             CallTemplate(call_template) => self.call_template(call_template),
+            PerformSort(perform_sort) => self.perform_sort(perform_sort),
             ValueOf(value_of) => self.value_of(value_of),
             If(if_) => self.if_(if_),
             Choose(choose) => self.choose(choose),
@@ -3145,7 +3192,11 @@ impl<'a> IrConverter<'a> {
         let message_bindings = if let Some(select) = &message.select {
             self.expression(select)?
         } else if !message.sequence_constructor.is_empty() {
-            self.sequence_constructor(&message.sequence_constructor)?
+            if self.processor_xslt_version() < 3 {
+                self.sequence_constructor_with_temporary_output_state(&message.sequence_constructor)?
+            } else {
+                self.sequence_constructor(&message.sequence_constructor)?
+            }
         } else {
             Bindings::new(
                 self.variables
@@ -4137,7 +4188,7 @@ impl<'a> IrConverter<'a> {
         let key_bindings = if let Some(select) = &sort.select {
             self.expression(select)?
         } else if !sort.sequence_constructor.is_empty() {
-            self.sequence_constructor(&sort.sequence_constructor)?
+            self.sequence_constructor_with_temporary_output_state(&sort.sequence_constructor)?
         } else {
             self.variables.context_item((0..0).into())?
         };
@@ -4562,12 +4613,31 @@ impl<'a> IrConverter<'a> {
     }
 
     fn value_of(&mut self, value_of: &ast::ValueOf) -> error::SpannedResult<Bindings> {
-        let (text_atom, bindings) = self
-            .select_or_sequence_constructor_simple_content_with_separator(
+        let content_bindings = if self.processor_xslt_version() < 3
+            && value_of.select.is_none()
+            && !value_of.sequence_constructor.is_empty()
+        {
+            let value_bindings = self.select_or_sequence_constructor_with_temporary_output_state(value_of)?;
+            let (value_atom, value_bindings) = value_bindings.atom_bindings();
+            let (separator_atom, separator_bindings) = if let Some(separator) = &value_of.separator {
+                self.attribute_value_template(separator)?
+            } else {
+                Bindings::new(
+                    self.variables
+                        .new_binding_no_span(ir::Expr::Atom(self.space_separator_atom())),
+                )
+            }
+            .atom_bindings();
+            let bindings = value_bindings.concat(separator_bindings);
+            let expr = self.simple_content_expr(value_atom, separator_atom);
+            bindings.bind_expr_no_span(&mut self.variables, expr)
+        } else {
+            self.select_or_sequence_constructor_simple_content_with_separator(
                 value_of,
                 &value_of.separator,
             )?
-            .atom_bindings();
+        };
+        let (text_atom, bindings) = content_bindings.atom_bindings();
 
         Ok(bindings.bind_expr_no_span(
             &mut self.variables,
@@ -4681,7 +4751,7 @@ impl<'a> IrConverter<'a> {
         }
 
         let (child_atom, child_bindings) = self
-            .sequence_constructor(sequence_constructor)?
+            .sequence_constructor_with_temporary_output_state(sequence_constructor)?
             .atom_bindings();
         let append_expr = ir::Expr::XmlAppend(ir::XmlAppend {
             parent: document_atom,
@@ -4770,6 +4840,22 @@ impl<'a> IrConverter<'a> {
         });
 
         Ok(bindings.bind_expr_no_span(&mut self.variables, expr))
+    }
+
+    fn perform_sort(&mut self, perform_sort: &ast::PerformSort) -> error::SpannedResult<Bindings> {
+        let (select_atom, bindings) = if let Some(select) = &perform_sort.select {
+            self.expression(select)?.atom_bindings()
+        } else {
+            self.sequence_constructor_with_temporary_output_state(&perform_sort.sequence_constructor)?
+                .atom_bindings()
+        };
+        let sort_refs = perform_sort.sorts.iter().collect::<Vec<_>>();
+        let (sorted_atom, sort_bindings) = self.apply_template_sorts(select_atom, &sort_refs)?;
+        let bindings = bindings.concat(sort_bindings);
+        Ok(bindings.bind_expr_no_span(
+            &mut self.variables,
+            ir::Expr::Atom(sorted_atom),
+        ))
     }
 
     fn for_each_group(
@@ -5543,9 +5629,15 @@ impl<'a> IrConverter<'a> {
                 "",
             )?
             .atom_bindings();
-        let (value_atom, value_bindings) = self
-            .select_or_sequence_constructor(attribute)?
-            .atom_bindings();
+        let value_bindings = if self.processor_xslt_version() < 3
+            && attribute.select.is_none()
+            && !attribute.sequence_constructor.is_empty()
+        {
+            self.select_or_sequence_constructor_with_temporary_output_state(attribute)?
+        } else {
+            self.select_or_sequence_constructor(attribute)?
+        };
+        let (value_atom, value_bindings) = value_bindings.atom_bindings();
         let (separator_atom, separator_bindings) = if let Some(separator) = &attribute.separator {
             self.attribute_value_template(separator)?.atom_bindings()
         } else if attribute.select.is_some() {
@@ -5570,9 +5662,17 @@ impl<'a> IrConverter<'a> {
 
     fn namespace(&mut self, namespace: &ast::Namespace) -> error::SpannedResult<Bindings> {
         let (ncname_atom, ncname_bindings) = self.ncname_dynamic(&namespace.name)?.atom_bindings();
-        let (text_atom, text_bindings) = self
-            .select_or_sequence_constructor_simple_content(namespace)?
-            .atom_bindings();
+        let text_bindings = if self.processor_xslt_version() < 3
+            && namespace.select.is_none()
+            && !namespace.sequence_constructor.is_empty()
+        {
+            let content_bindings =
+                self.select_or_sequence_constructor_with_temporary_output_state(namespace)?;
+            self.simple_content_bindings(content_bindings, self.space_separator_atom())
+        } else {
+            self.select_or_sequence_constructor_simple_content(namespace)?
+        };
+        let (text_atom, text_bindings) = text_bindings.atom_bindings();
         let bindings = ncname_bindings.concat(text_bindings);
         Ok(bindings.bind_expr_no_span(
             &mut self.variables,
@@ -5584,9 +5684,17 @@ impl<'a> IrConverter<'a> {
     }
 
     fn comment(&mut self, comment: &ast::Comment) -> error::SpannedResult<Bindings> {
-        let (atom, bindings) = self
-            .select_or_sequence_constructor_simple_content(comment)?
-            .atom_bindings();
+        let bindings = if self.processor_xslt_version() < 3
+            && comment.select.is_none()
+            && !comment.sequence_constructor.is_empty()
+        {
+            let content_bindings =
+                self.select_or_sequence_constructor_with_temporary_output_state(comment)?;
+            self.simple_content_bindings(content_bindings, self.space_separator_atom())
+        } else {
+            self.select_or_sequence_constructor_simple_content(comment)?
+        };
+        let (atom, bindings) = bindings.atom_bindings();
         Ok(bindings.bind_expr_no_span(
             &mut self.variables,
             ir::Expr::XmlComment(ir::XmlComment { value: atom }),
@@ -5598,9 +5706,17 @@ impl<'a> IrConverter<'a> {
         pi: &ast::ProcessingInstruction,
     ) -> error::SpannedResult<Bindings> {
         let (ncname_atom, ncname_bindings) = self.ncname_dynamic(&pi.name)?.atom_bindings();
-        let (content_atom, content_bindings) = self
-            .select_or_sequence_constructor_simple_content(pi)?
-            .atom_bindings();
+        let content_bindings = if self.processor_xslt_version() < 3
+            && pi.select.is_none()
+            && !pi.sequence_constructor.is_empty()
+        {
+            let content_bindings =
+                self.select_or_sequence_constructor_with_temporary_output_state(pi)?;
+            self.simple_content_bindings(content_bindings, self.space_separator_atom())
+        } else {
+            self.select_or_sequence_constructor_simple_content(pi)?
+        };
+        let (content_atom, content_bindings) = content_bindings.atom_bindings();
         let bindings = ncname_bindings.concat(content_bindings);
         Ok(bindings.bind_expr_no_span(
             &mut self.variables,

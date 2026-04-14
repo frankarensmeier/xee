@@ -45,6 +45,7 @@ pub struct DynamicContext<'a> {
     secondary_result_documents: RefCell<HashMap<String, sequence::Sequence>>,
     principal_result_documents: RefCell<Vec<sequence::Sequence>>,
     principal_result_document_parameters: RefCell<Vec<sequence::SerializationParameters>>,
+    temporary_output_state_depth: RefCell<usize>,
     on_multiple_match: OnMultipleMatch,
 }
 
@@ -82,6 +83,7 @@ impl<'a> DynamicContext<'a> {
             principal_result_document_parameters: RefCell::new(
                 principal_result_document_parameters,
             ),
+            temporary_output_state_depth: RefCell::new(0),
             on_multiple_match,
         }
     }
@@ -175,6 +177,22 @@ impl<'a> DynamicContext<'a> {
             .borrow()
             .last()
             .cloned()
+    }
+
+    pub fn push_temporary_output_state(&self) {
+        *self.temporary_output_state_depth.borrow_mut() += 1;
+    }
+
+    pub fn pop_temporary_output_state(&self) {
+        let mut depth = self.temporary_output_state_depth.borrow_mut();
+        debug_assert!(*depth > 0, "temporary output state underflow");
+        if *depth > 0 {
+            *depth -= 1;
+        }
+    }
+
+    pub fn in_temporary_output_state(&self) -> bool {
+        *self.temporary_output_state_depth.borrow() > 0
     }
 
     pub fn serialization_parameters(&self) -> &sequence::SerializationParameters {

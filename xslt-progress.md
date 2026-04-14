@@ -4,6 +4,57 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-14 22:33 CEST
+
+### Status snapshot
+
+- Checkpoint focus: finish unblocking the `result-document-1101` shared
+  stylesheet and enforce `XTDE1480` when `xsl:result-document` runs inside
+  temporary output state.
+- Result: `xsl:perform-sort` is now parsed/lowered, and the full
+  `result-document-1101` through `1111` template family is covered by a
+  focused XSLT 2.0 regression that now raises `XTDE1480` as expected.
+- Filter baseline change: none.
+- `update.py` remains deferred until the full vendor suite is green.
+
+### Perform-sort and temporary output state
+
+- `xsl:perform-sort` now parses into the AST and lowers through the existing
+  sort-key pipeline instead of failing with `Unknown sequence constructor:
+  PerformSort`.
+- Runtime now tracks temporary output state explicitly and rejects
+  `xsl:result-document` with `XTDE1480` when invoked while that state is
+  active.
+- The compiler wraps the relevant body-evaluation contexts so nested template
+  calls inherit temporary-output-state behavior where required:
+  temporary trees, `xsl:with-param`, local param defaults, `xsl:key` bodies,
+  `xsl:sort` bodies, and the XSLT 2.0-only simple-content cases
+  (`xsl:attribute`, `xsl:value-of`, `xsl:comment`,
+  `xsl:processing-instruction`, `xsl:namespace`, `xsl:message`).
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler test_xslt_vendor_result_document_1101_tranche_raises_xtde1480_under_xslt20 -- --exact`
+  passed.
+- `cargo test -p xee-xslt-compiler test_xslt_vendor_result_document_1001_raises_xtde1490 -- --exact`
+  passed.
+- `cargo test -p xee-xslt-compiler test_key_sequence_constructor_body_lookup -- --exact`
+  passed.
+- `cargo test -p xee-xslt-compiler` still shows the same six unrelated
+  baseline failures.
+- `cargo test -p xee-interpreter` still shows the same unrelated baseline
+  failure `atomic::cast_numeric::tests::test_parse_double_invalid_nan`.
+- The vendor runner still skips exact `spec value="XSLT20"` cases such as the
+  `1101` tranche because the testrunner currently advertises `XSLT20+` but not
+  exact `XSLT20`, so the new coverage lives in focused Rust regressions for now.
+
+### Next frontier
+
+- `result-document-1131` is now the next adjacent blocker. It no longer skips,
+  but the shared `result-document-1130.xsl` stylesheet still fails with
+  `Instruction not supported: Merge(...)`, so `xsl:merge` lowering is the next
+  concrete obstacle before the XSLT 3.0 temporary-output-state delta can move.
+
 ## 2026-04-14 22:13 CEST
 
 ### Status snapshot

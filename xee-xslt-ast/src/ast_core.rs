@@ -1493,6 +1493,12 @@ pub struct PerformSort {
     pub span: Span,
 }
 
+impl From<PerformSort> for SequenceConstructorItem {
+    fn from(i: PerformSort) -> Self {
+        SequenceConstructorInstruction::PerformSort(Box::new(i)).into()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PreserveSpace {

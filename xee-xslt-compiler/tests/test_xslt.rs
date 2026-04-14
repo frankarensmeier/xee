@@ -81,6 +81,39 @@ fn evaluate_named_template_with_stylesheet_base(
     let context = dynamic_context_builder.build();
     let runnable = program.runnable(&context);
     runnable.named_template(template_name, xot)
+
+}
+
+fn evaluate_named_template_with_stylesheet_base_and_processor_xslt_version(
+    xot: &mut Xot,
+    xml: &str,
+    xslt: &str,
+    stylesheet_path: &std::path::Path,
+    template_name: &str,
+    processor_xslt_version: u8,
+) -> error::SpannedResult<Sequence> {
+    let stylesheet_uri = format!("file://{}", stylesheet_path.display()).replace(' ', "%20");
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(Some(stylesheet_uri.try_into().unwrap()));
+    static_context_builder.processor_xslt_version(Some(processor_xslt_version));
+    let static_context = static_context_builder.build();
+    let program = parse_with_base_dir(
+        static_context,
+        xslt,
+        stylesheet_path.parent().map(|parent| parent.to_path_buf()),
+    )
+    .unwrap();
+
+    let root = xot.parse(xml).unwrap();
+    let mut documents = Documents::new();
+    let handle = documents.add_root(None, root).unwrap();
+    let root = documents.get_node_by_handle(handle).unwrap();
+    let mut dynamic_context_builder = program.dynamic_context_builder();
+    dynamic_context_builder.context_node(root);
+    dynamic_context_builder.documents(documents);
+    let context = dynamic_context_builder.build();
+    let runnable = program.runnable(&context);
+    runnable.named_template(template_name, xot)
 }
 
 fn evaluate_with_stylesheet_base_without_context(
@@ -1252,6 +1285,32 @@ fn test_result_document_dynamic_method_avt_sets_principal_output_method() {
 
     assert_eq!(error.error, error::Error::XTDE1490);
   }
+
+#[test]
+fn test_xslt_vendor_result_document_1101_tranche_raises_xtde1480_under_xslt20() {
+    let stylesheet_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../vendor/xslt-tests/tests/insn/result-document/result-document-1101.xsl");
+    let xslt = fs::read_to_string(&stylesheet_path).unwrap();
+
+    for template_name in ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"] {
+      let mut xot = Xot::new();
+      let error = evaluate_named_template_with_stylesheet_base_and_processor_xslt_version(
+        &mut xot,
+        "<doc/>",
+        &xslt,
+        &stylesheet_path,
+        template_name,
+        2,
+      )
+      .unwrap_err();
+
+      assert_eq!(
+        error.error,
+        error::Error::XTDE1480,
+        "template {template_name} should raise XTDE1480",
+      );
+    }
+}
 
 #[test]
 fn test_recursive_attribute_set_reentry_raises_xtde0640() {

@@ -579,6 +579,11 @@ pub enum Error {
     /// It is a dynamic error if the picture string supplied to
     /// format-number is invalid.
     XTDE1310,
+    /// Result-document evaluated while temporary output state is active.
+    ///
+    /// It is a dynamic error if xsl:result-document is evaluated in temporary
+    /// output state.
+    XTDE1480,
     /// Duplicate result-document URI.
     ///
     /// It is a dynamic error if two result documents are written to the same URI.
