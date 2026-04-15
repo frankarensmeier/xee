@@ -66,6 +66,28 @@ pub fn parse_with_stylesheet_path(
     }
 }
 
+pub fn parse_to_ir_with_stylesheet_path(
+    xslt: &str,
+    stylesheet_path: &Path,
+) -> error::SpannedResult<xee_ir::ir::Declarations> {
+    let canonical = stylesheet_path
+        .canonicalize()
+        .unwrap_or_else(|_| stylesheet_path.to_path_buf());
+    let base_dir = canonical
+        .parent()
+        .or_else(|| stylesheet_path.parent())
+        .map(Path::to_path_buf);
+    let static_base_uri = format!("file://{}", canonical.display())
+        .replace(' ', "%20")
+        .try_into()
+        .ok();
+
+    let mut static_context_builder = StaticContextBuilder::default();
+    static_context_builder.static_base_uri(static_base_uri);
+    let static_context = static_context_builder.build();
+    crate::parse_to_ir(static_context, xslt, base_dir, None)
+}
+
 pub fn evaluate_with_base_dir(
     xot: &mut Xot,
     xml: &str,

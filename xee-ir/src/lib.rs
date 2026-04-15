@@ -2,6 +2,7 @@ mod binding;
 mod builder;
 mod compile;
 mod declaration_compiler;
+pub mod display;
 mod function_compiler;
 pub mod ir;
 mod scope;

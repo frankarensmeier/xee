@@ -17,6 +17,10 @@ pub(crate) struct Xslt {
     /// Output file (default stdout)
     #[arg(long, short)]
     pub(crate) output: Option<PathBuf>,
+
+    /// Dump the intermediate representation (IR) instead of transforming
+    #[arg(long)]
+    pub(crate) dump_ir: bool,
 }
 
 impl Xslt {
@@ -28,6 +32,22 @@ impl Xslt {
                 self.stylesheet.display()
             )
         })?;
+
+        // If --dump-ir, parse to IR and print it
+        if self.dump_ir {
+            match xee_xslt_compiler::parse_to_ir_with_stylesheet_path(
+                &stylesheet,
+                &self.stylesheet,
+            ) {
+                Ok(declarations) => {
+                    print!("{}", xee_ir::display::DisplayDeclarations(&declarations));
+                }
+                Err(e) => {
+                    render_error(&self.stylesheet.display().to_string(), &stylesheet, e);
+                }
+            }
+            return Ok(());
+        }
 
         // Read the input XML
         let xml = input_xml(&self.infile)?;

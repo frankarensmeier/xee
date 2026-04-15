@@ -15,6 +15,7 @@ homepage = "https://github.com/Paligo/xee"
 xee-xpath = { path = "../xee-xpath", version = "0.1.5" }
 xee-xslt-compiler = { path = "../xee-xslt-compiler", version = "0.1.6" }
 xee-interpreter = { path = "../xee-interpreter", version = "0.2.0" }
+xee-ir = { path = "../xee-ir", version = "0.1.5" }
 xot = { workspace = true }
 clap = { workspace = true, features = ["derive", "cargo"] }
 ariadne = "0.5.1"

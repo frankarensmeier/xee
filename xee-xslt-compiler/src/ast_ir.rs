@@ -429,6 +429,37 @@ pub fn parse_with_base_dir_and_initial_mode(
     base_dir: Option<std::path::PathBuf>,
     initial_mode: Option<String>,
 ) -> error::SpannedResult<interpreter::Program> {
+    let (declarations, static_context, initial_mode) =
+        preprocess_stylesheet(static_context, xslt, base_dir, initial_mode)?;
+    compile_preprocessed_declarations(xslt, declarations, static_context, initial_mode)
+}
+
+/// Parse an XSLT stylesheet and return the intermediate representation (IR)
+/// without compiling to bytecode. Useful for debugging and inspecting the
+/// compilation pipeline.
+pub fn parse_to_ir(
+    static_context: StaticContext,
+    xslt: &str,
+    base_dir: Option<std::path::PathBuf>,
+    initial_mode: Option<String>,
+) -> error::SpannedResult<ir::Declarations> {
+    let (declarations, mut static_context, initial_mode) =
+        preprocess_stylesheet(static_context, xslt, base_dir, initial_mode)?;
+    augment_static_context_with_decimal_formats(&declarations, &mut static_context)?;
+    let mut ir_converter = IrConverter::new(&static_context, initial_mode);
+    ir_converter.transform(&declarations)
+}
+
+fn preprocess_stylesheet(
+    static_context: StaticContext,
+    xslt: &str,
+    base_dir: Option<std::path::PathBuf>,
+    initial_mode: Option<String>,
+) -> error::SpannedResult<(
+    Vec<PreprocessedDeclaration>,
+    StaticContext,
+    ast::ApplyTemplatesModeValue,
+)> {
     let mut static_context =
         augment_static_context_with_stylesheet_namespaces(static_context, xslt);
     let stylesheet_version = detect_stylesheet_version(xslt);
@@ -492,7 +523,7 @@ pub fn parse_with_base_dir_and_initial_mode(
         },
         other => other,
     };
-    compile_preprocessed_declarations(xslt, declarations, static_context, initial_mode)
+    Ok((declarations, static_context, initial_mode))
 }
 
 fn augment_static_context_with_stylesheet_namespaces(
