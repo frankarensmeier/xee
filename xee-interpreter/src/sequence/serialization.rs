@@ -417,10 +417,18 @@ fn serialize_xml(
         ..Default::default()
     };
 
-    Ok(apply_byte_order_mark(
-        xot.serialize_xml_string(output_parameters, node)?,
-        &parameters,
-    ))
+    let serialized = xot.serialize_xml_string(output_parameters, node)?;
+
+    // xot unconditionally adds a newline after the XML declaration (?>).
+    // When indent="no", the spec requires no whitespace between the
+    // declaration and the document element, so strip it.
+    let serialized = if !parameters.indent && !parameters.omit_xml_declaration {
+        strip_post_declaration_newline(&serialized)
+    } else {
+        serialized
+    };
+
+    Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
 fn serialize_html(
@@ -484,13 +492,22 @@ fn serialize_xhtml(
     };
     let mut serialized = html5.serialize_string(output_parameters, node)?;
 
-    if parameters.include_content_type {
+    let html_root = is_html_root_element(node, xot);
+
+    if parameters.include_content_type && html_root {
         inject_content_type_meta(&mut serialized, &parameters, true);
     }
 
     if parameters.explicit_html_version {
         if parameters.html_version >= Decimal::from_str_exact("5.0").unwrap() {
-            ensure_html5_doctype(&mut serialized);
+            // XHTML 5: only emit <!DOCTYPE html> when root element is <html>.
+            // xot's html5 serializer adds it unconditionally, so remove it
+            // when the root element is not <html>.
+            if html_root {
+                ensure_html5_doctype(&mut serialized);
+            } else {
+                remove_html5_doctype(&mut serialized);
+            }
         } else {
             remove_html5_doctype(&mut serialized);
         }
@@ -543,6 +560,17 @@ fn ensure_html5_doctype(serialized: &mut String) {
     if !serialized.trim_start().starts_with("<!DOCTYPE html>") {
         *serialized = format!("<!DOCTYPE html>\n{serialized}");
     }
+}
+
+fn is_html_root_element(node: xot::Node, xot: &Xot) -> bool {
+    let Ok(doc_el) = xot.document_element(node) else {
+        return false;
+    };
+    let Some(name_id) = xot.node_name(doc_el) else {
+        return false;
+    };
+    let (local, ns) = xot.name_ns_str(name_id);
+    local == "html" && (ns.is_empty() || ns == "http://www.w3.org/1999/xhtml")
 }
 
 fn remove_html5_doctype(serialized: &mut String) {
@@ -827,6 +855,19 @@ fn xot_names(names: &[xot::xmlname::OwnedName], xot: &mut Xot) -> Vec<xot::NameI
         .iter()
         .map(|owned_name| owned_name.to_ref(xot).name_id())
         .collect()
+}
+
+fn strip_post_declaration_newline(s: &str) -> String {
+    if let Some(pos) = s.find("?>") {
+        let after = pos + 2;
+        if s[after..].starts_with('\n') {
+            let mut result = String::with_capacity(s.len() - 1);
+            result.push_str(&s[..after]);
+            result.push_str(&s[after + 1..]);
+            return result;
+        }
+    }
+    s.to_string()
 }
 
 #[cfg(test)]
