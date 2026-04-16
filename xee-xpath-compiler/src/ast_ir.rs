@@ -89,6 +89,7 @@ impl<'a> IrConverter<'a> {
             params,
             return_type: None,
             body: Box::new(exprs_bindings.expr()),
+            static_base_uri: None,
         });
         let binding = self.variables.new_binding(outer_function_expr, ast.0.span);
         Ok(Bindings::new(binding))
@@ -578,6 +579,7 @@ impl<'a> IrConverter<'a> {
             params,
             return_type: inline_function.return_type.clone(),
             body: Box::new(body_bindings.expr()),
+            static_base_uri: None,
         });
         self.variables.pop_scope();
         let binding = self.variables.new_binding(expr, span);

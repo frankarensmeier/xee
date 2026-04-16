@@ -2944,6 +2944,7 @@ dependencies = [
  "ahash 0.8.11",
  "ibig",
  "insta",
+ "iri-string",
  "ordered-float",
  "rust_decimal",
  "xee-interpreter",

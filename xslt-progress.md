@@ -4,6 +4,48 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-16 18:17 CEST
+
+### Status snapshot
+
+- Checkpoint focus: per-function `static-base-uri` for correct relative URI
+  resolution in imported/included XSLT modules.
+- Result: **5398 passed**, 0 check failures (unchanged).
+- DocBook NG `print.xsl` now gets past `doc-available('../locale/en.xml')` —
+  previously failed because relative URIs resolved against the entry
+  stylesheet instead of the declaring module.
+
+### What moved this slice
+
+**Per-function static_base_uri:**
+- Root cause: `doc()`, `doc-available()`, `unparsed-text()` resolve relative
+  URIs against a single program-level `StaticContext.static_base_uri()`. In
+  XSLT with imports/includes, each module has its own base URI. A call to
+  `doc-available('../locale/en.xml')` in `xslt/modules/gentext.xsl` was
+  resolving relative to `xslt/print.xsl` instead.
+- Fix: added `static_base_uri: Option<String>` to `ir::FunctionDefinition`
+  and `ir::GlobalVariable`; XSLT compiler sets it from the module's
+  stylesheet URI; `builder.rs` converts it to `IriAbsoluteString` on
+  `InlineFunction`. At runtime, `DynamicContext` maintains a
+  `static_base_uri_stack` (push on `call_inline`, pop on `Return`), and
+  `absolute_uri()` now calls `effective_static_base_uri()` which walks the
+  stack before falling back to the program-level base.
+- Files changed: `xee-ir/src/ir.rs`, `xee-ir/src/builder.rs`,
+  `xee-ir/src/declaration_compiler.rs`, `xee-ir/Cargo.toml`,
+  `xee-interpreter/src/function/inline_function.rs`,
+  `xee-interpreter/src/context/dynamic_context.rs`,
+  `xee-interpreter/src/interpreter/interpret.rs`,
+  `xee-interpreter/src/library/external.rs`,
+  `xee-xpath-compiler/src/ast_ir.rs`, `xee-xslt-compiler/src/ast_ir.rs`.
+
+### Validation notes
+
+- Vendor tests: 5398 passed, 0 check failures, 49 error, 2 WrongE —
+  identical to baseline.
+- Unit tests: 280 passed, 6 failed (pre-existing).
+- DocBook print.xsl: advances to a new error ("function expects 1 argument(s),
+  got 2") — a separate issue unrelated to URI resolution.
+
 ## 2026-04-16 16:38 CEST
 
 ### Status snapshot

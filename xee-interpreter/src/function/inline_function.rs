@@ -1,3 +1,4 @@
+use iri_string::types::IriAbsoluteString;
 use xee_schema_type::Xs;
 use xee_xpath_type::ast::SequenceType;
 
@@ -40,6 +41,8 @@ pub struct InlineFunction {
     // the compiled code, and the spans of each instruction
     pub chunk: Vec<u8>,
     pub spans: Vec<SourceSpan>,
+    // per-function static base URI (for imported/included modules)
+    pub static_base_uri: Option<IriAbsoluteString>,
 }
 
 impl InlineFunction {

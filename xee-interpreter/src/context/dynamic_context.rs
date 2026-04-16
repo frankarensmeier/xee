@@ -1,5 +1,5 @@
 use ahash::{AHashMap, HashMap, HashMapExt, HashSet};
-use iri_string::types::{IriStr, IriString};
+use iri_string::types::{IriAbsoluteString, IriStr, IriString};
 use std::{cell::RefCell, fmt::Debug};
 
 use crate::declaration::OnMultipleMatch;
@@ -52,6 +52,7 @@ pub struct DynamicContext<'a> {
     temporary_tree_roots: RefCell<HashSet<xot::Node>>,
     temporary_output_state_depth: RefCell<usize>,
     on_multiple_match: OnMultipleMatch,
+    static_base_uri_stack: RefCell<Vec<Option<IriAbsoluteString>>>,
 }
 
 impl<'a> DynamicContext<'a> {
@@ -97,6 +98,7 @@ impl<'a> DynamicContext<'a> {
             temporary_tree_roots: RefCell::new(temporary_tree_roots),
             temporary_output_state_depth: RefCell::new(0),
             on_multiple_match,
+            static_base_uri_stack: RefCell::new(Vec::new()),
         }
     }
 
@@ -258,6 +260,31 @@ impl<'a> DynamicContext<'a> {
 
     pub fn on_multiple_match(&self) -> OnMultipleMatch {
         self.on_multiple_match
+    }
+
+    pub fn push_static_base_uri(&self, uri: Option<IriAbsoluteString>) {
+        self.static_base_uri_stack.borrow_mut().push(uri);
+    }
+
+    pub fn pop_static_base_uri(&self) {
+        self.static_base_uri_stack.borrow_mut().pop();
+    }
+
+    /// Resolve the effective static base URI, preferring the per-function
+    /// override (top of stack) over the program-level static context.
+    pub fn effective_static_base_uri(&self) -> Option<IriAbsoluteString> {
+        let stack = self.static_base_uri_stack.borrow();
+        // Walk from top of stack to find the first Some
+        for entry in stack.iter().rev() {
+            if let Some(uri) = entry {
+                return Some(uri.clone());
+            }
+        }
+        // Fall back to program-level static base URI
+        self.program
+            .static_context()
+            .static_base_uri()
+            .map(|uri| uri.to_owned())
     }
 
     pub fn clone_for_program<'b>(

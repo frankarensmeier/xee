@@ -186,6 +186,10 @@ impl<'a> FunctionBuilder<'a> {
             steps: self.steps,
             cast_types: self.cast_types,
             sequence_types: self.sequence_types,
+            static_base_uri: function_definition
+                .static_base_uri
+                .as_ref()
+                .and_then(|s| iri_string::types::IriAbsoluteString::try_from(s.clone()).ok()),
         }
     }
 

@@ -88,6 +88,7 @@ fn test_generate_element() {
         ],
         return_type: None,
         body: Box::new(spanned(let_root)),
+        static_base_uri: None,
     };
 
     let outer_expr = spanned(ir::Expr::FunctionDefinition(function_definition));

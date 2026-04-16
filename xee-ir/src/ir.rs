@@ -125,6 +125,7 @@ pub struct FunctionDefinition {
     pub params: Vec<Param>,
     pub return_type: Option<SequenceType>,
     pub body: Box<ExprS>,
+    pub static_base_uri: Option<String>,
 }
 
 impl FunctionDefinition {
@@ -460,6 +461,7 @@ pub struct GlobalVariable {
     pub required: bool,
     pub params: Vec<Param>,
     pub expr: ExprS,
+    pub static_base_uri: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

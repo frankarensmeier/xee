@@ -1018,6 +1018,12 @@ impl<'a> IrConverter<'a> {
         }
     }
 
+    fn current_static_base_uri_string(&self) -> Option<String> {
+        self.current_static_context()
+            .static_base_uri()
+            .map(|uri| uri.to_string())
+    }
+
     fn raise_error(&mut self, error: RaisedError) -> Bindings {
         Bindings::empty().bind_expr_no_span(&mut self.variables, ir::Expr::RaiseError(error))
     }
@@ -1842,6 +1848,7 @@ impl<'a> IrConverter<'a> {
                         required: false,
                         params: expr.0,
                         expr: expr.1,
+                        static_base_uri: decl.stylesheet_uri.clone(),
                     });
                 }
                 ast::Declaration::Param(param) => {
@@ -1868,6 +1875,7 @@ impl<'a> IrConverter<'a> {
                         required: param.required,
                         params: expr.0,
                         expr: expr.1,
+                        static_base_uri: decl.stylesheet_uri.clone(),
                     });
                 }
                 ast::Declaration::Function(function) => {
@@ -1908,6 +1916,7 @@ impl<'a> IrConverter<'a> {
                         required: false,
                         params,
                         expr,
+                        static_base_uri: decl.stylesheet_uri.clone(),
                     });
                 }
                 _ => {}
@@ -2138,6 +2147,7 @@ impl<'a> IrConverter<'a> {
             params: Self::context_params(&context_names),
             return_type: None,
             body: Box::new(bindings.expr()),
+            static_base_uri: self.current_static_base_uri_string(),
         };
 
         // Compile the match pattern
@@ -2214,6 +2224,7 @@ impl<'a> IrConverter<'a> {
                 params,
                 return_type: None,
                 body: Box::new(bindings.expr()),
+                static_base_uri: self.current_static_base_uri_string(),
             },
         })
     }
@@ -2311,6 +2322,7 @@ impl<'a> IrConverter<'a> {
                 params,
                 return_type: None,
                 body: Box::new(bindings.expr()),
+                static_base_uri: this.current_static_base_uri_string(),
             })
         })
     }
@@ -2335,6 +2347,7 @@ impl<'a> IrConverter<'a> {
                 params,
                 return_type: None,
                 body: Box::new(bindings.expr()),
+                static_base_uri: this.current_static_base_uri_string(),
             })
         })
     }
@@ -2401,6 +2414,7 @@ impl<'a> IrConverter<'a> {
             params,
             return_type: function.as_.clone(),
             body: Box::new(bindings.expr()),
+            static_base_uri: self.current_static_base_uri_string(),
         })
     }
 
@@ -2786,6 +2800,7 @@ impl<'a> IrConverter<'a> {
             params,
             return_type: None,
             body: Box::new(bindings.expr()),
+            static_base_uri: self.current_static_base_uri_string(),
         })
     }
 
@@ -4505,6 +4520,7 @@ impl<'a> IrConverter<'a> {
             }],
             return_type: None,
             body: Box::new(Spanned::new(body, (0..0).into())),
+            static_base_uri: self.current_static_base_uri_string(),
         });
 
         let bindings = Bindings::empty().bind_expr_no_span(&mut self.variables, function);
@@ -4704,6 +4720,7 @@ impl<'a> IrConverter<'a> {
             params,
             return_type: None,
             body: Box::new(body.expr()),
+            static_base_uri: self.current_static_base_uri_string(),
         };
         let function_expr = Bindings::empty().bind_expr_no_span(
             &mut self.variables,
@@ -5272,6 +5289,7 @@ impl<'a> IrConverter<'a> {
             }],
             return_type: None,
             body: Box::new(Spanned::new(body, (0..0).into())),
+            static_base_uri: self.current_static_base_uri_string(),
         });
 
         let bindings = Bindings::empty().bind_expr_no_span(&mut self.variables, function);
@@ -5495,6 +5513,7 @@ impl<'a> IrConverter<'a> {
             }],
             return_type: None,
             body: Box::new(Spanned::new(body, (0..0).into())),
+            static_base_uri: self.current_static_base_uri_string(),
         };
 
         let function_expr = Bindings::empty().bind_expr_no_span(
@@ -5585,6 +5604,7 @@ impl<'a> IrConverter<'a> {
             ],
             return_type: None,
             body: Box::new(Spanned::new(body, (0..0).into())),
+            static_base_uri: self.current_static_base_uri_string(),
         };
 
         let function_expr = Bindings::empty().bind_expr_no_span(
@@ -7258,6 +7278,7 @@ impl<'a> IrConverter<'a> {
             params,
             return_type: None,
             body: Box::new(Spanned::new(body, (0..0).into())),
+            static_base_uri: self.current_static_base_uri_string(),
         })
     }
 

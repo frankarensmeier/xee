@@ -430,6 +430,7 @@ impl<'a> Interpreter<'a> {
                     self.state.push(value);
                 }
                 EncodedInstruction::Return => {
+                    self.runnable.dynamic_context.pop_static_base_uri();
                     if self.state.inline_return(start_base) {
                         break;
                     }
@@ -1153,6 +1154,11 @@ impl<'a> Interpreter<'a> {
                 arity
             )));
         }
+
+        // Push per-function static base URI for correct relative URI resolution
+        self.runnable
+            .dynamic_context
+            .push_static_base_uri(inline_function.static_base_uri.clone());
 
         let arguments = self.coerce_inline_arguments(parameter_types, arity)?;
 

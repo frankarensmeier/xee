@@ -151,9 +151,8 @@ fn absolute_uri(context: &DynamicContext, uri: &IriReferenceStr) -> error::Resul
     let uri: IriString = match uri.to_iri() {
         Ok(iri) => iri.into(),
         Err(relative_iri) => {
-            let base = context.static_context().static_base_uri();
-            if let Some(base) = base {
-                relative_iri.resolve_against(base).into()
+            if let Some(base) = context.effective_static_base_uri() {
+                relative_iri.resolve_against(&base).into()
             } else {
                 return Err(error::Error::FODC0002);
             }

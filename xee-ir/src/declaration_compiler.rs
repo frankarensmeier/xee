@@ -367,6 +367,7 @@ impl<'a> DeclarationCompiler<'a> {
             params: global_variable.params.clone(),
             return_type: None,
             body: Box::new(global_variable.expr.clone()),
+            static_base_uri: global_variable.static_base_uri.clone(),
         };
         let function_id = function_compiler
             .compile_function_id(&function_definition, global_variable.expr.span.into())?;
