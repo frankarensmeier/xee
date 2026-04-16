@@ -193,7 +193,7 @@ pub struct FunctionCall {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NamedFunctionRef {
     pub name: NameS,
-    pub arity: u8,
+    pub arity: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

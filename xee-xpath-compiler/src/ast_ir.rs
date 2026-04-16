@@ -85,6 +85,7 @@ impl<'a> IrConverter<'a> {
             });
         }
         let outer_function_expr = ir::Expr::FunctionDefinition(ir::FunctionDefinition {
+            declared_name: None,
             params,
             return_type: None,
             body: Box::new(exprs_bindings.expr()),
@@ -573,6 +574,7 @@ impl<'a> IrConverter<'a> {
             self.variables.pop_context();
         }
         let expr = ir::Expr::FunctionDefinition(ir::FunctionDefinition {
+            declared_name: None,
             params,
             return_type: inline_function.return_type.clone(),
             body: Box::new(body_bindings.expr()),
@@ -660,11 +662,25 @@ impl<'a> IrConverter<'a> {
         span: Span,
     ) -> error::SpannedResult<Bindings> {
         // advice: format!("Either the function name {:?} does not exist, or you are calling it with the wrong number of arguments ({})", ast.name, ast.arity),
-        let static_function_id = self
-            .static_context
-            .function_id_by_name(&ast.name.value, ast.arity)
-            .ok_or(Error::XPST0017.with_ast_span(span))?;
-        Ok(self.static_function_ref(static_function_id, span))
+        if let Ok(arity) = u8::try_from(ast.arity) {
+            if let Some(static_function_id) = self.static_context.function_id_by_name(&ast.name.value, arity) {
+                return Ok(self.static_function_ref(static_function_id, span));
+            }
+        }
+
+        if ast.name.value.namespace() == FN_NAMESPACE
+            && ast.name.value.local_name() == "concat"
+            && ast.arity >= 2
+        {
+            let expr = ir::Expr::Atom(Spanned::new(
+                ir::Atom::Const(ir::Const::ConcatFunctionReference(ast.arity)),
+                span,
+            ));
+            let binding = self.variables.new_binding(expr, span);
+            return Ok(Bindings::new(binding));
+        }
+
+        Err(Error::XPST0017.with_ast_span(span).into())
     }
 
     fn static_function_ref(

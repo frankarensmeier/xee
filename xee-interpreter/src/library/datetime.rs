@@ -501,7 +501,7 @@ fn format_component(
         'M' => {
             // Month
             check_date_component(kind, component)?;
-            format_number_component(dt.month(), min_width.unwrap_or(1), result);
+            format_month_component(dt.month(), presentation, min_width, result)?;
         }
         'D' => {
             // Day of month
@@ -638,6 +638,83 @@ fn format_number_component(value: u32, min_width: u32, result: &mut String) {
         result.push('0');
     }
     result.push_str(&s);
+}
+
+fn format_month_component(
+    month: u32,
+    presentation: &str,
+    min_width: Option<u32>,
+    result: &mut String,
+) -> error::Result<()> {
+    let presentation = presentation.trim();
+    match presentation {
+        "i" => result.push_str(&format_roman_number(month, false)?),
+        "I" => result.push_str(&format_roman_number(month, true)?),
+        "n" => result.push_str(month_name(month)?.to_ascii_lowercase().as_str()),
+        "N" => result.push_str(month_name(month)?.to_ascii_uppercase().as_str()),
+        "Nn" => result.push_str(month_name(month)?),
+        _ => format_number_component(month, min_width.unwrap_or(1), result),
+    }
+    Ok(())
+}
+
+fn month_name(month: u32) -> error::Result<&'static str> {
+    const MONTH_NAMES: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+
+    let Some(name) = MONTH_NAMES.get(month.saturating_sub(1) as usize) else {
+        return Err(error::Error::FOFD1340);
+    };
+    Ok(name)
+}
+
+fn format_roman_number(number: u32, uppercase: bool) -> error::Result<String> {
+    if number == 0 {
+        return Ok("0".to_string());
+    }
+
+    let mut value = u64::from(number);
+    let numerals = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+
+    let mut result = String::new();
+    for (magnitude, numeral) in numerals {
+        while value >= magnitude {
+            result.push_str(numeral);
+            value -= magnitude;
+        }
+    }
+
+    if uppercase {
+        Ok(result)
+    } else {
+        Ok(result.to_ascii_lowercase())
+    }
 }
 
 fn check_date_component(kind: DateTimeKind, _component: char) -> error::Result<()> {

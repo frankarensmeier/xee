@@ -1,11 +1,13 @@
 ---
 source: xee-xpath-compiler/src/ast_ir.rs
+assertion_line: 997
 expression: "convert_xpath(\"child::a/child::b\")"
 ---
 Ok(
     Spanned {
         value: FunctionDefinition(
             FunctionDefinition {
+                declared_name: None,
                 params: [
                     Param {
                         name: Name(

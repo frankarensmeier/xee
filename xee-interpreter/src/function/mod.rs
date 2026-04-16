@@ -10,7 +10,8 @@ mod static_function;
 pub use array::Array;
 pub use function_core::Function;
 pub use function_core::{
-    InlineFunctionData, InlineFunctionId, StaticFunctionData, StaticFunctionId,
+    CoercedFunctionData, ConcatFunctionData, InlineFunctionData, InlineFunctionId,
+    PatternMatcherFunctionData, StaticFunctionData, StaticFunctionId,
 };
 pub use inline_function::{CastType, InlineFunction, Name};
 pub use map::Map;

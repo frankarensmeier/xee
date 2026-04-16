@@ -1,11 +1,13 @@
 ---
 source: xee-xpath-compiler/src/span.rs
+assertion_line: 28
 expression: "convert_ir(&static_context, expr)"
 ---
 Ok(
     Spanned {
         value: FunctionDefinition(
             FunctionDefinition {
+                declared_name: None,
                 params: [
                     Param {
                         name: Name(

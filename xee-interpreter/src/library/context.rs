@@ -327,6 +327,7 @@ fn is_function_available(context: &DynamicContext, name: &Name, arity: Option<u8
                 .function_id_by_name(name, arity)
                 .is_some()
                 || is_manual_xslt_function_available(name, arity)
+                || is_variadic_function_available(name, arity as usize)
         }
         None => {
             context.static_context().has_function_name(name)
@@ -348,6 +349,10 @@ fn is_manual_xslt_function_available(name: &Name, arity: u8) -> bool {
         "unparsed-entity-uri" | "unparsed-entity-public-id" => arity == 1,
         _ => false,
     }
+}
+
+fn is_variadic_function_available(name: &Name, arity: usize) -> bool {
+    name.namespace() == FN_NAMESPACE && name.local_name() == "concat" && arity >= 2
 }
 
 fn resolve_system_property(context: &DynamicContext, property_name: &str) -> Option<String> {

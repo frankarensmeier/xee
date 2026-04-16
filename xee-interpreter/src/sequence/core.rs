@@ -483,6 +483,15 @@ fn bind_function_to_program(
             )
             .into()
         }
+        function::Function::Coerced(data) => function::CoercedFunctionData::new(
+            bind_function_to_program(&data.function, program),
+            data.signature.clone(),
+        )
+        .into(),
+        function::Function::Concat(data) => function::ConcatFunctionData::new(data.arity).into(),
+        function::Function::PatternMatcher(data) => {
+            function::PatternMatcherFunctionData::new(data.pattern.clone()).into()
+        }
         function::Function::Map(map) => {
             let entries = map
                 .entries()

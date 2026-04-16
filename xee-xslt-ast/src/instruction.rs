@@ -1585,7 +1585,7 @@ impl InstructionParser for ast::Output {
             normalization_form: attributes
                 .optional(names.normalization_form, attributes.normalization_form())?,
             omit_xml_declaration: attributes
-                .boolean_with_default(names.omit_xml_declaration, false)?,
+                .optional(names.omit_xml_declaration, attributes.boolean())?,
             parameter_document: attributes.optional(names.parameter_document, attributes.uri())?,
             standalone: attributes.optional(names.standalone, attributes.standalone())?,
             suppress_indentation: attributes

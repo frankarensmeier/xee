@@ -932,12 +932,21 @@ impl AssertError {
 impl Assertable for AssertError {
     fn assert_result(
         &self,
-        _context: &DynamicContext<'_>,
-        _documents: &mut Documents,
+        context: &DynamicContext<'_>,
+        documents: &mut Documents,
         result: &error::ValueResult<Sequence>,
     ) -> TestOutcome {
         match result {
-            Ok(sequence) => TestOutcome::Failed(Failure::Error(self.clone(), sequence.clone())),
+            Ok(sequence) => {
+                if context.static_context().processor_xslt_version().is_some() {
+                    match serialize_for_assertion(context, documents, sequence, None) {
+                        Ok(_) => {}
+                        Err(error) => return self.assert_error(&error.value()),
+                    }
+                }
+
+                TestOutcome::Failed(Failure::Error(self.clone(), sequence.clone()))
+            }
             Err(error) => self.assert_error(error),
         }
     }
@@ -1519,29 +1528,39 @@ fn serialize_for_assertion(
             if name.namespace().is_empty() && name.local_name() == "xml"
     );
 
-    if !has_serialization_parameters {
-        if let Some(method) = method {
-            params.method = QNameOrString::String(method.to_string());
-            if method == "html" || method == "xhtml" {
-                set_html_media_type(&mut params);
-            }
-        }
-    } else if method.is_none() && principal_result_method_is_xml {
+    let probe_html_method = |params: &mut SerializationParameters,
+                             documents: &mut Documents,
+                             sequence: &Sequence|
+     -> error::Result<()> {
         let normalized = sequence.normalize(&params.item_separator, documents.xot_mut())?;
         if let Ok(document_element) = documents.xot().document_element(normalized) {
             if let Some(name) = documents.xot().node_name(document_element) {
                 let (local_name, namespace) = documents.xot().name_ns_str(name);
                 if local_name.eq_ignore_ascii_case("html") && namespace.is_empty() {
                     params.method = QNameOrString::String("html".to_string());
-                    set_html_media_type(&mut params);
+                    set_html_media_type(params);
                 } else if local_name.eq_ignore_ascii_case("html")
                     && namespace == "http://www.w3.org/1999/xhtml"
                 {
                     params.method = QNameOrString::String("xhtml".to_string());
-                    set_html_media_type(&mut params);
+                    set_html_media_type(params);
                 }
             }
         }
+        Ok(())
+    };
+
+    if !has_serialization_parameters {
+        if let Some(method) = method {
+            params.method = QNameOrString::String(method.to_string());
+            if method == "html" || method == "xhtml" {
+                set_html_media_type(&mut params);
+            }
+        } else if principal_result_method_is_xml {
+            probe_html_method(&mut params, documents, sequence)?;
+        }
+    } else if method.is_none() && principal_result_method_is_xml {
+        probe_html_method(&mut params, documents, sequence)?;
     }
 
     Ok(sequence
@@ -1805,6 +1824,42 @@ mod tests {
             serialize_for_assertion(&context, &mut documents, &sequence, None).unwrap(),
             r#"{"a":22}"#
         );
+    }
+
+    #[test]
+    fn test_assert_error_checks_xslt_serialization_errors() {
+        let program = xee_xslt_compiler::parse(
+            StaticContextBuilder::default().build(),
+            r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               xmlns:xs="http://www.w3.org/2001/XMLSchema"
+               version="3.0">
+  <xsl:output method="json" allow-duplicate-names="no" build-tree="false"/>
+  <xsl:template name="xsl:initial-template">
+    <xsl:map>
+      <xsl:map-entry key="xs:time('23:00:00Z')" select="'alpha'"/>
+      <xsl:map-entry key="'23:00:00Z'" select="'beta'"/>
+    </xsl:map>
+  </xsl:template>
+</xsl:transform>"#,
+        )
+        .unwrap();
+
+        let mut documents = Documents::new();
+        let builder = program.dynamic_context_builder();
+        let context = builder.build();
+        let runnable = program.runnable(&context);
+        let sequence = runnable
+            .named_template("initial-template", documents.xot_mut())
+            .unwrap();
+
+        let outcome = AssertError::new("SERE0022".to_string()).assert_result(
+            &context,
+            &mut documents,
+            &Ok(sequence),
+        );
+
+        assert_eq!(outcome, TestOutcome::Passed);
     }
 
     #[test]

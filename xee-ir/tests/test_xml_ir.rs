@@ -59,6 +59,7 @@ fn test_generate_element() {
 
     // wrap all of this into a function definition
     let function_definition = ir::FunctionDefinition {
+        declared_name: None,
         params: vec![
             ir::Param {
                 name: ir::Name::new("item".to_string()),

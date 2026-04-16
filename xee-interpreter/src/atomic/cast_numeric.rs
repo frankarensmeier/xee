@@ -79,7 +79,13 @@ impl atomic::Atomic {
             "INF" => Ok(f32::INFINITY),
             "-INF" => Ok(f32::NEG_INFINITY),
             "NaN" => Ok(f32::NAN),
-            _ => s.parse::<f32>().map_err(|_| error::Error::FORG0001),
+            _ => {
+                let parsed = s.parse::<f32>().map_err(|_| error::Error::FORG0001)?;
+                if parsed.is_nan() || parsed.is_infinite() {
+                    return Err(error::Error::FORG0001);
+                }
+                Ok(parsed)
+            }
         }
     }
 
@@ -88,7 +94,13 @@ impl atomic::Atomic {
             "INF" => Ok(f64::INFINITY),
             "-INF" => Ok(f64::NEG_INFINITY),
             "NaN" => Ok(f64::NAN),
-            _ => s.parse::<f64>().map_err(|_| error::Error::FORG0001),
+            _ => {
+                let parsed = s.parse::<f64>().map_err(|_| error::Error::FORG0001)?;
+                if parsed.is_nan() || parsed.is_infinite() {
+                    return Err(error::Error::FORG0001);
+                }
+                Ok(parsed)
+            }
         }
     }
 

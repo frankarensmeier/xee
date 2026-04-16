@@ -29,6 +29,7 @@ impl Name {
 #[derive(Debug, Clone)]
 pub struct InlineFunction {
     pub name: String,
+    pub declared_name: Option<xee_name::Name>,
     pub signature: Signature,
     // things referenced by instructions (by index)
     pub constants: Vec<sequence::Sequence>,

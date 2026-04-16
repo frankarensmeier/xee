@@ -177,6 +177,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit(Instruction::Return, span);
         function::InlineFunction {
             name,
+            declared_name: function_definition.declared_name.clone(),
             signature: function_definition.signature(),
             chunk: self.compiled,
             spans: self.spans,

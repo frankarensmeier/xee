@@ -363,6 +363,7 @@ impl<'a> DeclarationCompiler<'a> {
     ) -> error::SpannedResult<()> {
         let mut function_compiler = self.function_compiler();
         let function_definition = ir::FunctionDefinition {
+            declared_name: None,
             params: global_variable.params.clone(),
             return_type: None,
             body: Box::new(global_variable.expr.clone()),
@@ -518,6 +519,9 @@ impl<'a> DeclarationCompiler<'a> {
                 function_id,
             },
         );
+        self.program
+            .declarations
+            .add_template_import_precedence(function_id, function_binding.import_precedence);
         Ok(())
     }
 

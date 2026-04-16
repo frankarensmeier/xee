@@ -8,6 +8,7 @@ use xee_interpreter::{atomic, error, function, sequence};
 
 use crate::declaration_compiler::{ModeIds, TemplateIds, TemplateParams};
 use crate::ir;
+use xee_xpath_ast::pattern::transform_pattern;
 use xee_xpath_ast::span::Spanned;
 
 use super::builder::{BackwardJumpRef, ForwardJumpRef, FunctionBuilder, JumpCondition};
@@ -144,6 +145,21 @@ impl<'a> FunctionCompiler<'a> {
                             context_names.as_ref(),
                             span,
                         )?;
+                    }
+                    ir::Const::ConcatFunctionReference(arity) => {
+                        let function: function::Function =
+                            function::ConcatFunctionData::new(*arity).into();
+                        let item: sequence::Item = function.into();
+                        self.builder.emit_constant(item.into(), span);
+                    }
+                    ir::Const::PatternMatcherFunction(pattern) => {
+                        let pattern = transform_pattern(pattern, |function_definition| {
+                            self.compile_function_id(function_definition, span)
+                        })?;
+                        let function: function::Function =
+                            function::PatternMatcherFunctionData::new(pattern).into();
+                        let item: sequence::Item = function.into();
+                        self.builder.emit_constant(item.into(), span);
                     }
                 };
                 Ok(())
@@ -1404,6 +1420,8 @@ fn expr_value_uses_name(expr: &ir::Expr, name: &ir::Name) -> bool {
         ir::Expr::PatternPredicate(pattern_predicate) => {
             atom_uses_name(&pattern_predicate.var_atom, name)
                 || expr_uses_name(&pattern_predicate.expr, name)
+                || name == &pattern_predicate.context_names.position
+                || name == &pattern_predicate.context_names.last
         }
         ir::Expr::Quantified(quantified) => {
             atom_uses_name(&quantified.var_atom, name)

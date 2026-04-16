@@ -1305,7 +1305,7 @@ pub struct Output {
     pub json_node_output_method: Option<JsonNodeOutputMethod>,
     pub media_type: Option<String>,
     pub normalization_form: Option<NormalizationForm>,
-    pub omit_xml_declaration: bool,
+    pub omit_xml_declaration: Option<bool>,
     pub parameter_document: Option<Uri>,
     pub standalone: Option<Standalone>,
     pub suppress_indentation: Vec<EqName>,

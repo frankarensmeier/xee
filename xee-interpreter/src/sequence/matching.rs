@@ -64,12 +64,60 @@ impl Sequence {
         xot: &Xot,
         get_signature: &impl Fn(&function::Function) -> function::Signature,
     ) -> error::Result<Self> {
+        if let ast::SequenceType::Item(occurrence_item) = sequence_type {
+            if let ast::ItemType::FunctionTest(function_test) = &occurrence_item.item_type {
+                return self.function_occurrence_item_matching_conversion(
+                    occurrence_item,
+                    function_test,
+                    get_signature,
+                );
+            }
+        }
+
         self.sequence_type_matching_convert(
             sequence_type,
             &|atomic, xs| Self::cast_or_promote_atomic(atomic, xs, context),
             &|function_test, item| item.function_arity_matching(function_test, &get_signature),
             xot,
         )
+    }
+
+    fn function_occurrence_item_matching_conversion(
+        self,
+        occurrence_item: &ast::Item,
+        function_test: &ast::FunctionTest,
+        get_signature: &impl Fn(&function::Function) -> function::Signature,
+    ) -> error::Result<Self> {
+        match occurrence_item.occurrence {
+            ast::Occurrence::One => {
+                if self.len() != 1 {
+                    return Err(error::Error::type_error(format!(
+                        "expected exactly one item, got {}",
+                        self.len()
+                    )));
+                }
+            }
+            ast::Occurrence::Option => {
+                if self.len() > 1 {
+                    return Err(error::Error::type_error(format!(
+                        "expected zero or one item, got {}",
+                        self.len()
+                    )));
+                }
+            }
+            ast::Occurrence::NonEmpty => {
+                if self.is_empty() {
+                    return Err(error::Error::type_error(
+                        "expected non-empty sequence, got empty",
+                    ));
+                }
+            }
+            ast::Occurrence::Many => {}
+        }
+
+        self.iter()
+            .map(|item| item.function_conversion(function_test, get_signature))
+            .collect()
     }
 
     fn cast_or_promote_atomic(
@@ -435,6 +483,55 @@ impl Item {
             item_type: ast::ItemType::Item,
             occurrence: ast::Occurrence::Many,
         })
+    }
+
+    fn coerced_function_signature(
+        function_test: &ast::TypedFunctionTest,
+    ) -> function::Signature {
+        function::Signature::new(
+            function_test
+                .parameter_types
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect(),
+            Some(function_test.return_type.clone()),
+        )
+    }
+
+    pub(crate) fn function_conversion(
+        &self,
+        function_test: &ast::FunctionTest,
+        get_signature: &impl Fn(&function::Function) -> function::Signature,
+    ) -> error::Result<Self> {
+        match function_test {
+            ast::FunctionTest::AnyFunctionTest => {
+                self.to_function()?;
+                Ok(self.clone())
+            }
+            ast::FunctionTest::TypedFunctionTest(typed_function_test) => {
+                let function = self.to_function()?;
+                let signature = get_signature(&function);
+                if signature.arity() != typed_function_test.parameter_types.len() {
+                    return Err(error::Error::type_error(format!(
+                        "function arity mismatch: expected {}, got {}",
+                        typed_function_test.parameter_types.len(),
+                        signature.arity()
+                    )));
+                }
+                if Self::function_type_matching_helper(typed_function_test, &signature) {
+                    Ok(self.clone())
+                } else {
+                    Ok(Item::Function(
+                        function::CoercedFunctionData::new(
+                            function,
+                            Self::coerced_function_signature(typed_function_test),
+                        )
+                        .into(),
+                    ))
+                }
+            }
+        }
     }
 }
 

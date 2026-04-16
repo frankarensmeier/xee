@@ -80,7 +80,7 @@ where
         .try_map_with(|(name, arity), extra| {
             let span = extra.span();
             check_reserved(&name, span)?;
-            let arity: u8 = arity
+            let arity: usize = arity
                 .try_into()
                 .map_err(|_| ParserError::ArityOverflow { span })?;
             Ok(ast::PrimaryExpr::NamedFunctionRef(ast::NamedFunctionRef {

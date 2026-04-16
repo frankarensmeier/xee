@@ -79,6 +79,8 @@ pub enum Const {
     Double(OrderedFloat<f64>),
     Decimal(Decimal),
     StaticFunctionReference(StaticFunctionId, Option<ContextNames>),
+    ConcatFunctionReference(usize),
+    PatternMatcherFunction(Pattern<FunctionDefinition>),
     // XXX replace this with a sequence constant? useful once we have constant folding
     EmptySequence,
 }
@@ -119,6 +121,7 @@ pub struct Unary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionDefinition {
+    pub declared_name: Option<xmlname::OwnedName>,
     pub params: Vec<Param>,
     pub return_type: Option<SequenceType>,
     pub body: Box<ExprS>,
@@ -524,5 +527,6 @@ pub struct NumberPatternDefinition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionBinding {
     pub name: Name,
+    pub import_precedence: i64,
     pub main: FunctionDefinition,
 }

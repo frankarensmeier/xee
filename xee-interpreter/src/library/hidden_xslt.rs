@@ -277,6 +277,82 @@ fn xslt_for_each_group_adjacent(
     Ok(result.into())
 }
 
+#[xpath_fn(
+    "fn:xslt-for-each-group-starting-with($seq as item()*, $pattern as function(*), $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
+)]
+fn xslt_for_each_group_starting_with(
+    interpreter: &mut Interpreter,
+    seq: &sequence::Sequence,
+    pattern: sequence::Item,
+    body: sequence::Item,
+    sort_key: &sequence::Sequence,
+    sort_descending: &str,
+    sort_numeric: &str,
+) -> error::Result<sequence::Sequence> {
+    let matcher = pattern.to_function()?;
+    let body_function = body.to_function()?;
+
+    let mut groups: Vec<Vec<sequence::Item>> = Vec::new();
+    let total_items = seq.len();
+    for (index, item) in seq.iter().enumerate() {
+        let is_start = matcher_matches_item(interpreter, &matcher, &item, index + 1, total_items)?;
+        if is_start && !groups.is_empty() {
+            groups.push(vec![item.clone()]);
+        } else if let Some(group) = groups.last_mut() {
+            group.push(item.clone());
+        } else {
+            groups.push(vec![item.clone()]);
+        }
+    }
+
+    evaluate_pattern_groups(
+        interpreter,
+        &body_function,
+        groups,
+        sort_key,
+        sort_descending,
+        sort_numeric,
+    )
+}
+
+#[xpath_fn(
+    "fn:xslt-for-each-group-ending-with($seq as item()*, $pattern as function(*), $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
+)]
+fn xslt_for_each_group_ending_with(
+    interpreter: &mut Interpreter,
+    seq: &sequence::Sequence,
+    pattern: sequence::Item,
+    body: sequence::Item,
+    sort_key: &sequence::Sequence,
+    sort_descending: &str,
+    sort_numeric: &str,
+) -> error::Result<sequence::Sequence> {
+    let matcher = pattern.to_function()?;
+    let body_function = body.to_function()?;
+
+    let mut groups: Vec<Vec<sequence::Item>> = Vec::new();
+    let mut current_group = Vec::new();
+    let total_items = seq.len();
+    for (index, item) in seq.iter().enumerate() {
+        current_group.push(item.clone());
+        if matcher_matches_item(interpreter, &matcher, &item, index + 1, total_items)? {
+            groups.push(std::mem::take(&mut current_group));
+        }
+    }
+    if !current_group.is_empty() {
+        groups.push(current_group);
+    }
+
+    evaluate_pattern_groups(
+        interpreter,
+        &body_function,
+        groups,
+        sort_key,
+        sort_descending,
+        sort_numeric,
+    )
+}
+
 #[xpath_fn("fn:current-group() as item()*")]
 fn current_group(interpreter: &Interpreter) -> error::Result<sequence::Sequence> {
     Ok(interpreter.current_group())
@@ -330,6 +406,123 @@ fn copy_sequence(
         result.push(copy);
     }
     Ok(result.into())
+}
+
+fn evaluate_pattern_groups(
+    interpreter: &mut Interpreter,
+    body_function: &function::Function,
+    groups: Vec<Vec<sequence::Item>>,
+    sort_key: &sequence::Sequence,
+    sort_descending: &str,
+    sort_numeric: &str,
+) -> error::Result<sequence::Sequence> {
+    let sorted_indices = sort_group_indices(
+        interpreter,
+        &groups,
+        sort_key,
+        sort_descending,
+        sort_numeric,
+    )?;
+
+    let mut result = Vec::new();
+    let total_groups: IBig = sorted_indices.len().into();
+    for (pos, &idx) in sorted_indices.iter().enumerate() {
+        let group_seq: sequence::Sequence = groups[idx].clone().into();
+        let first_item: sequence::Sequence = group_seq
+            .iter()
+            .next()
+            .map(|item| item.clone().into())
+            .unwrap_or_default();
+
+        let position: IBig = (pos + 1).into();
+        interpreter.push_current_group(group_seq, None);
+        let body_result = interpreter.call_function_with_arguments(
+            body_function,
+            &[
+                first_item,
+                atomic::Atomic::from(position).into(),
+                atomic::Atomic::from(total_groups.clone()).into(),
+            ],
+        );
+        interpreter.pop_current_group();
+
+        result.extend(body_result?.iter());
+    }
+
+    Ok(result.into())
+}
+
+fn sort_group_indices(
+    interpreter: &mut Interpreter,
+    groups: &[Vec<sequence::Item>],
+    sort_key: &sequence::Sequence,
+    sort_descending: &str,
+    sort_numeric: &str,
+) -> error::Result<Vec<usize>> {
+    if sort_key.is_empty() {
+        return Ok((0..groups.len()).collect());
+    }
+
+    let sort_key_fn = sort_key.iter().next().unwrap().to_function()?;
+    let mut keyed: Vec<(usize, atomic::Atomic)> = Vec::new();
+    for (i, group) in groups.iter().enumerate() {
+        let first_item: sequence::Sequence = group
+            .first()
+            .map(|item| item.clone().into())
+            .unwrap_or_default();
+        let sort_val = interpreter.call_function_with_arguments(&sort_key_fn, &[first_item])?;
+        let sort_atomic = sort_val
+            .atomized(interpreter.xot())
+            .next()
+            .transpose()?
+            .unwrap_or(atomic::Atomic::from(""));
+        keyed.push((i, sort_atomic));
+    }
+
+    let is_descending = matches!(sort_descending, "yes");
+    let is_numeric = matches!(sort_numeric, "yes");
+
+    keyed.sort_by(|a, b| {
+        let ordering = {
+            let a_str = a.1.clone().into_canonical();
+            let b_str = b.1.clone().into_canonical();
+            if is_numeric {
+                let a_num: f64 = a_str.parse().unwrap_or(f64::NAN);
+                let b_num: f64 = b_str.parse().unwrap_or(f64::NAN);
+                a_num
+                    .partial_cmp(&b_num)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                a_str.cmp(&b_str)
+            }
+        };
+        if is_descending {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
+
+    Ok(keyed.into_iter().map(|(i, _)| i).collect())
+}
+
+fn matcher_matches_item(
+    interpreter: &mut Interpreter,
+    matcher: &function::Function,
+    item: &sequence::Item,
+    position: usize,
+    size: usize,
+) -> error::Result<bool> {
+    let result = interpreter.call_function_with_arguments(
+        matcher,
+        &[
+            item.clone().into(),
+            atomic::Atomic::from(position as u64).into(),
+            atomic::Atomic::from(size as u64).into(),
+        ],
+    )?;
+    let matched = result.effective_boolean_value()?;
+    Ok(matched)
 }
 
 fn strip_whitespace_only_text_children(xot: &mut Xot, node: xot::Node) {
@@ -2187,6 +2380,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(simple_content),
         wrap_xpath_fn!(xslt_for_each_group_by),
         wrap_xpath_fn!(xslt_for_each_group_adjacent),
+        wrap_xpath_fn!(xslt_for_each_group_starting_with),
+        wrap_xpath_fn!(xslt_for_each_group_ending_with),
         wrap_xpath_fn!(current_group),
         wrap_xpath_fn!(current_grouping_key),
         wrap_xpath_fn!(copy_of),

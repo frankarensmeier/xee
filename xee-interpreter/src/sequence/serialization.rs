@@ -1,4 +1,4 @@
-use ahash::HashMap;
+use ahash::{HashMap, HashSet, HashSetExt};
 use rust_decimal::Decimal;
 use xot::{xmlname::OwnedName, Xot};
 
@@ -157,6 +157,7 @@ impl SerializationParameters {
     }
 
     pub(crate) fn xml_in_json_serialization(method: &QNameOrString) -> Self {
+        let html_in_json = matches!(method.local_name(), Some("html"));
         Self {
             // use the method given
             method: method.clone(),
@@ -174,10 +175,14 @@ impl SerializationParameters {
             escape_uri_attributes: false,
             html_version: Decimal::from_str_exact("5.0").unwrap(),
             explicit_html_version: false,
-            include_content_type: false,
+            include_content_type: html_in_json,
             indent: false,
             item_separator: " ".to_string(),
-            media_type: None,
+            media_type: if html_in_json {
+                Some("text/html".to_string())
+            } else {
+                None
+            },
             normalization_form: None,
             standalone: None,
             suppress_indentation: Vec::new(),
@@ -444,6 +449,10 @@ fn serialize_html(
     if xot.document_element(node).is_err() {
         return Ok(xot.string_value(node));
     }
+    materialize_html_foreign_attribute_namespaces(node, xot);
+    if parameters.include_content_type {
+        inject_content_type_meta(node, &parameters, xot);
+    }
     // TODO: no check yet for html version rejecting versions that aren't 5
     let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
     let indentation = xot_indentation(&parameters, xot);
@@ -454,17 +463,17 @@ fn serialize_html(
     };
     let mut serialized = html5.serialize_string(output_parameters, node)?;
 
-    if parameters.include_content_type {
-        inject_content_type_meta(&mut serialized, &parameters, false);
-    }
-
     if parameters.explicit_html_version {
         if parameters.html_version >= Decimal::from_str_exact("5.0").unwrap() {
             ensure_html5_doctype(&mut serialized);
         } else {
             remove_html5_doctype(&mut serialized);
         }
+    } else {
+        remove_html5_doctype(&mut serialized);
     }
+
+    remove_redundant_default_namespace(&mut serialized, " xmlns=\"http://www.w3.org/1999/xhtml\"");
 
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
@@ -483,65 +492,163 @@ fn serialize_xhtml(
         return Ok(xot.string_value(node));
     }
 
-    let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
-    let indentation = xot_indentation(&parameters, xot);
-    let html5 = xot.html5();
-    let output_parameters = xot::output::html5::Parameters {
-        indentation,
-        cdata_section_elements,
-    };
-    let mut serialized = html5.serialize_string(output_parameters, node)?;
+    materialize_xhtml_nonvoid_empty_elements(node, xot);
 
     let html_root = is_html_root_element(node, xot);
-
+    let xhtml5 = parameters.html_version >= Decimal::from_str_exact("5.0").unwrap();
     if parameters.include_content_type && html_root {
-        inject_content_type_meta(&mut serialized, &parameters, true);
+        inject_content_type_meta(node, &parameters, xot);
     }
 
-    if parameters.explicit_html_version {
-        if parameters.html_version >= Decimal::from_str_exact("5.0").unwrap() {
-            // XHTML 5: only emit <!DOCTYPE html> when root element is <html>.
-            // xot's html5 serializer adds it unconditionally, so remove it
-            // when the root element is not <html>.
-            if html_root {
-                ensure_html5_doctype(&mut serialized);
-            } else {
-                remove_html5_doctype(&mut serialized);
-            }
-        } else {
-            remove_html5_doctype(&mut serialized);
-        }
+    // XHTML uses the XML output method for serialization (well-formed XML)
+    let indentation = xot_indentation(&parameters, xot);
+    let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
+    let declaration = if !parameters.omit_xml_declaration {
+        Some(xot::output::xml::Declaration {
+            encoding: Some(parameters.encoding.to_string()),
+            standalone: parameters.standalone,
+        })
+    } else {
+        None
+    };
+
+    // DOCTYPE from explicit doctype-public/doctype-system
+    let doctype = match (
+        parameters.doctype_public.clone(),
+        parameters.doctype_system.clone(),
+    ) {
+        (Some(public), Some(system)) => Some(xot::output::xml::DocType::Public { public, system }),
+        (None, Some(system)) => Some(xot::output::xml::DocType::System { system }),
+        (Some(public), None) => Some(xot::output::xml::DocType::Public {
+            public,
+            system: "".to_string(),
+        }),
+        (None, None) => None,
+    };
+
+    let output_parameters = xot::output::xml::Parameters {
+        indentation,
+        cdata_section_elements,
+        declaration,
+        doctype,
+        ..Default::default()
+    };
+
+    let mut serialized = xot.serialize_xml_string(output_parameters, node)?;
+
+    // Strip post-declaration newline when indent="no"
+    if !parameters.indent && !parameters.omit_xml_declaration {
+        serialized = strip_post_declaration_newline(&serialized);
+    }
+
+    // For XHTML 5 with html root, add <!DOCTYPE html> when no explicit doctype
+    if html_root
+        && xhtml5
+        && parameters.doctype_public.is_none()
+        && parameters.doctype_system.is_none()
+    {
+        ensure_html5_doctype(&mut serialized);
     }
 
     remove_redundant_default_namespace(&mut serialized, " xmlns=\"http://www.w3.org/1999/xhtml\"");
-
-    if !parameters.omit_xml_declaration {
-        serialized = format!(
-            "<?xml version=\"1.0\" encoding=\"{}\"?>\n{}",
-            parameters.encoding, serialized
-        );
-    }
 
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
 fn inject_content_type_meta(
-    serialized: &mut String,
+    root: xot::Node,
     parameters: &SerializationParameters,
-    self_closing: bool,
+    xot: &mut Xot,
 ) {
+    let Ok(document_element) = xot.document_element(root) else {
+        return;
+    };
+    let Some(head) = html_head_node(document_element, xot) else {
+        return;
+    };
+
     let media_type = parameters
         .media_type
         .clone()
         .unwrap_or_else(|| "text/html".to_string());
-    let closing = if self_closing { " />" } else { ">" };
-    let meta = format!(
-        "<meta http-equiv=\"Content-Type\" content=\"{}; charset={}\"{}",
-        media_type, parameters.encoding, closing
-    );
-    if let Some(position) = serialized.find("</head>") {
-        serialized.insert_str(position, &meta);
+    let http_equiv_name = xot.add_name("http-equiv");
+    let content_name = xot.add_name("content");
+    if let Some(existing_meta) = head_content_type_meta(head, http_equiv_name, xot) {
+        let http_equiv_attr = xot.new_attribute_node(http_equiv_name, "Content-Type".to_string());
+        let content_attr = xot.new_attribute_node(
+            content_name,
+            format!("{}; charset={}", media_type, parameters.encoding),
+        );
+        xot.append_attribute_node(existing_meta, http_equiv_attr).unwrap();
+        xot.append_attribute_node(existing_meta, content_attr).unwrap();
+        return;
     }
+    let namespace_id = xot
+        .node_name(head)
+        .map(|name_id| xot.namespace_for_name(name_id))
+        .unwrap();
+    let meta_name = if xot.namespace_str(namespace_id).is_empty() {
+        xot.add_name("meta")
+    } else {
+        xot.add_name_ns("meta", namespace_id)
+    };
+    let meta = xot.new_element(meta_name);
+    let http_equiv_attr = xot.new_attribute_node(http_equiv_name, "Content-Type".to_string());
+    let content_attr = xot.new_attribute_node(
+        content_name,
+        format!("{}; charset={}", media_type, parameters.encoding),
+    );
+    xot.append_attribute_node(meta, http_equiv_attr).unwrap();
+    xot.append_attribute_node(meta, content_attr).unwrap();
+    xot.prepend(head, meta).unwrap();
+}
+
+fn html_head_node(document_element: xot::Node, xot: &Xot) -> Option<xot::Node> {
+    let Some(name_id) = xot.node_name(document_element) else {
+        return None;
+    };
+    let (local_name, namespace) = xot.name_ns_str(name_id);
+    let html_namespace = namespace.is_empty() || namespace == "http://www.w3.org/1999/xhtml";
+    if !html_namespace {
+        return None;
+    }
+    if local_name.eq_ignore_ascii_case("head") {
+        return Some(document_element);
+    }
+    if !local_name.eq_ignore_ascii_case("html") {
+        return None;
+    }
+    xot.children(document_element).find(|child| {
+        if !xot.is_element(*child) {
+            return false;
+        }
+        let Some(name_id) = xot.node_name(*child) else {
+            return false;
+        };
+        let (local_name, namespace) = xot.name_ns_str(name_id);
+        local_name.eq_ignore_ascii_case("head")
+            && (namespace.is_empty() || namespace == "http://www.w3.org/1999/xhtml")
+    })
+}
+
+fn head_content_type_meta(head: xot::Node, http_equiv_name: xot::NameId, xot: &Xot) -> Option<xot::Node> {
+    xot.children(head).find(|child| {
+        if !xot.is_element(*child) {
+            return false;
+        }
+        let Some(name_id) = xot.node_name(*child) else {
+            return false;
+        };
+        let (local_name, namespace) = xot.name_ns_str(name_id);
+        if !local_name.eq_ignore_ascii_case("meta")
+            || !(namespace.is_empty() || namespace == "http://www.w3.org/1999/xhtml")
+        {
+            return false;
+        }
+        xot.attributes(*child)
+            .get(http_equiv_name)
+            .is_some_and(|value| value.eq_ignore_ascii_case("Content-Type"))
+    })
 }
 
 fn remove_redundant_default_namespace(serialized: &mut String, namespace_attr: &str) {
@@ -557,8 +664,17 @@ fn remove_redundant_default_namespace(serialized: &mut String, namespace_attr: &
 }
 
 fn ensure_html5_doctype(serialized: &mut String) {
-    if !serialized.trim_start().starts_with("<!DOCTYPE html>") {
-        *serialized = format!("<!DOCTYPE html>\n{serialized}");
+    if !serialized.contains("<!DOCTYPE html>") {
+        // Insert after XML declaration if present, otherwise at the beginning
+        if let Some(pos) = serialized.find("?>") {
+            let insert_pos = pos + 2;
+            // Skip any whitespace after the declaration
+            let rest = &serialized[insert_pos..];
+            let ws_len = rest.len() - rest.trim_start().len();
+            serialized.insert_str(insert_pos + ws_len, "<!DOCTYPE html>\n");
+        } else {
+            *serialized = format!("<!DOCTYPE html>\n{serialized}");
+        }
     }
 }
 
@@ -571,6 +687,124 @@ fn is_html_root_element(node: xot::Node, xot: &Xot) -> bool {
     };
     let (local, ns) = xot.name_ns_str(name_id);
     local == "html" && (ns.is_empty() || ns == "http://www.w3.org/1999/xhtml")
+}
+
+/// XHTML void elements that may use self-closing syntax.
+/// All other elements must use explicit close tags: `<element></element>`, not `<element/>`.
+const XHTML_VOID_ELEMENTS: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+    "source", "track", "wbr",
+];
+
+fn materialize_xhtml_nonvoid_empty_elements(root: xot::Node, xot: &mut Xot) {
+    let mut elements = Vec::new();
+    if matches!(xot.value(root), xot::Value::Element(_)) {
+        elements.push(root);
+    }
+    elements.extend(xot.descendants(root).filter(|node| xot.is_element(*node)));
+
+    for element in elements {
+        if !needs_explicit_xhtml_end_tag(element, xot) {
+            continue;
+        }
+        let empty = xot.new_text("");
+        xot.append(element, empty).unwrap();
+    }
+}
+
+fn materialize_html_foreign_attribute_namespaces(root: xot::Node, xot: &mut Xot) {
+    let mut elements = Vec::new();
+    if matches!(xot.value(root), xot::Value::Element(_)) {
+        elements.push(root);
+    }
+    elements.extend(xot.descendants(root).filter(|node| xot.is_element(*node)));
+
+    for element in elements {
+        let Some(name_id) = xot.node_name(element) else {
+            continue;
+        };
+        let namespace = xot.namespace_str(xot.namespace_for_name(name_id));
+        if namespace != "http://www.w3.org/2000/svg"
+            && namespace != "http://www.w3.org/1998/Math/MathML"
+        {
+            continue;
+        }
+
+        let mut required = Vec::new();
+        for attribute_name in xot.attributes(element).keys() {
+            let attribute_namespace = xot.namespace_str(xot.namespace_for_name(attribute_name));
+            if attribute_namespace.is_empty() {
+                continue;
+            }
+
+            let Some(prefix) = in_scope_prefix_for_namespace(element, attribute_namespace, xot)
+            else {
+                continue;
+            };
+
+            if has_explicit_namespace_node(element, &prefix, attribute_namespace, xot) {
+                continue;
+            }
+
+            if !required
+                .iter()
+                .any(|(current_prefix, current_namespace)| {
+                    current_prefix == &prefix && current_namespace == attribute_namespace
+                })
+            {
+                required.push((prefix, attribute_namespace.to_string()));
+            }
+        }
+
+        for (prefix, namespace) in required {
+            let prefix_id = xot.add_prefix(&prefix);
+            let namespace_id = xot.add_namespace(&namespace);
+            let namespace_node = xot.new_namespace_node(prefix_id, namespace_id);
+            xot.any_append(element, namespace_node).unwrap();
+        }
+    }
+}
+
+fn in_scope_prefix_for_namespace(
+    element: xot::Node,
+    namespace: &str,
+    xot: &Xot,
+) -> Option<String> {
+    xot.namespaces_in_scope(element).find_map(|(prefix, current_namespace)| {
+        let prefix = xot.prefix_str(prefix);
+        if prefix.is_empty() || xot.namespace_str(current_namespace) != namespace {
+            return None;
+        }
+        Some(prefix.to_string())
+    })
+}
+
+fn has_explicit_namespace_node(
+    element: xot::Node,
+    prefix: &str,
+    namespace: &str,
+    xot: &Xot,
+) -> bool {
+    xot.children(element).any(|child| match xot.value(child) {
+        xot::Value::Namespace(node) => {
+            xot.prefix_str(node.prefix()) == prefix && xot.namespace_str(node.namespace()) == namespace
+        }
+        _ => false,
+    })
+}
+
+fn needs_explicit_xhtml_end_tag(element: xot::Node, xot: &Xot) -> bool {
+    let Some(name_id) = xot.node_name(element) else {
+        return false;
+    };
+    let (local_name, namespace) = xot.name_ns_str(name_id);
+    let is_xhtml_element = namespace.is_empty() || namespace == "http://www.w3.org/1999/xhtml";
+    if !is_xhtml_element || XHTML_VOID_ELEMENTS.contains(&local_name) {
+        return false;
+    }
+    !xot
+        .children(element)
+        .any(|child| !matches!(xot.value(child), xot::Value::Namespace(_)))
 }
 
 fn remove_html5_doctype(serialized: &mut String) {
@@ -703,18 +937,17 @@ fn serialize_json(
     parameters: SerializationParameters,
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
-    let r = serialize_json_sequence(arg, &parameters, xot)?;
-    Ok(r.dump())
+    serialize_json_sequence(arg, &parameters, xot)
 }
 
 fn serialize_json_sequence(
     arg: &Sequence,
     parameters: &SerializationParameters,
     xot: &mut Xot,
-) -> Result<json::JsonValue, error::Error> {
+) -> Result<String, error::Error> {
     match arg {
         Sequence::One(item) => serialize_json_item(item.item(), parameters, xot),
-        Sequence::Empty(_) => Ok(json::JsonValue::Null),
+        Sequence::Empty(_) => Ok("null".to_string()),
         Sequence::Many(_) | Sequence::Range(_) => Err(error::Error::SERE0023),
     }
 }
@@ -723,7 +956,7 @@ fn serialize_json_item(
     item: &Item,
     parameters: &SerializationParameters,
     xot: &mut Xot,
-) -> Result<json::JsonValue, error::Error> {
+) -> Result<String, error::Error> {
     match item {
         Item::Atomic(atomic) => serialize_json_atomic(atomic, parameters),
         Item::Node(node) => serialize_json_node(*node, parameters, xot),
@@ -734,33 +967,33 @@ fn serialize_json_item(
 fn serialize_json_atomic(
     atomic: &atomic::Atomic,
     parameters: &SerializationParameters,
-) -> Result<json::JsonValue, error::Error> {
+) -> Result<String, error::Error> {
     match atomic {
         atomic::Atomic::Float(float) => {
             let f = float.into_inner();
             if f.is_infinite() || f.is_nan() {
                 return Err(error::Error::SERE0020);
             }
-            Ok(json::JsonValue::Number(f.into()))
+            Ok(json::JsonValue::Number(f.into()).dump())
         }
         atomic::Atomic::Double(double) => {
             let d = double.into_inner();
             if d.is_infinite() || d.is_nan() {
                 return Err(error::Error::SERE0020);
             }
-            Ok(json::JsonValue::Number(d.into()))
+            Ok(json::JsonValue::Number(d.into()).dump())
         }
         atomic::Atomic::Decimal(decimal) => {
             let d: f64 = (*decimal.as_ref())
                 .try_into()
                 .map_err(|_| error::Error::SERE0020)?;
-            Ok(json::JsonValue::Number(d.into()))
+            Ok(json::JsonValue::Number(d.into()).dump())
         }
         atomic::Atomic::Integer(_t, integer) => {
             let i: f64 = integer.to_f64();
-            Ok(json::JsonValue::Number(i.into()))
+            Ok(json::JsonValue::Number(i.into()).dump())
         }
-        atomic::Atomic::Boolean(b) => Ok(json::JsonValue::Boolean(*b)),
+        atomic::Atomic::Boolean(b) => Ok(json::JsonValue::Boolean(*b).dump()),
         _ => {
             let s = atomic.string_value();
             Ok(serialize_json_string(s, parameters))
@@ -768,24 +1001,47 @@ fn serialize_json_atomic(
     }
 }
 
-fn serialize_json_string(s: String, _parameters: &SerializationParameters) -> json::JsonValue {
+fn serialize_json_string(s: String, parameters: &SerializationParameters) -> String {
     // TODO: normalization-form
 
-    // NOTE: tests serialize-json-127 and serialize-json-128 fail because
-    // the forward slash (solidus) character is not escaped. This is because
-    // the json crate does not do so. This is consistent with the JSON RFC
-    // https://softwareengineering.stackexchange.com/questions/444480/json-rfc8259-escape-forward-slash-or-not
-    // but not consistent with the serialization spec which wrongfully manadates
-    // it anyway.
-    // https://www.w3.org/TR/xslt-xquery-serialization-31/#json-output
-    json::JsonValue::String(s)
+    escape_json_string(&s, &parameters.use_character_maps)
+}
+
+fn escape_json_string(s: &str, character_maps: &HashMap<char, String>) -> String {
+    let mut escaped = String::with_capacity(s.len() + 2);
+    escaped.push('"');
+    for ch in s.chars() {
+        if let Some(replacement) = character_maps.get(&ch) {
+            escaped.push_str(replacement);
+            continue;
+        }
+
+        match ch {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '/' => escaped.push_str("\\/"),
+            '\u{08}' => escaped.push_str("\\b"),
+            '\u{0C}' => escaped.push_str("\\f"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch <= '\u{1F}' => {
+                use std::fmt::Write;
+
+                write!(&mut escaped, "\\u{:04X}", ch as u32).unwrap();
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped.push('"');
+    escaped
 }
 
 fn serialize_json_node(
     node: xot::Node,
     parameters: &SerializationParameters,
     xot: &mut Xot,
-) -> Result<json::JsonValue, error::Error> {
+) -> Result<String, error::Error> {
     match parameters.json_node_output_method.local_name() {
         Some("xml") | Some("html") => {
             let xml_parameters = SerializationParameters::xml_in_json_serialization(
@@ -803,7 +1059,7 @@ fn serialize_json_function(
     function: &function::Function,
     parameters: &SerializationParameters,
     xot: &mut Xot,
-) -> Result<json::JsonValue, error::Error> {
+) -> Result<String, error::Error> {
     match function {
         function::Function::Array(array) => serialize_json_array(array, parameters, xot),
         function::Function::Map(map) => serialize_json_map(map, parameters, xot),
@@ -815,28 +1071,43 @@ fn serialize_json_array(
     array: &function::Array,
     parameters: &SerializationParameters,
     xot: &mut Xot,
-) -> Result<json::JsonValue, error::Error> {
+) -> Result<String, error::Error> {
     let mut result = Vec::with_capacity(array.len());
     for entry in array.iter() {
         let serialized = serialize_json_sequence(entry, parameters, xot)?;
         result.push(serialized);
     }
-    Ok(json::JsonValue::Array(result))
+    Ok(format!("[{}]", result.join(",")))
 }
 
 fn serialize_json_map(
     map: &function::Map,
     parameters: &SerializationParameters,
     xot: &mut Xot,
-) -> Result<json::JsonValue, error::Error> {
-    let mut result = json::object::Object::new();
-    for key in map.keys() {
+) -> Result<String, error::Error> {
+    let mut entries = Vec::with_capacity(map.len());
+    let mut seen_names = HashSet::new();
+
+    for (_map_key, (key, value)) in map.full_entries() {
         let key_s = key.string_value();
-        let value = map.get(key).unwrap();
+        if !parameters.allow_duplicate_names && !seen_names.insert(key_s.clone()) {
+            return Err(error::Error::SERE0022);
+        }
+
         let value = serialize_json_sequence(value, parameters, xot)?;
-        result.insert(&key_s, value);
+        entries.push((key_s, value));
     }
-    Ok(json::JsonValue::Object(result))
+
+    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    Ok(format!(
+        "{{{}}}",
+        entries
+            .into_iter()
+            .map(|(key, value)| format!("{}:{}", serialize_json_string(key, parameters), value))
+            .collect::<Vec<_>>()
+            .join(",")
+    ))
 }
 
 fn xot_indentation(
@@ -922,6 +1193,87 @@ mod tests {
         let xot = Xot::new();
         let params = SerializationParameters::from_map(map, &static_context, &xot).unwrap();
         assert!(!params.allow_duplicate_names);
+    }
+
+    #[test]
+    fn test_serialize_json_string_escapes_solidus() {
+        let params = SerializationParameters::new();
+        assert_eq!(serialize_json_string("a/b".to_string(), &params), "\"a\\/b\"");
+    }
+
+    #[test]
+    fn test_serialize_json_string_honors_character_maps() {
+        let params = SerializationParameters {
+            use_character_maps: HashMap::from_iter([('/' , "/".to_string())]),
+            ..SerializationParameters::new()
+        };
+        assert_eq!(serialize_json_string("a/b".to_string(), &params), "\"a/b\"");
+    }
+
+    #[test]
+    fn test_serialize_json_map_duplicate_names_allowed() {
+        let map = Map::new(vec![
+            (
+                atomic::Atomic::Time(
+                    atomic::NaiveTimeWithOffset::new(
+                        chrono::NaiveTime::from_hms_opt(23, 0, 0).unwrap(),
+                        Some(chrono::FixedOffset::east_opt(0).unwrap()),
+                    )
+                    .into(),
+                ),
+                sequence::Sequence::from(vec![atomic::Atomic::from("alpha")]),
+            ),
+            (
+                atomic::Atomic::from("23:00:00Z"),
+                sequence::Sequence::from(vec![atomic::Atomic::from("beta")]),
+            ),
+        ])
+        .unwrap();
+        let mut xot = Xot::new();
+        let params = SerializationParameters {
+            method: QNameOrString::String("json".to_string()),
+            allow_duplicate_names: true,
+            ..SerializationParameters::new()
+        };
+
+        let serialized = serialize_json_map(&map, &params, &mut xot).unwrap();
+        assert!(
+            serialized == "{\"23:00:00Z\":\"alpha\",\"23:00:00Z\":\"beta\"}"
+                || serialized
+                    == "{\"23:00:00Z\":\"beta\",\"23:00:00Z\":\"alpha\"}"
+        );
+    }
+
+    #[test]
+    fn test_serialize_json_map_duplicate_names_forbidden() {
+        let map = Map::new(vec![
+            (
+                atomic::Atomic::Time(
+                    atomic::NaiveTimeWithOffset::new(
+                        chrono::NaiveTime::from_hms_opt(23, 0, 0).unwrap(),
+                        Some(chrono::FixedOffset::east_opt(0).unwrap()),
+                    )
+                    .into(),
+                ),
+                sequence::Sequence::from(vec![atomic::Atomic::from("alpha")]),
+            ),
+            (
+                atomic::Atomic::from("23:00:00Z"),
+                sequence::Sequence::from(vec![atomic::Atomic::from("beta")]),
+            ),
+        ])
+        .unwrap();
+        let mut xot = Xot::new();
+        let params = SerializationParameters {
+            method: QNameOrString::String("json".to_string()),
+            allow_duplicate_names: false,
+            ..SerializationParameters::new()
+        };
+
+        assert_eq!(
+            serialize_json_map(&map, &params, &mut xot),
+            Err(error::Error::SERE0022)
+        );
     }
 
     #[test]
@@ -1033,5 +1385,36 @@ mod tests {
             serialize_sequence(&sequence, params, &mut xot).unwrap(),
             "map{\"a\":22}|<elem/>|a=\"5\""
         );
+    }
+
+    #[test]
+    fn test_materialize_xhtml_nonvoid_empty_elements_adds_empty_text() {
+        let mut xot = Xot::new();
+        let xhtml_ns = xot.add_namespace("http://www.w3.org/1999/xhtml");
+        let html_name = xot.add_name_ns("html", xhtml_ns);
+        let title_name = xot.add_name_ns("title", xhtml_ns);
+        let html = xot.new_element(html_name);
+        let title = xot.new_element(title_name);
+        xot.append(html, title).unwrap();
+
+        materialize_xhtml_nonvoid_empty_elements(html, &mut xot);
+
+        let children: Vec<_> = xot.children(title).collect();
+        assert_eq!(children.len(), 1);
+        assert!(matches!(xot.value(children[0]), xot::Value::Text(_)));
+    }
+
+    #[test]
+    fn test_materialize_xhtml_nonvoid_empty_elements_keeps_void_empty() {
+        let mut xot = Xot::new();
+        let html_name = xot.add_name("html");
+        let br_name = xot.add_name("br");
+        let html = xot.new_element(html_name);
+        let br = xot.new_element(br_name);
+        xot.append(html, br).unwrap();
+
+        materialize_xhtml_nonvoid_empty_elements(html, &mut xot);
+
+        assert_eq!(xot.children(br).count(), 0);
     }
 }

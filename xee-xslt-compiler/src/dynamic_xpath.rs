@@ -392,11 +392,12 @@ fn rewrite_stylesheet_function_references_primary_expr(
             }
         }
         xpath_ast::PrimaryExpr::NamedFunctionRef(named_function_ref) => {
-            if let Some(rewrite_name) = stylesheet_functions.get(&(
-                named_function_ref.name.value.clone(),
-                named_function_ref.arity,
-            )) {
-                primary.value = xpath_ast::PrimaryExpr::VarRef(rewrite_name.clone());
+            if let Ok(arity) = named_function_ref.arity.try_into() {
+                if let Some(rewrite_name) =
+                    stylesheet_functions.get(&(named_function_ref.name.value.clone(), arity))
+                {
+                    primary.value = xpath_ast::PrimaryExpr::VarRef(rewrite_name.clone());
+                }
             }
             Vec::new()
         }

@@ -3,7 +3,6 @@ use std::rc::Rc;
 
 use ahash::HashMap;
 use ahash::HashMapExt;
-use arrayvec::ArrayVec;
 use xot::Xot;
 
 use crate::atomic;
@@ -13,7 +12,7 @@ use crate::sequence;
 use crate::stack;
 use super::program::Program;
 
-const FRAMES_MAX: usize = 256;
+const FRAMES_LIMIT: usize = 16_384;
 
 #[derive(Debug, Clone)]
 pub(crate) struct StateCheckpoint {
@@ -56,7 +55,7 @@ pub struct State<'a> {
     stack: Vec<stack::Value>,
     build_stack: Vec<BuildStackEntry>,
     mutation_count: usize,
-    frames: ArrayVec<Frame, FRAMES_MAX>,
+    frames: Vec<Frame>,
     regex_cache: RefCell<HashMap<RegexKey, Rc<regexml::Regex>>>,
     regex_groups: Vec<Vec<String>>,
     current_group_stack: Vec<sequence::Sequence>,
@@ -111,7 +110,7 @@ impl<'a> State<'a> {
             stack: vec![],
             build_stack: vec![],
             mutation_count: 0,
-            frames: ArrayVec::new(),
+            frames: Vec::new(),
             regex_cache: RefCell::new(HashMap::new()),
             regex_groups: vec![],
             current_group_stack: vec![],
@@ -261,7 +260,7 @@ impl<'a> State<'a> {
         arity: usize,
         owned_program: Option<Rc<Program>>,
     ) -> error::Result<()> {
-        if self.frames.len() >= self.frames.capacity() {
+        if self.frames.len() >= FRAMES_LIMIT {
             return Err(error::Error::StackOverflow);
         }
         self.frames.push(Frame {

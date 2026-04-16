@@ -4,8 +4,9 @@ use std::rc::Rc;
 
 use ibig::IBig;
 
-use xee_name::Name;
+use xee_name::{Name, FN_NAMESPACE};
 use xee_xpath_macros::xpath_fn;
+use xot::xmlname::NameStrInfo;
 
 use crate::atomic;
 use crate::context;
@@ -33,14 +34,22 @@ fn function_lookup(
     arity: IBig,
     arg: Option<xot::Node>,
 ) -> error::Result<Option<sequence::Item>> {
-    let arity: u8 = if let Ok(arity) = arity.try_into() {
+    let arity: usize = if let Ok(arity) = arity.try_into() {
         arity
     } else {
         return Ok(None);
     };
-    let static_function_id = context.static_context().function_id_by_name(&name, arity);
-    if let Some(static_function_id) = static_function_id {
-        let function = interpreter.create_static_closure_from_context(static_function_id, arg)?;
+    if let Ok(arity_u8) = u8::try_from(arity) {
+        let static_function_id = context.static_context().function_id_by_name(&name, arity_u8);
+        if let Some(static_function_id) = static_function_id {
+            let function = interpreter.create_static_closure_from_context(static_function_id, arg)?;
+            let item: sequence::Item = function.into();
+            return Ok(Some(item));
+        }
+    }
+
+    if name.namespace() == FN_NAMESPACE && name.local_name() == "concat" && arity >= 2 {
+        let function: function::Function = function::ConcatFunctionData::new(arity).into();
         let item: sequence::Item = function.into();
         Ok(Some(item))
     } else {

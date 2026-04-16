@@ -121,7 +121,6 @@ accumulator-087s
 accumulator-088
 accumulator-089
 accumulator-090
-accumulator-091
 = analyze-string
 analyze-string-001
 analyze-string-033
@@ -185,7 +184,10 @@ attribute-0806
 attribute-1101
 attribute-1302
 = attribute-set
+attribute-set-0108
 = available-system-properties
+available-system-properties-001
+available-system-properties-002
 = avt
 avt-0303
 avt-0401
@@ -277,13 +279,9 @@ built-in-templates-0201
 built-in-templates-0202
 = call-template
 call-template-0102
-call-template-0106
 call-template-0111
 call-template-0201
 call-template-0801
-call-template-1001
-call-template-1002
-call-template-1003
 call-template-1701
 call-template-2101
 = castable
@@ -303,12 +301,8 @@ character-map-003
 character-map-004
 character-map-005
 character-map-006
-character-map-007
 character-map-008
-character-map-009
 character-map-010
-character-map-011
-character-map-012
 character-map-013
 character-map-014
 character-map-015
@@ -320,7 +314,6 @@ character-map-020
 character-map-021
 character-map-022
 character-map-023
-character-map-024
 character-map-025
 character-map-026
 character-map-027
@@ -359,9 +352,7 @@ collations-0124
 collations-0125
 collations-0126
 collations-0127
-collations-0128
 collations-0503
-collations-0601
 collations-1006
 = collection
 collection-001
@@ -447,15 +438,6 @@ copy-4702
 copy-4901
 copy-5201
 = copy-of
-copy-of-001
-copy-of-002
-copy-of-003
-copy-of-004
-copy-of-007
-copy-of-008
-copy-of-010
-copy-of-011
-copy-of-012
 = core-function
 = current
 current-001
@@ -470,6 +452,7 @@ current-output-uri-009
 current-output-uri-010
 current-output-uri-014
 current-output-uri-901
+current-output-uri-902
 = data-manipulation
 = date
 date-019
@@ -985,8 +968,6 @@ expose-925
 expose-926
 expose-927
 = expression
-expression-0932
-expression-0933
 expression-2101
 = extension-functions
 extension-functions-0103
@@ -1001,21 +982,12 @@ for-each-group-011
 for-each-group-012
 for-each-group-013
 for-each-group-015b
-for-each-group-016
-for-each-group-018
-for-each-group-020
-for-each-group-022
 for-each-group-026
-for-each-group-028
-for-each-group-030
-for-each-group-031
 for-each-group-032
 for-each-group-033
 for-each-group-034
 for-each-group-035
 for-each-group-036
-for-each-group-039
-for-each-group-040
 for-each-group-041
 for-each-group-042
 for-each-group-043
@@ -1042,15 +1014,14 @@ for-each-group-067
 for-each-group-068
 for-each-group-069
 for-each-group-070
-for-each-group-071
 for-each-group-072
 for-each-group-078b
 for-each-group-079b
 for-each-group-081b
-for-each-group-084
 for-each-group-086
 for-each-group-087
 for-each-group-089
+for-each-group-090
 = format-date
 format-date-001
 format-date-002a
@@ -1070,9 +1041,6 @@ format-date-017
 format-date-018
 format-date-033
 = format-date-en
-format-date-en-001
-format-date-en-002
-format-date-en-003
 format-date-en-004
 format-date-en-005
 format-date-en-006
@@ -1147,6 +1115,7 @@ function-1030
 function-1031
 function-1101
 function-1701
+function-1901
 function-2001
 function-2103
 function-2105
@@ -1159,6 +1128,11 @@ function-available-1008
 function-available-1010
 function-available-1011
 = function-lookup
+function-lookup-001
+function-lookup-002
+function-lookup-004
+function-lookup-005
+function-lookup-006
 = global-context-item
 glob-cxt-item-001
 glob-cxt-item-002
@@ -1235,10 +1209,8 @@ initial-mode-004
 = initial-template
 initial-template-002
 initial-template-003
-initial-template-004
 initial-template-081
 = innermost
-innermost-001
 = iterate
 iterate-006
 iterate-008
@@ -1346,14 +1318,11 @@ key-065
 key-069
 key-070
 key-071
-key-073
-key-074
 key-077
 key-078
 key-079
 key-080
 key-081
-key-082
 key-083
 key-087
 key-088
@@ -1367,6 +1336,10 @@ key-096
 key-097
 key-098
 = load-xquery-module
+load-xquery-module-001
+load-xquery-module-002
+load-xquery-module-003
+load-xquery-module-004
 = lre
 lre-011
 lre-019
@@ -1667,7 +1640,6 @@ namespace-1502
 namespace-1601
 namespace-1602
 namespace-2001
-namespace-2401
 namespace-2608
 namespace-2614
 namespace-2615
@@ -2040,32 +2012,8 @@ on-non-empty-012
 on-non-empty-013
 on-non-empty-014
 = outermost
-outermost-001
-outermost-002
-outermost-003
-outermost-010
-outermost-011
-outermost-012
-outermost-013
-outermost-014
-outermost-015
-outermost-016
-outermost-017
-outermost-018
-outermost-020
 outermost-021
 outermost-022
-outermost-023
-outermost-030
-outermost-031
-outermost-032
-outermost-033
-outermost-034
-outermost-035
-outermost-100
-outermost-101
-outermost-102
-outermost-103
 = output
 output-0101
 output-0101a
@@ -2104,15 +2052,8 @@ output-0119
 output-0120
 output-0121
 output-0122
-output-0123
-output-0124
-output-0124a
-output-0124b
-output-0126
-output-0127
 output-0128
 output-0129
-output-0130
 output-0131
 output-0132
 output-0133
@@ -2127,15 +2068,7 @@ output-0137b
 output-0138
 output-0139
 output-0140
-output-0141
-output-0141a
-output-0141b
-output-0142
-output-0143
-output-0144
-output-0145
 output-0146
-output-0147
 output-0148
 output-0148a
 output-0148b
@@ -2145,24 +2078,15 @@ output-0149b
 output-0150
 output-0150a
 output-0150b
-output-0151
 output-0152
 output-0153
-output-0154
-output-0156
-output-0157
 output-0158
-output-0159
-output-0162
 output-0164
-output-0165
 output-0166
 output-0167
 output-0168
 output-0169
 output-0170
-output-0171
-output-0172
 output-0173
 output-0174
 output-0175
@@ -2187,25 +2111,14 @@ output-0204
 output-0205
 output-0206
 output-0207
-output-0208
 output-0209
 output-0210
 output-0211
-output-0212
-output-0216
-output-0218
-output-0219
-output-0220
 output-0221
-output-0222
 output-0224
 output-0225
 output-0226
-output-0227
-output-0228
 output-0229
-output-0231
-output-0232
 output-0233
 output-0234
 output-0284
@@ -2221,21 +2134,12 @@ output-0310
 output-0311
 output-0312
 output-0313
-output-0601
-output-0602a
-output-0602b
-output-0603a
 output-0604
 output-0709
-output-0710
-output-0711
-output-0712
 output-0718
 output-0719
-output-0720
 output-0721
 output-0722
-output-0724
 = override
 override-as-001
 override-as-002
@@ -2431,6 +2335,8 @@ position-8202
 = predicate
 predicate-056
 = regex
+regex-090
+regex-091
 = regex-classes
 regex-classes-001
 regex-classes-002
@@ -2578,60 +2484,17 @@ result-document-0266
 result-document-0267
 result-document-0268
 result-document-0269
-result-document-0270
-result-document-0272
-result-document-0274
-result-document-0276
 result-document-0277
-result-document-0278
 result-document-0279
-result-document-0280
 result-document-0281
-result-document-0282
 result-document-0283
 result-document-0284
 result-document-0285
 result-document-0286
-result-document-0287
-result-document-0301
-result-document-0302
-result-document-0305
-result-document-0401
-result-document-0501
-result-document-0601
-result-document-0701
-result-document-0702
-result-document-0703
-result-document-0801
-result-document-0901
-result-document-1001
-result-document-1002
-result-document-1003
-result-document-1004
-result-document-1005
-result-document-1006
-result-document-1131
-result-document-1132
-result-document-1133
-result-document-1134
-result-document-1135
-result-document-1136
-result-document-1137
-result-document-1138
-result-document-1139
-result-document-1140
-result-document-1141
-result-document-1142
-result-document-1143
-result-document-1144
-result-document-1201
-result-document-1202
-result-document-1203
 result-document-1204
 result-document-1205
 result-document-1206
 result-document-1401
-result-document-1403
 result-document-1404
 result-document-1405
 result-document-1406
@@ -2646,7 +2509,6 @@ result-document-1502
 select-0701
 select-1401
 select-1402
-select-2006
 select-2305
 select-6101
 = seqtor
@@ -2683,10 +2545,10 @@ seqtor-034
 seqtor-035
 seqtor-040a
 seqtor-040d
+seqtor-043b
 seqtor-101
 = sequence
 sequence-0113
-sequence-0122
 sequence-0125
 sequence-0133
 sequence-0134
@@ -2770,30 +2632,21 @@ shadow-006
 = si-value-of
 = si-where-populated
 = snapshot
-snapshot-0102
 snapshot-0103
 snapshot-0103a
 snapshot-0104
-snapshot-0105
-snapshot-0106
-snapshot-0107
 snapshot-0108
 snapshot-0109
 snapshot-0110
 snapshot-0111
+snapshot-0101c
 snapshot-0112
 = sort
 sort-001
 sort-005
 sort-010
 sort-012
-sort-013
-sort-014
-sort-015
-sort-017
-sort-018
 sort-019
-sort-020
 sort-026
 sort-027
 sort-028
@@ -2803,17 +2656,9 @@ sort-042
 sort-043
 sort-050
 sort-051
-sort-052
-sort-053
 sort-054
-sort-062
-sort-063
-sort-064
-sort-065
 sort-066
-sort-071
 sort-072
-sort-073
 sort-078
 sort-079
 sort-080
@@ -2870,7 +2715,6 @@ stream-available-006
 string-097
 string-125
 string-131
-string-133
 = strip-space
 strip-space-002
 strip-space-004
@@ -2921,14 +2765,17 @@ strip-space-029
 = sx-TreatExpr
 = sx-UnionExpr
 = system-property
+system-property-014a
 system-property-019a
 system-property-022
 system-property-025
 = system-property-gen
 = template
 = transform
+transform-009
 = treat-as
 = try
+try-027
 = tunnel
 tunnel-0111
 tunnel-0113
@@ -4638,12 +4485,6 @@ xml-to-json-D511
 = xp-striding-striding-motionlessA
 = xpath-compat
 = xpath-default-namespace
-xpath-default-namespace-0101
-xpath-default-namespace-0102
-xpath-default-namespace-0103
-xpath-default-namespace-0105
-xpath-default-namespace-0106
-xpath-default-namespace-0108
 xpath-default-namespace-0201
 = xsl-document
 xsl-document-0402

@@ -84,6 +84,18 @@ fn evaluate_named_template_with_stylesheet_base(
 
 }
 
+fn run_with_large_stack<T>(f: impl FnOnce() -> T + Send + 'static) -> T
+where
+  T: Send + 'static,
+{
+  std::thread::Builder::new()
+    .stack_size(8 * 1024 * 1024)
+    .spawn(f)
+    .unwrap()
+    .join()
+    .unwrap()
+}
+
 fn evaluate_named_template_with_stylesheet_base_and_processor_xslt_version(
     xot: &mut Xot,
     xml: &str,
@@ -1853,6 +1865,351 @@ fn test_next_match_in_absent_context_named_template_raises_xtde0560() {
     .unwrap_err();
 
     assert_eq!(error.error, error::Error::XTDE0560);
+}
+
+#[test]
+fn test_next_match_in_initial_template_raises_xtde0560() {
+  let temp_dir = unique_temp_dir("next-match-initial-template");
+  let stylesheet_path = temp_dir.join("initial-template-next-match.xsl");
+  fs::write(
+    &stylesheet_path,
+    r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template name="xsl:initial-template">
+  <xsl:next-match/>
+  </xsl:template>
+</xsl:stylesheet>"#,
+  )
+  .unwrap();
+
+  let mut xot = Xot::new();
+  let error = evaluate_named_template_with_stylesheet_base(
+    &mut xot,
+    "<doc/>",
+    &fs::read_to_string(&stylesheet_path).unwrap(),
+    &stylesheet_path,
+    "initial-template",
+  )
+  .unwrap_err();
+
+  assert_eq!(error.error, error::Error::XTDE0560);
+
+  fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_named_template_start_uses_highest_import_precedence() {
+  let temp_dir = unique_temp_dir("named-template-import-precedence");
+  let stylesheet_path = temp_dir.join("main.xsl");
+  let imported_path = temp_dir.join("imported.xsl");
+
+  fs::write(
+    &imported_path,
+    r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template name="main">
+    <out>imported</out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+  )
+  .unwrap();
+
+  fs::write(
+    &stylesheet_path,
+    r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:import href="imported.xsl"/>
+
+  <xsl:template name="main">
+    <out>principal</out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+  )
+  .unwrap();
+
+  let mut xot = Xot::new();
+  let output = evaluate_named_template_with_stylesheet_base(
+    &mut xot,
+    "<doc/>",
+    &fs::read_to_string(&stylesheet_path).unwrap(),
+    &stylesheet_path,
+    "main",
+  )
+  .unwrap();
+
+  assert_eq!(xml(&xot, output), "<out>principal</out>");
+
+  fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_function_name_on_user_defined_function_reference() {
+  let temp_dir = unique_temp_dir("function-name-user-defined");
+  let stylesheet_path = temp_dir.join("function-name-user-defined.xsl");
+  fs::write(
+    &stylesheet_path,
+    r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  xmlns:local="http://local/"
+  exclude-result-prefixes="xs"
+  version="3.0">
+  <xsl:function name="local:scramble" as="xs:string">
+    <xsl:param name="x" as="function(xs:string) as xs:string"/>
+    <xsl:param name="y" as="xs:string"/>
+    <xsl:sequence select="$x($y)"/>
+  </xsl:function>
+
+  <xsl:template name="xsl:initial-template">
+    <out><xsl:value-of select="let $n := function-name(local:scramble#2)
+      return (local-name-from-QName($n), namespace-uri-from-QName($n), function-arity(local:scramble#2))"/></out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+        &mut xot,
+        "<doc/>",
+        &fs::read_to_string(&stylesheet_path).unwrap(),
+        &stylesheet_path,
+        "initial-template",
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out xmlns:local=\"http://local/\">scramble http://local/ 2</out>"
+    );
+
+    fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_vendor_higher_order_functions_073_output() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let stylesheet_path = repo_root
+    .join("vendor/xslt-tests/tests/expr/higher-order-functions/higher-order-functions-073.xsl");
+  let stylesheet = fs::read_to_string(&stylesheet_path).unwrap();
+
+  let mut xot = Xot::new();
+  let output = evaluate_named_template_with_stylesheet_base(
+    &mut xot,
+    "<doc/>",
+    &stylesheet,
+    &stylesheet_path,
+    "initial-template",
+  )
+  .unwrap();
+
+  assert_eq!(xml(&xot, output), "<out>10 x 2017</out>");
+}
+
+#[test]
+fn test_vendor_higher_order_functions_068_output() {
+  run_with_large_stack(|| {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .parent()
+      .unwrap()
+      .to_path_buf();
+    let stylesheet_path = repo_root
+      .join("vendor/xslt-tests/tests/expr/higher-order-functions/higher-order-functions-068.xsl");
+    let stylesheet = fs::read_to_string(&stylesheet_path).unwrap();
+
+    let mut xot = Xot::new();
+    let output = evaluate_named_template_with_stylesheet_base(
+      &mut xot,
+      "<doc/>",
+      &stylesheet,
+      &stylesheet_path,
+      "initial-template",
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out>89</out>");
+  });
+}
+
+#[test]
+fn test_vendor_higher_order_functions_074_output() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let stylesheet_path = repo_root
+    .join("vendor/xslt-tests/tests/expr/higher-order-functions/higher-order-functions-074.xsl");
+  let stylesheet = fs::read_to_string(&stylesheet_path).unwrap();
+
+  let mut xot = Xot::new();
+  let output = evaluate_named_template_with_stylesheet_base(
+    &mut xot,
+    "<doc/>",
+    &stylesheet,
+    &stylesheet_path,
+    "initial-template",
+  )
+  .unwrap();
+
+  assert_eq!(xml(&xot, output), "<out>18 iv 1924</out>");
+}
+
+#[test]
+fn debug_vendor_higher_order_functions_076_output() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let stylesheet_path = repo_root
+    .join("vendor/xslt-tests/tests/expr/higher-order-functions/higher-order-functions-076.xsl");
+  let stylesheet = fs::read_to_string(&stylesheet_path).unwrap();
+  let source = fs::read_to_string(
+    repo_root.join("vendor/xslt-tests/tests/expr/higher-order-functions/hof-076.xml"),
+  )
+  .unwrap();
+
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(&mut xot, &source, &stylesheet, &stylesheet_path)
+    .unwrap();
+
+  println!("{}", xml(&xot, output));
+}
+
+#[test]
+fn debug_vendor_higher_order_functions_076_tags() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let source = fs::read_to_string(
+    repo_root.join("vendor/xslt-tests/tests/expr/higher-order-functions/hof-076.xml"),
+  )
+  .unwrap();
+
+  let stylesheet_path = repo_root.join("target/tmp/debug-hof-076-tags.xsl");
+  let stylesheet = r#"<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:mode on-no-match="shallow-copy"/>
+  <xsl:template match="paragraph">
+    <out><xsl:value-of select="string-join(distinct-values(node()[self::e/@tag[not(starts-with(., '/'))]]/@tag), ',')"/></out>
+  </xsl:template>
+</xsl:stylesheet>"#;
+
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(&mut xot, &source, stylesheet, &stylesheet_path)
+    .unwrap();
+
+  println!("{}", xml(&xot, output));
+}
+
+#[test]
+fn debug_vendor_higher_order_functions_076_function_ref() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let stylesheet_path = repo_root
+    .join("vendor/xslt-tests/tests/expr/higher-order-functions/higher-order-functions-076.xsl");
+  let stylesheet = fs::read_to_string(&stylesheet_path).unwrap();
+
+  let probe_path = repo_root.join("target/tmp/debug-hof-076-function-ref.xsl");
+  let probe = stylesheet.replace(
+    "<xsl:mode on-no-match=\"shallow-copy\"/>",
+    "<xsl:mode on-no-match=\"shallow-copy\"/><xsl:template name=\"xsl:initial-template\"><out><xsl:value-of select=\"function-arity(mf:wrap#2)\"/></out></xsl:template>",
+  );
+
+  let mut xot = Xot::new();
+  let output = evaluate_named_template_with_stylesheet_base(
+    &mut xot,
+    "<doc/>",
+    &probe,
+    &probe_path,
+    "initial-template",
+  )
+  .unwrap();
+
+  println!("{}", xml(&xot, output));
+}
+
+#[test]
+fn debug_vendor_higher_order_functions_076_wrap_call() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let stylesheet_path = repo_root
+    .join("vendor/xslt-tests/tests/expr/higher-order-functions/higher-order-functions-076.xsl");
+  let stylesheet = fs::read_to_string(&stylesheet_path).unwrap();
+  let source = fs::read_to_string(
+    repo_root.join("vendor/xslt-tests/tests/expr/higher-order-functions/hof-076.xml"),
+  )
+  .unwrap();
+
+  let probe_path = repo_root.join("target/tmp/debug-hof-076-wrap-call.xsl");
+  let probe = stylesheet.replace(
+    "<xsl:mode on-no-match=\"shallow-copy\"/>",
+    "<xsl:mode on-no-match=\"shallow-copy\"/><xsl:template name=\"xsl:initial-template\"><out><xsl:sequence select=\"mf:wrap(/root/paragraph[1]/node())\"/></out></xsl:template>",
+  );
+
+  let mut xot = Xot::new();
+  let output = evaluate_named_template_with_stylesheet_base(
+    &mut xot,
+    &source,
+    &probe,
+    &probe_path,
+    "initial-template",
+  )
+  .unwrap();
+
+  println!("{}", xml(&xot, output));
+}
+
+#[test]
+fn debug_pattern_match_star_with_child_e_tag() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let source = fs::read_to_string(
+    repo_root.join("vendor/xslt-tests/tests/expr/higher-order-functions/hof-076.xml"),
+  )
+  .unwrap();
+  let stylesheet_path = repo_root.join("target/tmp/debug-pattern-match-star-with-child-e-tag.xsl");
+  let stylesheet = r#"<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:mode on-no-match="shallow-copy"/>
+  <xsl:template match="*[e[@tag]]"><hit/></xsl:template>
+</xsl:stylesheet>"#;
+
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(&mut xot, &source, stylesheet, &stylesheet_path)
+    .unwrap();
+
+  println!("{}", xml(&xot, output));
+}
+
+#[test]
+fn debug_pattern_match_paragraph_with_shallow_copy_mode() {
+  let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .to_path_buf();
+  let source = fs::read_to_string(
+    repo_root.join("vendor/xslt-tests/tests/expr/higher-order-functions/hof-076.xml"),
+  )
+  .unwrap();
+  let stylesheet_path = repo_root.join("target/tmp/debug-pattern-match-paragraph-with-shallow-copy-mode.xsl");
+  let stylesheet = r#"<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:mode on-no-match="shallow-copy"/>
+  <xsl:template match="paragraph"><hit/></xsl:template>
+</xsl:stylesheet>"#;
+
+  let mut xot = Xot::new();
+  let output = evaluate_with_stylesheet_base(&mut xot, &source, stylesheet, &stylesheet_path)
+    .unwrap();
+
+  println!("{}", xml(&xot, output));
 }
 
 #[test]

@@ -1101,6 +1101,9 @@ impl<'a> Interpreter<'a> {
                 self.call_static(data.id, arity, &data.closure_vars)
             }
             function::Function::Inline(data) => self.call_inline(data, arity),
+            function::Function::Coerced(data) => self.call_coerced(data, arity),
+            function::Function::Concat(data) => self.call_concat(data, arity),
+            function::Function::PatternMatcher(data) => self.call_pattern_matcher(data, arity),
             function::Function::Array(array) => self.call_array(array, arity as usize),
             function::Function::Map(map) => self.call_map(map, arity as usize),
         }
@@ -1161,6 +1164,97 @@ impl<'a> Interpreter<'a> {
 
         self.state
             .push_frame(function.id, arity as usize, function.program.clone())
+    }
+
+    fn call_coerced(
+        &mut self,
+        function: &function::CoercedFunctionData,
+        arity: u8,
+    ) -> error::Result<()> {
+        if arity as usize != function.signature.arity() {
+            return Err(error::Error::type_error(format!(
+                "function expects {} argument(s), got {}",
+                function.signature.arity(),
+                arity
+            )));
+        }
+
+        let arguments = self.coerce_arguments(function.signature.parameter_types(), arity)?;
+        let result = self.call_function_with_arguments_catching(&function.function, &arguments)?;
+        let result = if let Some(return_type) = function.signature.return_type() {
+            result.sequence_type_matching_function_conversion(
+                return_type,
+                self.runnable.static_context(),
+                self.state.xot(),
+                &|wrapped_function| wrapped_function.signature(self.runnable.program()).clone(),
+            )?
+        } else {
+            result
+        };
+
+        let _ = self.state.pop();
+        self.state.push(result);
+        Ok(())
+    }
+
+    fn call_concat(
+        &mut self,
+        function: &function::ConcatFunctionData,
+        arity: u8,
+    ) -> error::Result<()> {
+        if arity as usize != function.arity {
+            return Err(error::Error::type_error(format!(
+                "function expects {} argument(s), got {}",
+                function.arity,
+                arity
+            )));
+        }
+
+        let arguments = self.state.arguments(arity as usize);
+        let strings = arguments
+            .iter()
+            .map(|value| {
+                let sequence: sequence::Sequence = value.try_into()?;
+                let atomic = sequence.atomized_option(self.state.xot())?;
+                Ok(if let Some(atomic) = atomic {
+                    atomic.string_value()
+                } else {
+                    String::new()
+                })
+            })
+            .collect::<error::Result<Vec<String>>>()?;
+
+        self.state.truncate_arguments(arity as usize);
+        let _ = self.state.pop();
+        self.state.push(strings.concat());
+        Ok(())
+    }
+
+    fn call_pattern_matcher(
+        &mut self,
+        function: &function::PatternMatcherFunctionData,
+        arity: u8,
+    ) -> error::Result<()> {
+        if arity != 1 {
+            return Err(error::Error::type_error(format!(
+                "function expects 1 argument, got {}",
+                arity
+            )));
+        }
+
+        let argument: sequence::Sequence = self.state.arguments(1)[0].clone().try_into()?;
+        let items = argument.iter().collect::<Vec<_>>();
+        if items.len() != 1 {
+            return Err(error::Error::type_error(
+                "pattern matcher expects exactly one item",
+            ));
+        }
+
+        let matched = self.matches(&function.pattern, &items[0]);
+        self.state.truncate_arguments(1);
+        let _ = self.state.pop();
+        self.state.push(matched);
+        Ok(())
     }
 
     fn coerce_inline_arguments(
@@ -1460,6 +1554,11 @@ impl<'a> Interpreter<'a> {
 
     fn pop_is_numeric(&mut self) -> error::Result<bool> {
         let value = self.state.pop()?;
+        // A multi-item sequence is never numeric (it's a general predicate value).
+        // Only zero-or-one items can be numeric position predicates.
+        if value.len() > 1 {
+            return Ok(false);
+        }
         let a = value.atomized_option(self.state.xot())?;
         if let Some(a) = a {
             Ok(a.is_numeric())
@@ -2241,26 +2340,28 @@ impl<'a> Interpreter<'a> {
         tunnel_params: &function::Map,
         behavior: u8,
     ) -> error::Result<sequence::Sequence> {
-        let mode = *self.mode_stack.last().ok_or_else(|| {
-            error::Error::Unsupported(
-                "No current apply-templates mode for template continuation".to_string(),
-            )
-        })?;
+        let mode = *self.mode_stack.last().ok_or(error::Error::XTDE0560)?;
+        let current_function = *self
+            .template_rule_stack
+            .last()
+            .ok_or(error::Error::XTDE0560)?;
         let base = self.state.frame().base();
-        let item_sequence: sequence::Sequence = match &self.state.stack()[base] {
-            stack::Value::Sequence(sequence) => sequence.clone(),
-            stack::Value::Absent => return Err(error::Error::XTDE0560),
+        let stack = self.state.stack();
+        let item_sequence: sequence::Sequence = match stack.get(base) {
+            Some(stack::Value::Sequence(sequence)) => sequence.clone(),
+            Some(stack::Value::Absent) | None => return Err(error::Error::XTDE0560),
         };
         let item = item_sequence.one()?;
-        let position_sequence: sequence::Sequence = (&self.state.stack()[base + 1]).try_into()?;
+        let position_sequence: sequence::Sequence = match stack.get(base + 1) {
+            Some(stack::Value::Sequence(sequence)) => sequence.clone(),
+            Some(stack::Value::Absent) | None => return Err(error::Error::XTDE0560),
+        };
         let position = position_sequence.one()?.try_into_value::<IBig>()?;
-        let size_sequence: sequence::Sequence = (&self.state.stack()[base + 2]).try_into()?;
+        let size_sequence: sequence::Sequence = match stack.get(base + 2) {
+            Some(stack::Value::Sequence(sequence)) => sequence.clone(),
+            Some(stack::Value::Absent) | None => return Err(error::Error::XTDE0560),
+        };
         let size = size_sequence.one()?.try_into_value::<IBig>()?;
-        let current_function = *self.template_rule_stack.last().ok_or_else(|| {
-            error::Error::Unsupported(
-                "No current template rule for template continuation".to_string(),
-            )
-        })?;
         let next_function = match behavior {
             0 => self.lookup_pattern_after(mode, current_function, &item),
             1 => {

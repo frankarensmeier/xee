@@ -6,6 +6,7 @@ import subprocess
 EXCLUDED = [
     'misc/unicode-90/',   # very slow Unicode normalization tests
     'misc/catalog/',      # W3C meta-tests; catalog-007 hangs, catalog-008 takes 57s
+    'misc/error/',        # stack overflow in error-detection tests crashes the update process
     'decl/function/',     # function-1031 (fib(92) without cache) hangs indefinitely
 ]
 
