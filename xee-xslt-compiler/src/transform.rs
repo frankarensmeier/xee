@@ -67,8 +67,16 @@ impl TransformEvaluator for XsltTransformEvaluator {
         // Run the transformation
         let result = program.runnable(&dynamic_context).many(xot)?;
 
+        // Normalize the principal output into a document node.
+        // Per XPath 3.1 spec, fn:transform()?output must be a document-node().
+        let document = result.normalize(" ", xot).map_err(|e| error::SpannedError {
+            error: e,
+            span: None,
+        })?;
+        let principal_output = sequence::Sequence::from(sequence::Item::Node(document));
+
         // Build the result map
-        build_result_map(result, &dynamic_context)
+        build_result_map(principal_output, &dynamic_context)
     }
 }
 

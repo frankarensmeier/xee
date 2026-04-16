@@ -4,6 +4,45 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-16 16:17 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix `fn:transform()` output wrapping.
+- Result: **5398 passed**, 0 check failures (unchanged count — fix is correctness-only).
+- DocBook NG `print.xsl` no longer fails with XPTY0004/XTTE0570 on transform
+  pipeline results; now reaches a later stage (MissingPrefix in pattern matching,
+  separate bug).
+
+### What moved this slice
+
+**fn:transform() document wrapping:**
+- Root cause found: `fn:transform()` returned the raw transformation result
+  sequence as the `output` map entry. When a stylesheet's entry template
+  matches `/*` (not `/`), the result is an element node, not a document node.
+- Per XPath 3.1 spec §14.9, `fn:transform()?output` must be a `document-node()`.
+- Fix: call `Sequence::normalize()` on the principal output before building the
+  result map, wrapping it in a document node per the serialization spec (SERDM).
+- Single-file change: `xee-xslt-compiler/src/transform.rs` (+8 lines).
+- Confirmed with 30 controlled test cases and DocBook NG print.xsl.
+
+### Bugs identified (not yet fixed)
+
+- **MissingPrefix in pattern matching**: `pattern_core.rs:427` panics when a
+  pattern uses a namespace prefix not registered in the namespace context
+  (e.g. `http://docbook.org/ns/docbook`). Blocks DocBook processing after the
+  transform fix.
+- **use-when preprocessing**: `preprocess.rs` only handles literal `"false()"`;
+  any other expression (like `'pipeline' = $v:debug`) is treated as true.
+- **Span mapping for imports**: error spans from imported modules never get
+  remapped to the concatenated source chunk offset space.
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler`: 280 passed, 6 failed (pre-existing)
+- `xee-testrunner check vendor/xslt-tests`: 5398 passed, 0 failed, 49 error,
+  2 WrongE, 4121 filtered
+
 ## 2026-04-16 13:42 CEST
 
 ### Status snapshot
