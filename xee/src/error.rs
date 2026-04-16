@@ -41,7 +41,7 @@ fn render_error_with_span(
 ) {
     let red = ariadne::Color::Red;
     let message = e.error.message().to_string();
-    let detail = e.error.detail().map(|s| s.to_string());
+    let detail = e.detail().map(|s| s.to_string());
     let note = e.error.note().to_string();
 
     let mut report = ariadne::Report::build(ariadne::ReportKind::Error, (filename, (0..0)))

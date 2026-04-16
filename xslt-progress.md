@@ -4,6 +4,49 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-16 20:23 CEST
+
+### Status snapshot
+
+- Checkpoint focus: error reporting — enriched error messages and source-span
+  propagation for XSLT compiler errors.
+- Result: **5398 passed**, 0 check failures (unchanged).
+- Error messages now include contextual detail (parameter name, expected type)
+  and point to the correct XSLT source location instead of line 1.
+
+### What moved this slice
+
+**Error detail enrichment:**
+- Added `detail: Option<String>` to `SpannedError` — carries human-readable
+  context alongside the error code. Wired through the CLI error renderer.
+- `XTTE0590` now carries `Option<String>` (like `XPTY0004`), with detail
+  built in `coerce_template_argument` showing parameter name and expected type.
+- `ConvertSequence` handler preserves underlying error detail instead of
+  discarding it with `map_err(|_| ...)`.
+
+**Source-span propagation (118 → 16 zero-span sites):**
+- XSLT AST nodes all carry `pub span: Span` from the XML parser, but the
+  XSLT compiler was constructing IR nodes with `(0..0).into()` spans at 118
+  sites, causing all errors to point to byte 0 (line 1) of the entry
+  stylesheet.
+- Fixed 102 sites by propagating instruction spans from AST nodes
+  (`instruction.span`, `expr.span`, `pattern.span`, etc.) into IR Atom,
+  Expr, and Binding nodes.
+- Methods fixed: `analyze_string`, `evaluate`, `number`, `message`,
+  `result_document`, `sort_key_function`, `sort_key_return_bindings`,
+  `sort_collation_atom`, `try_`, `value_of`, `merge_source_key_function`,
+  `for_each_group`, `copy`, `element`, `processing_instruction`,
+  `sequence_constructor_content_element`, `pattern_predicate`,
+  `group_pattern_function`, `group_key_function`, `xml_name`,
+  `xml_name_dynamic`, `analyze_string_closure`, `number_format`,
+  `bind_current_focus_variable`, `global_variable_expr`,
+  `attribute_value_template` (String/Value items).
+- Remaining 16 are intentional delegation stubs (`static_function_call_expr`,
+  `simple_content_expr`), synthetic AST (`rewrite_user_function_references`,
+  `context_item_argument`), or helpers without AST context
+  (`empty_sequence`, `empty_string`, `space_separator_atom`,
+  `validate_boolean_literal`).
+
 ## 2026-04-16 18:17 CEST
 
 ### Status snapshot

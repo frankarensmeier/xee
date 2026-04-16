@@ -88,6 +88,16 @@ impl Bindings {
         self.bind(binding)
     }
 
+    pub fn bind_expr_spanned(
+        &self,
+        variables: &mut Variables,
+        expr: ir::Expr,
+        span: xee_xpath_ast::ast::Span,
+    ) -> Self {
+        let binding = variables.new_binding(expr, span);
+        self.bind(binding)
+    }
+
     /// Create a new Bindings by adding the existing binding to it
     pub fn bind(&self, binding: Binding) -> Self {
         let mut bindings = self.clone();

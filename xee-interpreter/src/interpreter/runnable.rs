@@ -93,6 +93,7 @@ impl<'a> Runnable<'a> {
             stack::Value::Absent => Err(SpannedError {
                 error: error::Error::XPDY0002,
                 span: Some(self.program.span().into()),
+                detail: None,
             }),
             _ => Ok(value),
         }
@@ -110,6 +111,7 @@ impl<'a> Runnable<'a> {
             .ok_or(SpannedError {
                 error: error::Error::XTDE0040,
                 span: Some(self.program.span().into()),
+                detail: None,
             })?;
         let function: Function =
             InlineFunctionData::new(named_template.function_id, Vec::new()).into();
@@ -129,6 +131,7 @@ impl<'a> Runnable<'a> {
             .map_err(|error| SpannedError {
                 error,
                 span: Some(self.program.span().into()),
+                detail: None,
             })
     }
 
@@ -143,6 +146,7 @@ impl<'a> Runnable<'a> {
             return Err(SpannedError {
                 error: error::Error::XTDE1490,
                 span: Some(self.program.span().into()),
+                detail: None,
             });
         }
 
@@ -152,6 +156,7 @@ impl<'a> Runnable<'a> {
             .map_err(|error| SpannedError {
                 error,
                 span: Some(self.program.span().into()),
+                detail: None,
             })
     }
 
@@ -176,6 +181,7 @@ impl<'a> Runnable<'a> {
         sequence.one().map_err(|error| SpannedError {
             error,
             span: Some(self.program.span().into()),
+                detail: None,
         })
     }
 
@@ -186,6 +192,7 @@ impl<'a> Runnable<'a> {
         sequence::option(items).map_err(|error| SpannedError {
             error,
             span: Some(self.program.span().into()),
+                detail: None,
         })
     }
 

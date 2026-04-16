@@ -3208,7 +3208,8 @@ fn test_duplicate_local_template_params_are_rejected() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XTSE0580,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -3227,7 +3228,8 @@ fn test_missing_name_attribute_reports_xtse0010() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XTSE0010,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -3254,7 +3256,8 @@ fn test_disallowed_with_param_attribute_reports_xtse0090() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XTSE0090,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -3294,7 +3297,8 @@ fn test_invalid_required_attribute_value_reports_xtse0020() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XTSE0020,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -5247,7 +5251,8 @@ fn test_local_variable_as_type_is_enforced() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XTTE0570,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -5312,7 +5317,8 @@ fn test_global_variable_is_out_of_scope_within_its_own_declaration() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XPST0008,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -5693,7 +5699,8 @@ fn test_copy_function() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XTDE0450,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -5883,7 +5890,8 @@ fn test_function_item_in_complex_content() {
         output,
         error::SpannedResult::Err(error::SpannedError {
             error: error::Error::XTDE0450,
-            span: _
+            span: _,
+        detail: _,
         })
     ));
 }
@@ -7010,7 +7018,7 @@ fn test_xsl_evaluate_vendor_evaluate_018d_uses_xtte0590_for_child_with_param_typ
         evaluate_with_stylesheet_base(&mut xot, "<add>$p1 + $p2</add>", &xslt, &stylesheet_path)
             .unwrap_err();
 
-    assert_eq!(error.error, error::Error::XTTE0590);
+    assert_eq!(error.error, error::Error::XTTE0590(None));
 }
 
 #[test]

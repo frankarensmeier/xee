@@ -15,6 +15,9 @@ pub struct SpannedError {
     pub error: Error,
     /// The source span where the error occurred
     pub span: Option<SourceSpan>,
+    /// Optional context string describing the specific circumstances of the
+    /// error, e.g. "parameter $chunk: expected node() but got xs:string".
+    pub detail: Option<String>,
 }
 
 /// XPath/XSLT error code
@@ -694,7 +697,8 @@ pub enum Error {
     ///
     /// It is a type error if the supplied value of a template parameter cannot
     /// be converted to the required type of the parameter.
-    XTTE0590,
+    #[strum(to_string = "XTTE0590")]
+    XTTE0590(Option<String>),
     /// Typed mode applied to untyped nodes.
     ///
     /// It is a type error if xsl:apply-templates is evaluated in a mode with
@@ -911,6 +915,7 @@ impl Error {
         SpannedError {
             error: self,
             span: Some(span),
+            detail: None,
         }
     }
     pub fn with_ast_span(self, span: xee_xpath_ast::ast::Span) -> SpannedError {
@@ -952,6 +957,7 @@ impl Error {
     pub fn detail(&self) -> Option<&str> {
         match self {
             Error::XPTY0004(Some(context)) => Some(context.as_str()),
+            Error::XTTE0590(Some(context)) => Some(context.as_str()),
             _ => None,
         }
     }
@@ -975,7 +981,9 @@ impl std::error::Error for Error {}
 
 impl std::fmt::Display for SpannedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(span) = self.span {
+        if let Some(detail) = self.detail() {
+            write!(f, "{} {}: {}", self.error, self.error.message(), detail)
+        } else if let Some(span) = self.span {
             let span = span.range();
             write!(
                 f,
@@ -1019,6 +1027,7 @@ impl From<xee_xpath_ast::ParserError> for SpannedError {
         SpannedError {
             error,
             span: Some(span.into()),
+            detail: None,
         }
     }
 }
@@ -1052,6 +1061,7 @@ impl From<Error> for SpannedError {
         SpannedError {
             error: e,
             span: None,
+            detail: None,
         }
     }
 }
@@ -1082,5 +1092,19 @@ impl SpannedError {
     /// get the underlying [`Error`] value
     pub fn value(self) -> Error {
         self.error
+    }
+
+    /// Attach a context detail string to this error.
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    /// Return the detail string, preferring the instance-level detail
+    /// over any detail carried by the error code itself.
+    pub fn detail(&self) -> Option<&str> {
+        self.detail
+            .as_deref()
+            .or_else(|| self.error.detail())
     }
 }

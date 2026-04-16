@@ -41,6 +41,7 @@ impl TransformEvaluator for XsltTransformEvaluator {
                     stylesheet_path.display()
                 )),
                 span: None,
+            detail: None,
             })?;
 
         let mut program = crate::run::parse_with_stylesheet_path(&xslt_source, &stylesheet_path)?;
@@ -72,6 +73,7 @@ impl TransformEvaluator for XsltTransformEvaluator {
         let document = result.normalize(" ", xot).map_err(|e| error::SpannedError {
             error: e,
             span: None,
+        detail: None,
         })?;
         let principal_output = sequence::Sequence::from(sequence::Item::Node(document));
 
@@ -90,10 +92,12 @@ fn get_string_option(options: &function::Map, key: &str) -> error::SpannedResult
                 key,
             )),
             span: None,
+        detail: None,
         })?;
     let item = value.clone().one().map_err(|e| error::SpannedError {
         error: e,
         span: None,
+    detail: None,
     })?;
     match item {
         sequence::Item::Atomic(atomic::Atomic::String(_, s)) => Ok(s.to_string()),
@@ -103,6 +107,7 @@ fn get_string_option(options: &function::Map, key: &str) -> error::SpannedResult
                 key
             )),
             span: None,
+        detail: None,
         }),
     }
 }
@@ -115,6 +120,7 @@ fn get_node_option(options: &function::Map, key: &str) -> error::SpannedResult<O
     let item = value.clone().one().map_err(|e| error::SpannedError {
         error: e,
         span: None,
+    detail: None,
     })?;
     match item {
         sequence::Item::Node(node) => Ok(Some(node)),
@@ -124,6 +130,7 @@ fn get_node_option(options: &function::Map, key: &str) -> error::SpannedResult<O
                 key
             )),
             span: None,
+        detail: None,
         }),
     }
 }
@@ -139,6 +146,7 @@ fn get_map_option(
     let item = value.clone().option().map_err(|e| error::SpannedError {
         error: e,
         span: None,
+    detail: None,
     })?;
     let Some(item) = item else {
         return Ok(None);
@@ -151,6 +159,7 @@ fn get_map_option(
                 key
             )),
             span: None,
+        detail: None,
         }),
     }
 }
@@ -193,6 +202,7 @@ fn resolve_stylesheet_path(
             location,
         )),
         span: None,
+    detail: None,
     })
 }
 
@@ -208,6 +218,7 @@ fn build_variables(
         let name: xee_name::Name = key.clone().try_into().map_err(|_| error::SpannedError {
             error: error::Error::type_error("fn:transform: stylesheet-params key must be a QName"),
             span: None,
+        detail: None,
         })?;
         variables.insert(name, value.clone());
     }
@@ -239,5 +250,6 @@ fn build_result_map(
     function::Map::new(entries).map_err(|e| error::SpannedError {
         error: e,
         span: None,
+    detail: None,
     })
 }

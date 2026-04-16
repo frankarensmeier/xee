@@ -463,14 +463,17 @@ impl<'a> Interpreter<'a> {
                             self.state.xot(),
                             &|function| function.signature(self.runnable.program()).clone(),
                         )
-                        .map_err(|_| match raised_error {
-                            RaisedError::XTDE0560 => error::Error::XTDE0560,
-                            RaisedError::XTDE0700 => error::Error::XTDE0700,
-                            RaisedError::XTDE1425 => error::Error::XTDE1425,
-                            RaisedError::XTTE0570 => error::Error::XTTE0570,
-                            RaisedError::XTTE0590 => error::Error::XTTE0590,
-                            RaisedError::XTMM9000 => error::Error::XTMM9000,
-                            RaisedError::XPTY0004 => error::Error::XPTY0004(None),
+                        .map_err(|e| {
+                            let detail = e.detail().map(|s| s.to_string());
+                            match raised_error {
+                                RaisedError::XTDE0560 => error::Error::XTDE0560,
+                                RaisedError::XTDE0700 => error::Error::XTDE0700,
+                                RaisedError::XTDE1425 => error::Error::XTDE1425,
+                                RaisedError::XTTE0570 => error::Error::XTTE0570,
+                                RaisedError::XTTE0590 => error::Error::XTTE0590(detail),
+                                RaisedError::XTMM9000 => error::Error::XTMM9000,
+                                RaisedError::XPTY0004 => error::Error::XPTY0004(detail),
+                            }
                         })?;
                     self.state.push(sequence);
                 }
@@ -781,7 +784,7 @@ impl<'a> Interpreter<'a> {
                         RaisedError::XTDE0700 => error::Error::XTDE0700,
                         RaisedError::XTDE1425 => error::Error::XTDE1425,
                         RaisedError::XTTE0570 => error::Error::XTTE0570,
-                        RaisedError::XTTE0590 => error::Error::XTTE0590,
+                        RaisedError::XTTE0590 => error::Error::XTTE0590(None),
                         RaisedError::XTMM9000 => error::Error::XTMM9000,
                         RaisedError::XPTY0004 => error::Error::XPTY0004(None),
                     };
@@ -1030,6 +1033,7 @@ impl<'a> Interpreter<'a> {
                     Err(error::SpannedError {
                         error: error::Error::XTDE3530,
                         span: error.span,
+                        detail: None,
                     })
                 } else {
                     Err(error)
@@ -2196,7 +2200,11 @@ impl<'a> Interpreter<'a> {
                     params.get(&key).cloned()
                 };
                 let parameter_type = parameter_types.get(index + 3).cloned().unwrap_or(None);
-                let value = self.coerce_template_argument(value, parameter_type.as_ref())?;
+                let value = self.coerce_template_argument(
+                    value,
+                    parameter_type.as_ref(),
+                    &param.name,
+                )?;
                 arguments.push(value);
             }
         }
@@ -2222,6 +2230,7 @@ impl<'a> Interpreter<'a> {
         &mut self,
         value: Option<sequence::Sequence>,
         parameter_type: Option<&ast::SequenceType>,
+        param_name: &str,
     ) -> error::Result<Option<sequence::Sequence>> {
         let Some(value) = value else {
             return Ok(None);
@@ -2238,7 +2247,24 @@ impl<'a> Interpreter<'a> {
                 &|function| function.signature(self.runnable.program()).clone(),
             )
             .map(Some)
-            .map_err(|_| error::Error::XTTE0590)
+            .map_err(|e| {
+                let expected = parameter_type.display_representation();
+                let detail = match e {
+                    error::Error::XPTY0004(Some(ref context)) => {
+                        format!(
+                            "parameter ${}: expected {}, {}",
+                            param_name, expected, context
+                        )
+                    }
+                    _ => {
+                        format!(
+                            "parameter ${}: cannot convert to {}",
+                            param_name, expected
+                        )
+                    }
+                };
+                error::Error::XTTE0590(Some(detail))
+            })
     }
 
     pub(crate) fn lookup_pattern(
@@ -2430,6 +2456,7 @@ impl<'a> Interpreter<'a> {
         error::SpannedError {
             error: value_error,
             span: Some(self.current_span()),
+            detail: None,
         }
     }
 

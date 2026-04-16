@@ -92,6 +92,7 @@ fn map_dynamic_xpath_static_error(error: error::SpannedError) -> error::SpannedE
     error::SpannedError {
         error: mapped_error,
         span: error.span,
+        detail: None,
     }
 }
 
