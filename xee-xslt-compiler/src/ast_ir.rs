@@ -3504,37 +3504,44 @@ impl<'a> IrConverter<'a> {
         };
 
         if should_terminate {
-            // Check for custom error-code
-            let custom_error = if let Some(error_code) = &message.error_code {
-                if let Some(code_str) = self.static_value_template(error_code) {
-                    self.resolve_eqname_string(&code_str, &message.namespaces)
+            let (message_atom, message_print_bindings) = message_bindings.atom_bindings();
+
+            // Determine error code (custom or default XTMM9000)
+            let (local_name, namespace, prefix) =
+                if let Some(error_code) = &message.error_code {
+                    if let Some(code_str) = self.static_value_template(error_code) {
+                        self.resolve_eqname_string(&code_str, &message.namespaces)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            } else {
-                None
-            };
+                .unwrap_or_else(|| {
+                    (
+                        "XTMM9000".to_string(),
+                        "http://www.w3.org/2005/xqt-errors".to_string(),
+                        "err".to_string(),
+                    )
+                });
 
-            let error_bindings = if let Some((local_name, namespace, prefix)) = custom_error {
-                let ns_atom =
-                    Spanned::new(ir::Atom::Const(ir::Const::String(namespace)), (0..0).into());
-                let local_atom = Spanned::new(
-                    ir::Atom::Const(ir::Const::String(local_name)),
-                    (0..0).into(),
-                );
-                let prefix_atom =
-                    Spanned::new(ir::Atom::Const(ir::Const::String(prefix)), (0..0).into());
-                let call_expr = self.static_function_call_expr(
-                    "xslt-message-terminate",
-                    FN_NAMESPACE,
-                    3,
-                    vec![ns_atom, local_atom, prefix_atom],
-                );
-                Bindings::empty().bind_expr_no_span(&mut self.variables, call_expr)
-            } else {
-                self.raise_error(RaisedError::XTMM9000)
-            };
-            Ok(message_bindings.concat(error_bindings))
+            let ns_atom =
+                Spanned::new(ir::Atom::Const(ir::Const::String(namespace)), (0..0).into());
+            let local_atom = Spanned::new(
+                ir::Atom::Const(ir::Const::String(local_name)),
+                (0..0).into(),
+            );
+            let prefix_atom =
+                Spanned::new(ir::Atom::Const(ir::Const::String(prefix)), (0..0).into());
+            let call_expr = self.static_function_call_expr(
+                "xslt-message-terminate",
+                FN_NAMESPACE,
+                4,
+                vec![message_atom, ns_atom, local_atom, prefix_atom],
+            );
+            let error_bindings =
+                Bindings::empty().bind_expr_no_span(&mut self.variables, call_expr);
+            Ok(message_print_bindings.concat(error_bindings))
         } else {
             // Non-terminate: output message content to stderr via xslt-message
             let (message_atom, bindings) = message_bindings.atom_bindings();

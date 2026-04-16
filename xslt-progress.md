@@ -4,6 +4,35 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-16 16:38 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix `xsl:message terminate="yes"` discarding body text.
+- Result: **5398 passed**, 0 check failures (unchanged).
+- DocBook NG `print.xsl` now shows "Failed to load localization or fallback
+  localization" message before terminating — previously silent.
+
+### What moved this slice
+
+**xsl:message terminate body output:**
+- Root cause: the compiler's `compile_let` optimization skips evaluating a
+  Let binding when the variable is unused and the expression is "effect free".
+  `FunctionCall` is unconditionally considered effect-free, so the
+  `xslt-message` print call was eliminated.
+- Fix: pass the message content directly as a parameter to
+  `xslt-message-terminate`, which prints to stderr before raising the error.
+  Unified default XTMM9000 and custom error-code paths through the same
+  function.
+- Files changed: `xee-interpreter/src/library/hidden_xslt.rs` (signature
+  change + print logic), `xee-xslt-compiler/src/ast_ir.rs` (compiler).
+
+### Validation notes
+
+- `cargo test -p xee-xslt-compiler`: 280 passed, 6 failed (pre-existing)
+- `xee-testrunner check vendor/xslt-tests`: 5398 passed, 0 failed, 49 error,
+  2 WrongE, 4121 filtered
+
 ## 2026-04-16 16:17 CEST
 
 ### Status snapshot

@@ -2308,12 +2308,27 @@ fn xslt_message(interpreter: &Interpreter, content: &sequence::Sequence) -> sequ
     sequence::Sequence::default()
 }
 
-#[xpath_fn("fn:xslt-message-terminate($namespace as xs:string, $local_name as xs:string, $prefix as xs:string) as item()*")]
+#[xpath_fn("fn:xslt-message-terminate($content as item()*, $namespace as xs:string, $local_name as xs:string, $prefix as xs:string) as item()*")]
 fn xslt_message_terminate(
+    interpreter: &Interpreter,
+    content: &sequence::Sequence,
     namespace: &str,
     local_name: &str,
     prefix: &str,
 ) -> error::Result<sequence::Sequence> {
+    // Print the message body to stderr before terminating
+    let xot = interpreter.xot();
+    let mut parts = Vec::new();
+    for item in content.iter() {
+        match item.string_value(xot) {
+            Ok(s) => parts.push(s),
+            Err(_) => parts.push("[error]".to_string()),
+        }
+    }
+    if !parts.is_empty() {
+        eprintln!("{}", parts.join(""));
+    }
+
     let qname = OwnedName::new(
         local_name.to_string(),
         namespace.to_string(),
