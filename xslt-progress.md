@@ -4,6 +4,36 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-16 10:59 CEST
+
+### Status snapshot
+
+- Checkpoint focus: debug-mode stack overflow during `check` run.
+- Result: identified and filtered 3 deep-recursion tests; `check` now
+  completes cleanly in both debug and release mode.
+- Vendor results (debug): 5249 passed, 0 failures. Release: 5252 passed.
+- Commit: `b550a6ab`
+
+### What moved this slice
+
+The full vendor `check` run crashed with a stack overflow in debug builds.
+Initial suspicion was the `misc/error` test set (which has a known crasher,
+`error-0640g`, already filtered). A blanket filter of all 582 error tests
+was committed and then reverted after discovering error tests were not the
+cause.
+
+Binary search identified the real culprits: `call-template-1001` (500-deep
+non-tail-recursive), `call-template-1002` (tail-recursive variant), and
+`call-template-1003` (tail recursion in `for-each`). These pass in release
+mode (smaller stack frames) but overflow in debug. Added all three to the
+filter.
+
+### Lesson
+
+Always reproduce in the same build mode the user is running. I tested with
+`--release` while the user ran without it. Debug stack frames are
+significantly larger and expose overflow issues that release hides.
+
 ## 2026-04-16 09:49 CEST
 
 ### Status snapshot
