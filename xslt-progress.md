@@ -4,6 +4,84 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-16 09:49 CEST
+
+### Status snapshot
+
+- Checkpoint focus: HOF (higher-order-functions) test cluster, output
+  serialization, and a deep pattern-predicate bug.
+- Result: **5252 passed** (up from ~5060), 0 check failures.
+- HOF test set: 75/75 supported tests now pass (was 65/75).
+- Filter baseline: 181 tests removed (newly passing), 22 added (see note).
+- Commit: `bc5a8ee9`
+
+### What moved this slice
+
+**Higher-order functions (10 cases fixed):**
+- HOF-003: named template import precedence — `declaration lookup` now
+  respects `import_precedence` on `FunctionBinding`.
+- HOF-020/069: `function-name()`/`function-arity()` metadata for stylesheet
+  functions — added `declared_name` field to `FunctionDefinition` and
+  `InlineFunction`, threaded through from XSLT compiler.
+- HOF-060/066: function coercion wrappers — new `FunctionCoercion` variant
+  wraps typed function references to satisfy type-check expectations.
+- HOF-073/074: `format-date` Roman numeral month pictures (`[Mi]`).
+- HOF-068: recursion frame cap — switched from `ArrayVec<256>` to `Vec` with
+  a 1024 limit, avoiding stack overflow on deep fold-left chains.
+- HOF-023: synthetic `concat#N` for large arities (>5) — parser and compiler
+  now support `ConcatFunctionReference` for arbitrary arity.
+- HOF-058: `XPTY0018` error for mixed node/atomic path expression results.
+
+**Pattern predicates (HOF-076, two root causes):**
+1. `PatternPredicate::expr_value_uses_name` didn't report `position`/`last`
+   context names as used → Let optimization dropped their bindings →
+   "variable not found" at bytecode time. Fixed in `function_compiler.rs`.
+2. `pop_is_numeric()` called `atomized_option()` on multi-item sequences
+   (e.g. `e[@tag]` returning 2 elements) → XPTY0004 silently swallowed →
+   predicate always returned false. Fixed to return `false` for multi-item
+   sequences before attempting atomization.
+
+**Output serialization:**
+- JSON output method with proper escaping and structure.
+- XHTML 5 DOCTYPE and meta charset handling.
+- `omit-xml-declaration` support via output parameter documents.
+- Serialization error assertion support in testrunner.
+
+### Filter additions note
+
+22 test names were added to the filter. All 22 were verified as pre-existing
+failures by stashing all changes and re-running each test against the clean
+baseline — identical error behavior before and after. They were previously
+invisible because they were PANICs (not captured by `update`). Our fixes
+(frame cap increase, `pop_is_numeric` multi-item handling, pattern predicate
+fix) converted them to clean errors, making them visible to the update tool.
+The decision to keep them in the filter is deliberate: the filter should
+accurately reflect known failures so `check` output stays actionable.
+
+The 22 tests: `attribute-set-0108`, `available-system-properties-001/002`,
+`current-output-uri-902`, `for-each-group-090`, `function-1901`,
+`function-lookup-001/002/004/005/006`, `load-xquery-module-001..004`,
+`regex-090/091`, `seqtor-043b`, `snapshot-0101c`, `system-property-014a`,
+`transform-009`, `try-027`.
+
+### Validation notes
+
+- `cargo test -p xee-interpreter -p xee-ir -p xee-xslt-compiler -p
+  xee-xpath-compiler`: 280 passed, 6 failed (all pre-existing baseline).
+- `cargo run -p xee-testrunner -- -v all .../higher-order-functions/...`:
+  75/75 supported pass, 0 fail.
+- `cargo run -p xee-testrunner -- -v check vendor/xslt-tests`:
+  Passed: 5252, Failed: 0, Error: 85, WrongE: 2, Filtered: 4231.
+- `update.py`: added `misc/error/` to exclusion list (stack overflow in
+  error-detection tests crashes the update process).
+
+### Next frontier
+
+- The remaining error cases are dominated by unsupported features
+  (accumulators, override, packages) and context-item errors.
+- Potential next clusters: `disable-output-escaping` (2),
+  `load-xquery-module` (4, now filtered), `misc/transform` (3).
+
 ## 2026-04-14 23:40 CEST
 
 ### Status snapshot
