@@ -4,6 +4,56 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-16 13:42 CEST
+
+### Status snapshot
+
+- Checkpoint focus: implement `fn:xml-to-json` and `fn:json-to-xml`.
+- Result: **5398 passed** (up from 5252), 0 check failures.
+- xml-to-json: 113/114 tests pass (C102 remains — empty sequence for boolean
+  option in shared OptionParameterConverter, not worth fixing for 1 test).
+- json-to-xml: 35/53 tests pass. Remaining 18 failures: escape handling,
+  duplicate key detection, and option error codes.
+- Filter baseline: 114 tests removed (newly passing), 1 added (snapshot-0101c,
+  pre-existing PANIC→FAIL).
+
+### What moved this slice
+
+**fn:xml-to-json (113/114 pass):**
+- Full recursive XML-to-JSON conversion in `json.rs`: map, array, string,
+  number, boolean, null element types with proper nesting.
+- `JsonXmlNames` struct caches NameIds for all JSON XML element/attribute names.
+- Number formatting: uses `atomic::Atomic::canonical_float(d)` for xs:double→
+  string (fixed D203: `1000000` → `1.0E6`).
+- Escaped string passthrough (`escaped="true"`) with FOJS0007 validation for
+  invalid escape sequences.
+- `escaped-key` attribute support for map entries.
+- Input validation (FOJS0006): no child elements in leaf nodes, only allowed
+  attributes, no fn-namespace attributes, no non-whitespace text in
+  array/map containers, single root element under document node.
+- Option type errors (XPTY0004/FORG0001) now pass through instead of being
+  converted to FOJS0005.
+
+**fn:json-to-xml (35/53 pass):**
+- Full recursive JSON-to-XML tree building via `JsonXmlBuilder`.
+- Handles all JSON value types: objects→map, arrays→array, strings→string,
+  numbers→number, booleans→boolean, null→null.
+- `key` attribute on elements inside maps.
+- Options: `escape` (boolean), `liberal` (accepted but unused),
+  `validate` (accepted but unused), `duplicates` (accepted but unimplemented).
+- Surrogate pair support in `unescape_json_string`.
+- Remaining failures are escape handling edge cases, duplicate key detection,
+  and option/error code mismatches.
+
+### Validation notes
+
+- `cargo test -p xee-interpreter -p xee-xslt-compiler`: 6 failed
+  (all pre-existing baseline).
+- Vendor sweep: 5398 passed, 0 failed, 49 error, 2 WrongE.
+- Filter diff: only `snapshot-0101c` added (pre-existing); 114 removed
+  (newly passing json tests + 3 call-template debug-mode tests that
+  update.py removed; call-template-1001/1002/1003 manually re-added).
+
 ## 2026-04-16 10:59 CEST
 
 ### Status snapshot

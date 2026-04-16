@@ -1238,43 +1238,12 @@ iterate-043
 iterate-901
 iterate-902
 = json-to-xml
-json-to-xml-001
-json-to-xml-002
-json-to-xml-003
-json-to-xml-004
-json-to-xml-005
-json-to-xml-006
-json-to-xml-007
-json-to-xml-008
-json-to-xml-009
-json-to-xml-010
-json-to-xml-011
-json-to-xml-012
-json-to-xml-101
 json-to-xml-duplicates-001
 json-to-xml-duplicates-002
 json-to-xml-duplicates-003
 json-to-xml-duplicates-004
 json-to-xml-duplicates-005
-json-to-xml-error-001
-json-to-xml-error-002
-json-to-xml-error-003
-json-to-xml-error-004
-json-to-xml-error-005
-json-to-xml-error-006
-json-to-xml-error-007
-json-to-xml-error-008
-json-to-xml-error-009
-json-to-xml-error-010
-json-to-xml-error-011
-json-to-xml-error-012
-json-to-xml-error-013
-json-to-xml-error-014
 json-to-xml-error-015
-json-to-xml-error-016
-json-to-xml-error-017
-json-to-xml-error-018
-json-to-xml-error-019
 json-to-xml-error-020
 json-to-xml-error-021
 json-to-xml-error-022
@@ -1284,12 +1253,8 @@ json-to-xml-error-025
 json-to-xml-error-026
 json-to-xml-error-027
 json-to-xml-error-028
-json-to-xml-escape-001
-json-to-xml-escape-002
 json-to-xml-escape-003
 json-to-xml-escape-004
-json-to-xml-escape-005
-json-to-xml-escape-006
 json-to-xml-typed-010
 = key
 key-001
@@ -2635,6 +2600,7 @@ shadow-006
 = si-value-of
 = si-where-populated
 = snapshot
+snapshot-0101c
 snapshot-0103
 snapshot-0103a
 snapshot-0104
@@ -2642,7 +2608,6 @@ snapshot-0108
 snapshot-0109
 snapshot-0110
 snapshot-0111
-snapshot-0101c
 snapshot-0112
 = sort
 sort-001
@@ -2703,7 +2668,6 @@ static-024
 static-025
 static-026
 static-027
-static-029
 static-030
 = stream-available
 stream-available-001
@@ -4382,84 +4346,7 @@ coco-103
 = whitespace
 whitespace-028
 = xml-to-json
-xml-to-json-A019
-xml-to-json-A2-019
-xml-to-json-C001
-xml-to-json-C002
-xml-to-json-C003
-xml-to-json-C004
-xml-to-json-C005
-xml-to-json-C006
-xml-to-json-C007
-xml-to-json-C008
-xml-to-json-C009
-xml-to-json-C010
-xml-to-json-C011
-xml-to-json-C012
-xml-to-json-C013
-xml-to-json-C014
-xml-to-json-C015
-xml-to-json-C016
-xml-to-json-C017
-xml-to-json-C018
-xml-to-json-C019
-xml-to-json-C020
-xml-to-json-C021
-xml-to-json-C022
-xml-to-json-C023
-xml-to-json-C024
-xml-to-json-C100
-xml-to-json-C101
 xml-to-json-C102
-xml-to-json-C103
-xml-to-json-C104
-xml-to-json-D001
-xml-to-json-D002
-xml-to-json-D003
-xml-to-json-D004
-xml-to-json-D005
-xml-to-json-D006
-xml-to-json-D007
-xml-to-json-D008
-xml-to-json-D009
-xml-to-json-D010
-xml-to-json-D011
-xml-to-json-D012
-xml-to-json-D013
-xml-to-json-D014
-xml-to-json-D016
-xml-to-json-D019
-xml-to-json-D101
-xml-to-json-D102
-xml-to-json-D103
-xml-to-json-D104
-xml-to-json-D201
-xml-to-json-D202
-xml-to-json-D203
-xml-to-json-D204
-xml-to-json-D205
-xml-to-json-D206
-xml-to-json-D301
-xml-to-json-D302
-xml-to-json-D303
-xml-to-json-D401
-xml-to-json-D402
-xml-to-json-D403
-xml-to-json-D404
-xml-to-json-D405
-xml-to-json-D406
-xml-to-json-D407
-xml-to-json-D501
-xml-to-json-D502
-xml-to-json-D503
-xml-to-json-D504
-xml-to-json-D505
-xml-to-json-D506
-xml-to-json-D507
-xml-to-json-D508
-xml-to-json-D509
-xml-to-json-D510
-xml-to-json-D511
 = xml-version
 = xp-striding-climbing-consumingA
 = xp-striding-climbing-consumingB
