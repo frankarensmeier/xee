@@ -42,6 +42,8 @@ impl TransformEvaluator for XsltTransformEvaluator {
                 )),
                 span: None,
             detail: None,
+
+            contexts: Vec::new(),
             })?;
 
         let mut program = crate::run::parse_with_stylesheet_path(&xslt_source, &stylesheet_path)?;
@@ -74,6 +76,8 @@ impl TransformEvaluator for XsltTransformEvaluator {
             error: e,
             span: None,
         detail: None,
+
+        contexts: Vec::new(),
         })?;
         let principal_output = sequence::Sequence::from(sequence::Item::Node(document));
 
@@ -93,11 +97,15 @@ fn get_string_option(options: &function::Map, key: &str) -> error::SpannedResult
             )),
             span: None,
         detail: None,
+
+        contexts: Vec::new(),
         })?;
     let item = value.clone().one().map_err(|e| error::SpannedError {
         error: e,
         span: None,
     detail: None,
+
+    contexts: Vec::new(),
     })?;
     match item {
         sequence::Item::Atomic(atomic::Atomic::String(_, s)) => Ok(s.to_string()),
@@ -108,6 +116,8 @@ fn get_string_option(options: &function::Map, key: &str) -> error::SpannedResult
             )),
             span: None,
         detail: None,
+
+        contexts: Vec::new(),
         }),
     }
 }
@@ -121,6 +131,8 @@ fn get_node_option(options: &function::Map, key: &str) -> error::SpannedResult<O
         error: e,
         span: None,
     detail: None,
+
+    contexts: Vec::new(),
     })?;
     match item {
         sequence::Item::Node(node) => Ok(Some(node)),
@@ -131,6 +143,8 @@ fn get_node_option(options: &function::Map, key: &str) -> error::SpannedResult<O
             )),
             span: None,
         detail: None,
+
+        contexts: Vec::new(),
         }),
     }
 }
@@ -147,6 +161,8 @@ fn get_map_option(
         error: e,
         span: None,
     detail: None,
+
+    contexts: Vec::new(),
     })?;
     let Some(item) = item else {
         return Ok(None);
@@ -160,6 +176,8 @@ fn get_map_option(
             )),
             span: None,
         detail: None,
+
+        contexts: Vec::new(),
         }),
     }
 }
@@ -203,6 +221,8 @@ fn resolve_stylesheet_path(
         )),
         span: None,
     detail: None,
+
+    contexts: Vec::new(),
     })
 }
 
@@ -219,6 +239,8 @@ fn build_variables(
             error: error::Error::type_error("fn:transform: stylesheet-params key must be a QName"),
             span: None,
         detail: None,
+
+        contexts: Vec::new(),
         })?;
         variables.insert(name, value.clone());
     }
@@ -251,5 +273,7 @@ fn build_result_map(
         error: e,
         span: None,
     detail: None,
+
+    contexts: Vec::new(),
     })
 }

@@ -4,6 +4,21 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-17 07:24 CEST
+
+### Status snapshot
+
+- Checkpoint focus: error context stack — multi-location error reporting for
+  XSLT runtime errors (call-template, apply-templates chains).
+- Result: **5398 passed**, 0 check failures (unchanged).
+- Errors now show a "breadcrumb trail" of context: each call-template and
+  apply-templates instruction that was in flight when the error occurred is
+  displayed with its source location. This makes it possible to trace the
+  call chain that led to a type error.
+- Infrastructure: `ErrorContext` struct, `contexts: Vec<ErrorContext>` on
+  `SpannedError`, push/pop in interpreter instruction handlers, ariadne-based
+  multi-location rendering in xee/src/error.rs.
+
 ## 2026-04-16 20:23 CEST
 
 ### Status snapshot

@@ -94,6 +94,8 @@ impl<'a> Runnable<'a> {
                 error: error::Error::XPDY0002,
                 span: Some(self.program.span().into()),
                 detail: None,
+
+                contexts: Vec::new(),
             }),
             _ => Ok(value),
         }
@@ -112,6 +114,8 @@ impl<'a> Runnable<'a> {
                 error: error::Error::XTDE0040,
                 span: Some(self.program.span().into()),
                 detail: None,
+
+                contexts: Vec::new(),
             })?;
         let function: Function =
             InlineFunctionData::new(named_template.function_id, Vec::new()).into();
@@ -132,6 +136,8 @@ impl<'a> Runnable<'a> {
                 error,
                 span: Some(self.program.span().into()),
                 detail: None,
+
+                contexts: Vec::new(),
             })
     }
 
@@ -147,6 +153,8 @@ impl<'a> Runnable<'a> {
                 error: error::Error::XTDE1490,
                 span: Some(self.program.span().into()),
                 detail: None,
+
+                contexts: Vec::new(),
             });
         }
 
@@ -157,6 +165,8 @@ impl<'a> Runnable<'a> {
                 error,
                 span: Some(self.program.span().into()),
                 detail: None,
+
+                contexts: Vec::new(),
             })
     }
 
@@ -182,6 +192,8 @@ impl<'a> Runnable<'a> {
             error,
             span: Some(self.program.span().into()),
                 detail: None,
+
+                contexts: Vec::new(),
         })
     }
 
@@ -193,6 +205,8 @@ impl<'a> Runnable<'a> {
             error,
             span: Some(self.program.span().into()),
                 detail: None,
+
+                contexts: Vec::new(),
         })
     }
 

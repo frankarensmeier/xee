@@ -11,6 +11,9 @@ pub(crate) fn render_program_error(
     fallback_src: &str,
     e: Error,
 ) {
+    // Capture contexts before moving `e` into the renderer.
+    let contexts = e.contexts.clone();
+
     if let Some(span) = e.span {
         if let Some((uri, local_span)) = program.resolve_source_span(span) {
             let source = program
@@ -20,6 +23,7 @@ pub(crate) fn render_program_error(
             if let Some(source) = source {
                 let filename = uri_to_display_name(&uri);
                 render_error_with_span(&filename, &source, Some(local_span), e);
+                render_error_contexts(program, &contexts);
                 return;
             }
         }
@@ -31,6 +35,7 @@ pub(crate) fn render_program_error(
         e.span.map(|span| span.range()),
         e,
     );
+    render_error_contexts(program, &contexts);
 }
 
 fn render_error_with_span(
@@ -78,6 +83,40 @@ fn render_error_with_span(
 fn read_source_from_uri(uri: &str) -> Option<String> {
     let path = uri.strip_prefix("file://")?.replace("%20", " ");
     std::fs::read_to_string(path).ok()
+}
+
+fn render_error_contexts(
+    program: &Program,
+    contexts: &[xee_interpreter::error::ErrorContext],
+) {
+    for ctx in contexts.iter().rev() {
+        if let Some((uri, local_span)) = program.resolve_source_span(ctx.span) {
+            let source = program
+                .source_for_uri(&uri)
+                .map(|value| value.to_string())
+                .or_else(|| read_source_from_uri(&uri));
+            if let Some(source) = source {
+                let filename = uri_to_display_name(&uri);
+                let yellow = ariadne::Color::Yellow;
+                let mut report =
+                    ariadne::Report::build(ariadne::ReportKind::Custom("Context", yellow), (&*filename, (0..0)));
+                report = report
+                    .with_message(&ctx.label)
+                    .with_label(
+                        ariadne::Label::new((&*filename, local_span))
+                            .with_message(&ctx.label)
+                            .with_color(yellow),
+                    );
+                report
+                    .finish()
+                    .eprint((&*filename, ariadne::Source::from(&*source)))
+                    .unwrap();
+            } else {
+                let filename = uri_to_display_name(&uri);
+                eprintln!("  context: {} (at {})", ctx.label, filename);
+            }
+        }
+    }
 }
 
 fn uri_to_display_name(uri: &str) -> String {

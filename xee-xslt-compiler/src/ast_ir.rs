@@ -339,6 +339,8 @@ fn augment_static_context_with_decimal_formats(
                 error,
                 span: Some((decimal_format.span.start..decimal_format.span.end).into()),
                 detail: None,
+
+                contexts: Vec::new(),
             });
         }
     }
@@ -651,17 +653,23 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
                 error: error::Error::XTSE0010,
                 span: Some((span.start..span.end).into()),
                 detail: None,
+
+                contexts: Vec::new(),
             },
             AttributeError::Unexpected { span, .. } => error::SpannedError {
                 error: error::Error::XTSE0090,
                 span: Some((span.start..span.end).into()),
                 detail: None,
+
+                contexts: Vec::new(),
             },
             AttributeError::Invalid { span, .. } | AttributeError::InvalidEqName { span, .. } => {
                 error::SpannedError {
                     error: error::Error::XTSE0020,
                     span: Some((span.start..span.end).into()),
                     detail: None,
+
+                    contexts: Vec::new(),
                 }
             }
             AttributeError::XPathParser(parser_error) => parser_error.into(),
@@ -677,6 +685,8 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
                 },
                 span: Some((span.start..span.end).into()),
                 detail: None,
+
+                contexts: Vec::new(),
             },
             other => error::Error::Unsupported(format!("Failed parsing XSLT: {:?}", other)).into(),
         },
@@ -2461,6 +2471,8 @@ impl<'a> IrConverter<'a> {
                     error: error::Error::XTSE0580,
                     span: Some((param.span.start..param.span.end).into()),
                     detail: None,
+
+                    contexts: Vec::new(),
                 });
             }
             let var_name = self.variables.declare_var_name(&param.name);
@@ -3665,6 +3677,8 @@ impl<'a> IrConverter<'a> {
                     ),
                     span: Some((result_document.span.start..result_document.span.end).into()),
                     detail: None,
+
+                    contexts: Vec::new(),
                 })?;
             let build_tree_literal = Self::validate_boolean_literal(&build_tree_literal)?;
             if matches!(build_tree_literal.as_str(), "yes" | "true" | "1") {
@@ -3962,6 +3976,8 @@ impl<'a> IrConverter<'a> {
                         error: error::Error::XTSE0020,
                         span: Some((result_document.span.start..result_document.span.end).into()),
                         detail: None,
+
+                        contexts: Vec::new(),
                     }
                 })?;
                 (
@@ -4408,7 +4424,8 @@ impl<'a> IrConverter<'a> {
 
         let bindings = bindings.concat(sort_bindings).concat(param_bindings);
 
-        Ok(bindings.bind_expr_no_span(
+        let span = (apply_templates.span.start..apply_templates.span.end).into();
+        Ok(bindings.bind_expr_spanned(
             &mut self.variables,
             ir::Expr::ApplyTemplates(ir::ApplyTemplates {
                 mode,
@@ -4417,6 +4434,7 @@ impl<'a> IrConverter<'a> {
                     .builtin_template_params_passthrough,
                 params,
             }),
+            span,
         ))
     }
 
@@ -4740,7 +4758,8 @@ impl<'a> IrConverter<'a> {
             params,
         });
 
-        Ok(param_bindings.bind_expr_no_span(&mut self.variables, call_template_expr))
+        let span = (call_template.span.start..call_template.span.end).into();
+        Ok(param_bindings.bind_expr_spanned(&mut self.variables, call_template_expr, span))
     }
 
     fn zero_arg_closure(&mut self, body: Bindings) -> (ir::AtomS, Bindings) {
@@ -5767,6 +5786,8 @@ impl<'a> IrConverter<'a> {
                 error: error::Error::XTSE3120,
                 span: None,
                 detail: None,
+
+                contexts: Vec::new(),
             })?;
 
         let bindings = self.select_or_sequence_constructor(break_)?;

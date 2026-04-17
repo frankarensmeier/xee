@@ -3210,6 +3210,7 @@ fn test_duplicate_local_template_params_are_rejected() {
             error: error::Error::XTSE0580,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }
@@ -3230,6 +3231,7 @@ fn test_missing_name_attribute_reports_xtse0010() {
             error: error::Error::XTSE0010,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }
@@ -3258,6 +3260,7 @@ fn test_disallowed_with_param_attribute_reports_xtse0090() {
             error: error::Error::XTSE0090,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }
@@ -3299,6 +3302,7 @@ fn test_invalid_required_attribute_value_reports_xtse0020() {
             error: error::Error::XTSE0020,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }
@@ -5253,6 +5257,7 @@ fn test_local_variable_as_type_is_enforced() {
             error: error::Error::XTTE0570,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }
@@ -5319,6 +5324,7 @@ fn test_global_variable_is_out_of_scope_within_its_own_declaration() {
             error: error::Error::XPST0008,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }
@@ -5701,6 +5707,7 @@ fn test_copy_function() {
             error: error::Error::XTDE0450,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }
@@ -5892,6 +5899,7 @@ fn test_function_item_in_complex_content() {
             error: error::Error::XTDE0450,
             span: _,
         detail: _,
+                contexts: _,
         })
     ));
 }

@@ -5,6 +5,20 @@ use xot::xmlname::NameStrInfo;
 
 use crate::span::SourceSpan;
 
+/// A breadcrumb in the error context stack.
+///
+/// Each entry describes what operation was in progress when an error occurred,
+/// with a source span pointing to the relevant XSLT/XPath instruction.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct ErrorContext {
+    /// The source span of the operation (e.g. the xsl:call-template instruction).
+    pub span: SourceSpan,
+    /// A human-readable label describing the operation, e.g.
+    /// "calling template 'head'" or "coercing parameter $rootbaseuri to xs:anyURI".
+    pub label: String,
+}
+
 /// An error code with an optional source span.
 ///
 /// Also known as `SpannedError` internally.
@@ -18,6 +32,9 @@ pub struct SpannedError {
     /// Optional context string describing the specific circumstances of the
     /// error, e.g. "parameter $chunk: expected node() but got xs:string".
     pub detail: Option<String>,
+    /// Stack of context breadcrumbs captured when the error was created.
+    /// Outermost operation first, innermost last.
+    pub contexts: Vec<ErrorContext>,
 }
 
 /// XPath/XSLT error code
@@ -916,6 +933,7 @@ impl Error {
             error: self,
             span: Some(span),
             detail: None,
+            contexts: Vec::new(),
         }
     }
     pub fn with_ast_span(self, span: xee_xpath_ast::ast::Span) -> SpannedError {
@@ -1028,6 +1046,7 @@ impl From<xee_xpath_ast::ParserError> for SpannedError {
             error,
             span: Some(span.into()),
             detail: None,
+            contexts: Vec::new(),
         }
     }
 }
@@ -1062,6 +1081,7 @@ impl From<Error> for SpannedError {
             error: e,
             span: None,
             detail: None,
+            contexts: Vec::new(),
         }
     }
 }

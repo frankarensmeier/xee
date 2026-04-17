@@ -93,6 +93,8 @@ fn map_dynamic_xpath_static_error(error: error::SpannedError) -> error::SpannedE
         error: mapped_error,
         span: error.span,
         detail: None,
+
+        contexts: Vec::new(),
     }
 }
 

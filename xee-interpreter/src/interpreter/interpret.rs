@@ -36,6 +36,7 @@ pub struct Interpreter<'a> {
     tunnel_params: Vec<function::Map>,
     mode_stack: Vec<pattern::ModeId>,
     template_rule_stack: Vec<function::InlineFunctionId>,
+    error_contexts: Vec<error::ErrorContext>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +80,7 @@ impl<'a> Interpreter<'a> {
             tunnel_params: vec![function::Map::new(Vec::new()).unwrap()],
             mode_stack: Vec::new(),
             template_rule_stack: Vec::new(),
+            error_contexts: Vec::new(),
         }
     }
 
@@ -729,13 +731,20 @@ impl<'a> Interpreter<'a> {
                     let position = self.pop_optional_sequence();
                     let item = self.pop_optional_sequence();
                     let function = self.state.pop()?.one()?.to_function()?;
+                    self.push_error_context("calling template");
                     let value = self.call_template_with_params(
                         &function,
                         [item, position, size],
                         &params,
                         &tunnel_params,
-                    )?;
-                    self.state.push(value);
+                    );
+                    match value {
+                        Ok(v) => {
+                            self.pop_error_context();
+                            self.state.push(v);
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
                 EncodedInstruction::ApplyTemplates => {
                     let tunnel_params = self.state.pop()?.one()?.to_map()?;
@@ -744,14 +753,21 @@ impl<'a> Interpreter<'a> {
                     let mode_id = self.read_u16();
                     let builtin_template_params_passthrough = self.read_u8() != 0;
                     let mode = pattern::ModeId::new(mode_id as usize);
+                    self.push_error_context("applying templates");
                     let value = self.apply_templates_sequence(
                         mode,
                         value,
                         &params,
                         &tunnel_params,
                         builtin_template_params_passthrough,
-                    )?;
-                    self.state.push(value);
+                    );
+                    match value {
+                        Ok(v) => {
+                            self.pop_error_context();
+                            self.state.push(v);
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
                 EncodedInstruction::ApplyTemplatesCurrent => {
                     let tunnel_params = self.state.pop()?.one()?.to_map()?;
@@ -761,14 +777,21 @@ impl<'a> Interpreter<'a> {
                     let builtin_template_params_passthrough = self.read_u8() != 0;
                     let mode = self
                         .current_mode_or_fallback(pattern::ModeId::new(fallback_mode_id as usize));
+                    self.push_error_context("applying templates");
                     let value = self.apply_templates_sequence(
                         mode,
                         value,
                         &params,
                         &tunnel_params,
                         builtin_template_params_passthrough,
-                    )?;
-                    self.state.push(value);
+                    );
+                    match value {
+                        Ok(v) => {
+                            self.pop_error_context();
+                            self.state.push(v);
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
                 EncodedInstruction::ContinueTemplate => {
                     let tunnel_params = self.state.pop()?.one()?.to_map()?;
@@ -1034,6 +1057,7 @@ impl<'a> Interpreter<'a> {
                         error: error::Error::XTDE3530,
                         span: error.span,
                         detail: None,
+                        contexts: error.contexts,
                     })
                 } else {
                     Err(error)
@@ -2453,11 +2477,26 @@ impl<'a> Interpreter<'a> {
     // the error code. We here wrap it in a SpannedError using the current
     // span.
     pub(crate) fn err(&self, value_error: error::Error) -> error::SpannedError {
+        let detail = value_error.detail().map(|s| s.to_string());
         error::SpannedError {
             error: value_error,
             span: Some(self.current_span()),
-            detail: None,
+            detail,
+            contexts: self.error_contexts.clone(),
         }
+    }
+
+    /// Push an error context breadcrumb onto the stack.
+    fn push_error_context(&mut self, label: impl Into<String>) {
+        self.error_contexts.push(error::ErrorContext {
+            span: self.current_span(),
+            label: label.into(),
+        });
+    }
+
+    /// Pop the most recent error context breadcrumb.
+    fn pop_error_context(&mut self) {
+        self.error_contexts.pop();
     }
 
     // During the compilation process, spans became associated with each
