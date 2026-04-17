@@ -4,6 +4,22 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-17 13:00 CEST
+
+### Status snapshot
+
+- Checkpoint focus: enforce declared return types on `xsl:function` via
+  XTTE0570. Previously, a function with `as="xs:integer"` returning a
+  string would silently pass the unchecked value to callers.
+- Fix: added `convert_bindings` call in `xslt_function_definition` to wrap
+  the function body with a `ConvertSequence` check against the declared
+  `as` type.
+- Test: `test_xslt_function_return_type_mismatch_raises_xtte0570` verifies
+  that a function declaring `as="xs:integer"` but returning `string()`
+  raises XTTE0570 at runtime.
+- Result: **5398 passed**, 0 check failures (unchanged). 8 pre-existing
+  test failures in xee-xslt-compiler unrelated to this change.
+
 ## 2026-04-17 08:51 CEST
 
 ### Status snapshot

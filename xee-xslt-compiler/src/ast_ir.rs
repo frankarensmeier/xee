@@ -2473,6 +2473,16 @@ impl<'a> IrConverter<'a> {
             &function.sequence_constructor,
         )?;
 
+        // Enforce the declared return type (as="...") by wrapping the body
+        // with a ConvertSequence check. Without this, a function returning
+        // the wrong type silently passes the unchecked value to callers.
+        let bindings = self.convert_bindings(
+            bindings,
+            function.as_.as_ref(),
+            RaisedError::XTTE0570,
+            function.span,
+        )?;
+
         self.variables.pop_scope();
         self.variables.pop_context();
 

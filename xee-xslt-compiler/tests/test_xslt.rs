@@ -2503,6 +2503,38 @@ fn test_xslt_user_defined_function_call_in_select() {
 }
 
 #[test]
+fn test_xslt_function_return_type_mismatch_raises_xtte0570() {
+    let mut xot = Xot::new();
+    let result = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:test="urn:test"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    exclude-result-prefixes="test xs"
+    version="3.0">
+  <xsl:function name="test:bad" as="xs:integer">
+    <xsl:param name="value"/>
+    <xsl:sequence select="string($value)"/>
+  </xsl:function>
+
+  <xsl:template match="/">
+    <out><xsl:value-of select="test:bad(42)"/></out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    );
+
+    assert!(matches!(
+        result,
+        Err(error::SpannedError {
+            error: error::Error::XTTE0570,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn test_for_each_sort_uses_xslt_sort_order() {
     let mut xot = Xot::new();
     let output = evaluate(
