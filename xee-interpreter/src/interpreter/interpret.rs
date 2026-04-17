@@ -36,7 +36,16 @@ pub struct Interpreter<'a> {
     tunnel_params: Vec<function::Map>,
     mode_stack: Vec<pattern::ModeId>,
     template_rule_stack: Vec<function::InlineFunctionId>,
+    template_rule_context_stack: Vec<TemplateRuleContext>,
+    focus_absent_stack: Vec<bool>,
     error_contexts: Vec<error::ErrorContext>,
+}
+
+#[derive(Clone)]
+struct TemplateRuleContext {
+    item: sequence::Item,
+    position: IBig,
+    size: IBig,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +89,8 @@ impl<'a> Interpreter<'a> {
             tunnel_params: vec![function::Map::new(Vec::new()).unwrap()],
             mode_stack: Vec::new(),
             template_rule_stack: Vec::new(),
+            template_rule_context_stack: Vec::new(),
+            focus_absent_stack: Vec::new(),
             error_contexts: Vec::new(),
         }
     }
@@ -1851,6 +1862,11 @@ impl<'a> Interpreter<'a> {
             let function = self.inline_function_value(function_id, Vec::new());
             self.mode_stack.push(mode);
             self.template_rule_stack.push(function_id);
+            self.template_rule_context_stack.push(TemplateRuleContext {
+                item: item.clone(),
+                position: position.clone(),
+                size: size.clone(),
+            });
             let result = self.call_template_with_params(
                 &function,
                 [
@@ -1861,6 +1877,7 @@ impl<'a> Interpreter<'a> {
                 options.params,
                 options.tunnel_params,
             );
+            self.template_rule_context_stack.pop();
             self.template_rule_stack.pop();
             self.mode_stack.pop();
             result.map(Some)
@@ -2233,9 +2250,12 @@ impl<'a> Interpreter<'a> {
             }
         }
 
+        let focus_absent = arguments.iter().take(3).all(|a| a.is_none());
+        self.focus_absent_stack.push(focus_absent);
         self.tunnel_params.push(effective_tunnel_params);
         let result = self.call_function_with_optional_arguments(function, &arguments);
         self.tunnel_params.pop();
+        self.focus_absent_stack.pop();
         result
     }
 
@@ -2401,23 +2421,19 @@ impl<'a> Interpreter<'a> {
             .template_rule_stack
             .last()
             .ok_or(error::Error::XTDE0560)?;
-        let base = self.state.frame().base();
-        let stack = self.state.stack();
-        let item_sequence: sequence::Sequence = match stack.get(base) {
-            Some(stack::Value::Sequence(sequence)) => sequence.clone(),
-            Some(stack::Value::Absent) | None => return Err(error::Error::XTDE0560),
-        };
-        let item = item_sequence.one()?;
-        let position_sequence: sequence::Sequence = match stack.get(base + 1) {
-            Some(stack::Value::Sequence(sequence)) => sequence.clone(),
-            Some(stack::Value::Absent) | None => return Err(error::Error::XTDE0560),
-        };
-        let position = position_sequence.one()?.try_into_value::<IBig>()?;
-        let size_sequence: sequence::Sequence = match stack.get(base + 2) {
-            Some(stack::Value::Sequence(sequence)) => sequence.clone(),
-            Some(stack::Value::Absent) | None => return Err(error::Error::XTDE0560),
-        };
-        let size = size_sequence.one()?.try_into_value::<IBig>()?;
+        // If the current template has context-item use="absent", the focus is absent
+        // and xsl:next-match / xsl:apply-imports cannot be used (XTDE0560).
+        if self.focus_absent_stack.last().copied().unwrap_or(false) {
+            return Err(error::Error::XTDE0560);
+        }
+        let context = self
+            .template_rule_context_stack
+            .last()
+            .ok_or(error::Error::XTDE0560)?
+            .clone();
+        let item = context.item;
+        let position = context.position;
+        let size = context.size;
         let next_function = match behavior {
             0 => self.lookup_pattern_after(mode, current_function, &item),
             1 => {
@@ -2453,6 +2469,11 @@ impl<'a> Interpreter<'a> {
             let function = self.inline_function_value(function_id, Vec::new());
             self.mode_stack.push(mode);
             self.template_rule_stack.push(function_id);
+            self.template_rule_context_stack.push(TemplateRuleContext {
+                item: item.clone(),
+                position: position.clone(),
+                size: size.clone(),
+            });
             let result = self.call_template_with_params(
                 &function,
                 [
@@ -2463,6 +2484,7 @@ impl<'a> Interpreter<'a> {
                 params,
                 tunnel_params,
             );
+            self.template_rule_context_stack.pop();
             self.template_rule_stack.pop();
             self.mode_stack.pop();
             result

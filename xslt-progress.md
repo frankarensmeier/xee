@@ -4,6 +4,22 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-17 22:32 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix `xsl:next-match` when invoked from `xsl:call-template`
+  context (XTDE0560 runtime errors on next-match-012 and next-match-038).
+- Root cause: `continue_template_with_params` read context item/position/size
+  from the current stack frame, but named templates don't store these the same
+  way as template rules.
+- Fix: added `template_rule_context_stack` to `Interpreter` — pushed when a
+  template rule dispatches, read by `xsl:next-match`/`xsl:apply-imports`.
+- Also added `focus_absent_stack` to correctly raise XTDE0560 when
+  `context-item use="absent"` is in effect (next-match-029).
+- Bonus: attribute-set-0108 and document-1901 also started passing.
+- Vendor test results: 5402 passed (+4), 47 errors (-2), 0 failures.
+
 ## 2026-04-17 21:12 CEST
 
 ### Status snapshot
