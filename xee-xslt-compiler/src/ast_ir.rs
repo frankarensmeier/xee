@@ -47,6 +47,10 @@ struct IrConverter<'a> {
     template_continuation_available: bool,
     strip_source_document_whitespace: bool,
     number_patterns: Vec<ir::NumberPatternDefinition>,
+    /// Maps stylesheet URI to its start offset in the virtual concatenated source space.
+    span_offsets: HashMap<String, usize>,
+    /// Current offset to add to AST spans to produce global source offsets.
+    current_span_offset: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -364,8 +368,12 @@ fn compile_preprocessed_declarations(
         &declarations,
         static_context.static_base_uri().map(|uri| uri.to_string()),
     );
+    let span_offsets: HashMap<String, usize> = source_chunks
+        .iter()
+        .map(|(uri, start_offset, _, _)| (uri.clone(), *start_offset))
+        .collect();
     augment_static_context_with_decimal_formats(&declarations, &mut static_context)?;
-    let mut ir_converter = IrConverter::new(&static_context, initial_mode);
+    let mut ir_converter = IrConverter::new(&static_context, initial_mode, span_offsets);
     let declarations = ir_converter.transform(&declarations)?;
     let mut program = compile_xslt(declarations, static_context)?;
     program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
@@ -457,7 +465,7 @@ pub fn parse_to_ir(
     let (declarations, mut static_context, initial_mode) =
         preprocess_stylesheet(static_context, xslt, base_dir, initial_mode)?;
     augment_static_context_with_decimal_formats(&declarations, &mut static_context)?;
-    let mut ir_converter = IrConverter::new(&static_context, initial_mode);
+    let mut ir_converter = IrConverter::new(&static_context, initial_mode, HashMap::new());
     ir_converter.transform(&declarations)
 }
 
@@ -935,8 +943,17 @@ fn remember_static_global(
     in_scope_static_variables.insert(static_name.clone(), value.clone());
 }
 
+/// Convert an AST span to a global source span by adding a byte offset.
+fn adjusted_span(span: ast::Span, offset: usize) -> xpath_ast::Span {
+    ((span.start + offset)..(span.end + offset)).into()
+}
+
 impl<'a> IrConverter<'a> {
-    fn new(static_context: &'a StaticContext, initial_mode: ast::ApplyTemplatesModeValue) -> Self {
+    fn new(
+        static_context: &'a StaticContext,
+        initial_mode: ast::ApplyTemplatesModeValue,
+        span_offsets: HashMap<String, usize>,
+    ) -> Self {
         IrConverter {
             variables: IrVariables::new(),
             static_context,
@@ -956,6 +973,8 @@ impl<'a> IrConverter<'a> {
             template_continuation_available: false,
             strip_source_document_whitespace: false,
             number_patterns: Vec::new(),
+            span_offsets,
+            current_span_offset: 0,
         }
     }
 
@@ -1025,11 +1044,18 @@ impl<'a> IrConverter<'a> {
     where
         F: FnOnce(&mut Self) -> error::SpannedResult<T>,
     {
+        let previous_span_offset = self.current_span_offset;
         if let Some(uri) = &declaration.stylesheet_uri {
+            self.current_span_offset = self.span_offsets.get(uri).copied().unwrap_or(0);
             let iri = IriAbsoluteString::try_from(uri.clone()).ok();
-            self.with_static_base_uri(iri, f)
+            let result = self.with_static_base_uri(iri, f);
+            self.current_span_offset = previous_span_offset;
+            result
         } else {
-            f(self)
+            self.current_span_offset = 0;
+            let result = f(self);
+            self.current_span_offset = previous_span_offset;
+            result
         }
     }
 
@@ -1932,7 +1958,7 @@ impl<'a> IrConverter<'a> {
                         this.variables.pop_context();
                         let expr = Spanned::new(
                             ir::Expr::FunctionDefinition(function_definition),
-                            (function.span.start..function.span.end).into(),
+                            adjusted_span(function.span, this.current_span_offset),
                         );
                         Ok((params, expr))
                     })?;
@@ -2018,9 +2044,9 @@ impl<'a> IrConverter<'a> {
         } else if !sequence_constructor.is_empty() {
             self.temporary_tree(sequence_constructor)?.expr()
         } else {
-            Spanned::new(ir::Expr::Atom(self.empty_string()), (span.start..span.end).into())
+            Spanned::new(ir::Expr::Atom(self.empty_string()), adjusted_span(span, self.current_span_offset))
         };
-        self.convert_expr(expr, sequence_type, RaisedError::XTTE0570)
+        self.convert_expr(expr, sequence_type, RaisedError::XTTE0570, span)
     }
 
     fn global_param_expr(
@@ -2043,6 +2069,7 @@ impl<'a> IrConverter<'a> {
         expr: ir::ExprS,
         sequence_type: Option<&xpath_ast::SequenceType>,
         error: RaisedError,
+        span: ast::Span,
     ) -> error::SpannedResult<ir::ExprS> {
         let Some(sequence_type) = sequence_type else {
             return Ok(expr);
@@ -2051,13 +2078,14 @@ impl<'a> IrConverter<'a> {
         let binding = self.variables.new_binding(expr.value, expr.span);
         let (atom, bindings) = Bindings::new(binding).atom_bindings();
         Ok(bindings
-            .bind_expr_no_span(
+            .bind_expr_spanned(
                 &mut self.variables,
                 ir::Expr::ConvertSequence(ir::ConvertSequence {
                     atom,
                     sequence_type: sequence_type.clone(),
                     error,
                 }),
+                adjusted_span(span, self.current_span_offset),
             )
             .expr())
     }
@@ -2067,19 +2095,21 @@ impl<'a> IrConverter<'a> {
         bindings: Bindings,
         sequence_type: Option<&xpath_ast::SequenceType>,
         error: RaisedError,
+        span: ast::Span,
     ) -> error::SpannedResult<Bindings> {
         let Some(sequence_type) = sequence_type else {
             return Ok(bindings);
         };
 
         let (atom, bindings) = bindings.atom_bindings();
-        Ok(bindings.bind_expr_no_span(
+        Ok(bindings.bind_expr_spanned(
             &mut self.variables,
             ir::Expr::ConvertSequence(ir::ConvertSequence {
                 atom,
                 sequence_type: sequence_type.clone(),
                 error,
             }),
+            adjusted_span(span, self.current_span_offset),
         ))
     }
 
@@ -2116,7 +2146,7 @@ impl<'a> IrConverter<'a> {
             self.sequence_constructor_with_temporary_output_state(&with_param.sequence_constructor)?
         };
 
-        let bindings = self.convert_bindings(bindings, with_param.as_.as_ref(), error)?;
+        let bindings = self.convert_bindings(bindings, with_param.as_.as_ref(), error, with_param.span.clone())?;
         let (select_atom, bindings) = bindings.atom_bindings();
 
         Ok((
@@ -2469,7 +2499,7 @@ impl<'a> IrConverter<'a> {
             if !seen_names.insert(param_key) {
                 return Err(error::SpannedError {
                     error: error::Error::XTSE0580,
-                    span: Some((param.span.start..param.span.end).into()),
+                    span: Some(adjusted_span(param.span, self.current_span_offset).into()),
                     detail: None,
 
                     contexts: Vec::new(),
@@ -2503,12 +2533,12 @@ impl<'a> IrConverter<'a> {
                         )?
                         .expr();
                     let expr_s =
-                        self.convert_expr(expr_s, ast_param.as_.as_ref(), RaisedError::XTTE0590)?;
+                        self.convert_expr(expr_s, ast_param.as_.as_ref(), RaisedError::XTTE0590, ast_param.span.clone())?;
                     Some(Box::new(expr_s.value))
                 } else if let Some(select_expr) = &ast_param.select {
                     let expr_s = self.expression(select_expr)?.expr();
                     let expr_s =
-                        self.convert_expr(expr_s, ast_param.as_.as_ref(), RaisedError::XTTE0590)?;
+                        self.convert_expr(expr_s, ast_param.as_.as_ref(), RaisedError::XTTE0590, ast_param.span.clone())?;
                     Some(Box::new(expr_s.value))
                 } else {
                     None
@@ -2986,7 +3016,7 @@ impl<'a> IrConverter<'a> {
 
         Ok(body_bindings.bind_expr(
             &mut self.variables,
-            Spanned::new(merge_expr, (map.span.start..map.span.end).into()),
+            Spanned::new(merge_expr, adjusted_span(map.span, self.current_span_offset)),
         ))
     }
 
@@ -3009,7 +3039,7 @@ impl<'a> IrConverter<'a> {
         let bindings = key_bindings.concat(value_bindings);
         Ok(bindings.bind_expr(
             &mut self.variables,
-            Spanned::new(entry_expr, (entry.span.start..entry.span.end).into()),
+            Spanned::new(entry_expr, adjusted_span(entry.span, self.current_span_offset)),
         ))
     }
 
@@ -3037,7 +3067,7 @@ impl<'a> IrConverter<'a> {
         } else {
             let empty = Spanned::new(
                 ir::Atom::Const(ir::Const::String(String::new())),
-                (analyze_string.span.start..analyze_string.span.end).into(),
+                adjusted_span(analyze_string.span, self.current_span_offset),
             );
             (empty, Bindings::empty())
         };
@@ -3081,7 +3111,7 @@ impl<'a> IrConverter<'a> {
             &mut self.variables,
             Spanned::new(
                 expr,
-                (analyze_string.span.start..analyze_string.span.end).into(),
+                adjusted_span(analyze_string.span, self.current_span_offset),
             ),
         ))
     }
@@ -3093,7 +3123,7 @@ impl<'a> IrConverter<'a> {
         sequence_constructor: &[ast::SequenceConstructorItem],
         span: ast::Span,
     ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
-        let ir_span = (span.start..span.end).into();
+        let ir_span = adjusted_span(span, self.current_span_offset);
         let param_name = self.variables.new_name();
         let context_names = self.variables.push_context();
         let body_bindings = self.with_template_continuation_availability(false, |this| {
@@ -3157,7 +3187,7 @@ impl<'a> IrConverter<'a> {
             &mut self.variables,
             Spanned::new(
                 expr,
-                (where_populated.span.start..where_populated.span.end).into(),
+                adjusted_span(where_populated.span, self.current_span_offset),
             ),
         ))
     }
@@ -3185,7 +3215,7 @@ impl<'a> IrConverter<'a> {
                 (
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String("supplied".to_string())),
-                        (evaluate.span.start..evaluate.span.end).into(),
+                        adjusted_span(evaluate.span, self.current_span_offset),
                     ),
                     Bindings::empty(),
                 )
@@ -3199,7 +3229,7 @@ impl<'a> IrConverter<'a> {
             ir::Atom::Const(ir::Const::String(
                 evaluate.static_xpath_default_namespace.clone(),
             )),
-            (evaluate.span.start..evaluate.span.end).into(),
+            adjusted_span(evaluate.span, self.current_span_offset),
         );
         let default_collation_atom = Spanned::new(
             ir::Atom::Const(ir::Const::String(
@@ -3213,7 +3243,7 @@ impl<'a> IrConverter<'a> {
                             .to_string()
                     }),
             )),
-            (evaluate.span.start..evaluate.span.end).into(),
+            adjusted_span(evaluate.span, self.current_span_offset),
         );
         let (namespace_context_atom, namespace_context_bindings) =
             self.optional_evaluate_argument(evaluate.namespace_context.as_ref())?;
@@ -3245,10 +3275,10 @@ impl<'a> IrConverter<'a> {
             .concat(base_uri_bindings)
             .bind_expr(
                 &mut self.variables,
-                Spanned::new(expr, (evaluate.span.start..evaluate.span.end).into()),
+                Spanned::new(expr, adjusted_span(evaluate.span, self.current_span_offset)),
             );
 
-        self.convert_bindings(bindings, evaluate.as_.as_ref(), RaisedError::XPTY0004)
+        self.convert_bindings(bindings, evaluate.as_.as_ref(), RaisedError::XPTY0004, evaluate.span.clone())
     }
 
     fn evaluate_with_params_argument(
@@ -3363,7 +3393,7 @@ impl<'a> IrConverter<'a> {
             let (node_atom, node_bindings) = if let Some(select) = &number.select {
                 self.expression(select)?.atom_bindings()
             } else {
-                self.variables.context_item((number.span.start..number.span.end).into())?.atom_bindings()
+                self.variables.context_item(adjusted_span(number.span, self.current_span_offset))?.atom_bindings()
             };
 
             match level {
@@ -3386,7 +3416,7 @@ impl<'a> IrConverter<'a> {
                                 &mut self.variables,
                                 ir::Expr::Atom(Spanned::new(
                                     ir::Atom::Const(ir::Const::Integer(count_index.into())),
-                                    (number.span.start..number.span.end).into(),
+                                    adjusted_span(number.span, self.current_span_offset),
                                 )),
                             )
                             .atom_bindings();
@@ -3395,7 +3425,7 @@ impl<'a> IrConverter<'a> {
                                 &mut self.variables,
                                 ir::Expr::Atom(Spanned::new(
                                     ir::Atom::Const(ir::Const::Integer(from_index.into())),
-                                    (number.span.start..number.span.end).into(),
+                                    adjusted_span(number.span, self.current_span_offset),
                                 )),
                             )
                             .atom_bindings();
@@ -3463,7 +3493,7 @@ impl<'a> IrConverter<'a> {
                                 &mut self.variables,
                                 ir::Expr::Atom(Spanned::new(
                                     ir::Atom::Const(ir::Const::Integer(count_index.into())),
-                                    (number.span.start..number.span.end).into(),
+                                    adjusted_span(number.span, self.current_span_offset),
                                 )),
                             )
                             .atom_bindings();
@@ -3472,7 +3502,7 @@ impl<'a> IrConverter<'a> {
                                 &mut self.variables,
                                 ir::Expr::Atom(Spanned::new(
                                     ir::Atom::Const(ir::Const::Integer(from_index.into())),
-                                    (number.span.start..number.span.end).into(),
+                                    adjusted_span(number.span, self.current_span_offset),
                                 )),
                             )
                             .atom_bindings();
@@ -3525,7 +3555,7 @@ impl<'a> IrConverter<'a> {
             let bindings = Bindings::empty();
             let format_expr = ir::Expr::Atom(Spanned::new(
                 ir::Atom::Const(ir::Const::String("1".to_string())),
-                (span.start..span.end).into(),
+                adjusted_span(span, self.current_span_offset),
             ));
             Ok(bindings
                 .bind_expr_no_span(&mut self.variables, format_expr)
@@ -3584,13 +3614,13 @@ impl<'a> IrConverter<'a> {
                 });
 
             let ns_atom =
-                Spanned::new(ir::Atom::Const(ir::Const::String(namespace)), (message.span.start..message.span.end).into());
+                Spanned::new(ir::Atom::Const(ir::Const::String(namespace)), adjusted_span(message.span, self.current_span_offset));
             let local_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(local_name)),
-                (message.span.start..message.span.end).into(),
+                adjusted_span(message.span, self.current_span_offset),
             );
             let prefix_atom =
-                Spanned::new(ir::Atom::Const(ir::Const::String(prefix)), (message.span.start..message.span.end).into());
+                Spanned::new(ir::Atom::Const(ir::Const::String(prefix)), adjusted_span(message.span, self.current_span_offset));
             let call_expr = self.static_function_call_expr(
                 "xslt-message-terminate",
                 FN_NAMESPACE,
@@ -3675,7 +3705,7 @@ impl<'a> IrConverter<'a> {
                         "Dynamic xsl:result-document @build-tree is not supported yet"
                             .to_string(),
                     ),
-                    span: Some((result_document.span.start..result_document.span.end).into()),
+                    span: Some(adjusted_span(result_document.span, self.current_span_offset).into()),
                     detail: None,
 
                     contexts: Vec::new(),
@@ -3697,7 +3727,7 @@ impl<'a> IrConverter<'a> {
 
         let (content_atom, content_bindings) = if result_document.sequence_constructor.is_empty() {
             (
-                Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (result_document.span.start..result_document.span.end).into()),
+                Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), adjusted_span(result_document.span, self.current_span_offset)),
                 Bindings::empty(),
             )
         } else {
@@ -3720,16 +3750,16 @@ impl<'a> IrConverter<'a> {
                     Some(self.resolve_named_output(format, &result_document.namespaces)?),
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(String::new())),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Bindings::empty(),
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(String::new())),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(String::new())),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                 ),
                 Some(format) => {
@@ -3743,11 +3773,11 @@ impl<'a> IrConverter<'a> {
                             ir::Atom::Const(ir::Const::String(
                                 self.encode_literal_namespaces(&result_document.namespaces),
                             )),
-                            (result_document.span.start..result_document.span.end).into(),
+                            adjusted_span(result_document.span, self.current_span_offset),
                         ),
                         Spanned::new(
                             ir::Atom::Const(ir::Const::String(self.encode_named_outputs()?)),
-                            (result_document.span.start..result_document.span.end).into(),
+                            adjusted_span(result_document.span, self.current_span_offset),
                         ),
                     )
                 }
@@ -3755,16 +3785,16 @@ impl<'a> IrConverter<'a> {
                     None,
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(String::new())),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Bindings::empty(),
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(String::new())),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(String::new())),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                 ),
             };
@@ -3774,7 +3804,7 @@ impl<'a> IrConverter<'a> {
                 (
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(method_literal)),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Bindings::empty(),
                 )
@@ -3787,7 +3817,7 @@ impl<'a> IrConverter<'a> {
                     ir::Atom::Const(ir::Const::String(
                         Self::output_method_literal(output.method.as_ref())?.unwrap_or_default(),
                     )),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -3795,7 +3825,7 @@ impl<'a> IrConverter<'a> {
             (
                 Spanned::new(
                     ir::Atom::Const(ir::Const::String(String::new())),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -3826,7 +3856,7 @@ impl<'a> IrConverter<'a> {
                 (
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(cdata_literal)),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Bindings::empty(),
                 )
@@ -3840,13 +3870,13 @@ impl<'a> IrConverter<'a> {
                         let (dynamic_cdata_atom, dynamic_cdata_bindings) =
                             dynamic_cdata.atom_bindings();
                         let expr = ir::Expr::FunctionCall(ir::FunctionCall {
-                            atom: Spanned::new(self.concat_atom(2), (result_document.span.start..result_document.span.end).into()),
+                            atom: Spanned::new(self.concat_atom(2), adjusted_span(result_document.span, self.current_span_offset)),
                             args: vec![
                                 Spanned::new(
                                     ir::Atom::Const(ir::Const::String(format!(
                                         "{static_cdata} "
                                     ))),
-                                    (result_document.span.start..result_document.span.end).into(),
+                                    adjusted_span(result_document.span, self.current_span_offset),
                                 ),
                                 dynamic_cdata_atom,
                             ],
@@ -3865,7 +3895,7 @@ impl<'a> IrConverter<'a> {
                     ir::Atom::Const(ir::Const::String(Self::qname_list_literal(
                         &output.cdata_section_elements,
                     ))),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -3873,7 +3903,7 @@ impl<'a> IrConverter<'a> {
             (
                 Spanned::new(
                     ir::Atom::Const(ir::Const::String(String::new())),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -3920,7 +3950,7 @@ impl<'a> IrConverter<'a> {
                 (
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(item_separator_literal)),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Bindings::empty(),
                 )
@@ -3933,7 +3963,7 @@ impl<'a> IrConverter<'a> {
                     ir::Atom::Const(ir::Const::String(
                         output.item_separator.clone().unwrap_or_default(),
                     )),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -3941,7 +3971,7 @@ impl<'a> IrConverter<'a> {
             (
                 Spanned::new(
                     ir::Atom::Const(ir::Const::String(String::new())),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -3974,7 +4004,7 @@ impl<'a> IrConverter<'a> {
                 rust_decimal::Decimal::from_str_exact(&html_version_literal).map_err(|_| {
                     error::SpannedError {
                         error: error::Error::XTSE0020,
-                        span: Some((result_document.span.start..result_document.span.end).into()),
+                        span: Some(adjusted_span(result_document.span, self.current_span_offset).into()),
                         detail: None,
 
                         contexts: Vec::new(),
@@ -3983,7 +4013,7 @@ impl<'a> IrConverter<'a> {
                 (
                     Spanned::new(
                         ir::Atom::Const(ir::Const::String(html_version_literal)),
-                        (result_document.span.start..result_document.span.end).into(),
+                        adjusted_span(result_document.span, self.current_span_offset),
                     ),
                     Bindings::empty(),
                 )
@@ -3999,7 +4029,7 @@ impl<'a> IrConverter<'a> {
                             .map(|html_version| html_version.to_string())
                             .unwrap_or_default(),
                     )),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -4007,7 +4037,7 @@ impl<'a> IrConverter<'a> {
             (
                 Spanned::new(
                     ir::Atom::Const(ir::Const::String(String::new())),
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
                 Bindings::empty(),
             )
@@ -4032,7 +4062,7 @@ impl<'a> IrConverter<'a> {
         };
         let use_character_maps_atom = Spanned::new(
             ir::Atom::Const(ir::Const::String(use_character_maps_literal)),
-            (result_document.span.start..result_document.span.end).into(),
+            adjusted_span(result_document.span, self.current_span_offset),
         );
 
         let (version_atom, version_bindings) = self.value_template_or_literal_atom(
@@ -4089,7 +4119,7 @@ impl<'a> IrConverter<'a> {
                 &mut self.variables,
                 Spanned::new(
                     expr,
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
             ));
         }
@@ -4136,7 +4166,7 @@ impl<'a> IrConverter<'a> {
                 &mut self.variables,
                 Spanned::new(
                     expr,
-                    (result_document.span.start..result_document.span.end).into(),
+                    adjusted_span(result_document.span, self.current_span_offset),
                 ),
             ))
     }
@@ -4198,11 +4228,11 @@ impl<'a> IrConverter<'a> {
         for namespace in &namespaces {
             let prefix_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(namespace.prefix.clone())),
-                (element_node.span.start..element_node.span.end).into(),
+                adjusted_span(element_node.span, self.current_span_offset),
             );
             let namespace_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(namespace.uri.clone())),
-                (element_node.span.start..element_node.span.end).into(),
+                adjusted_span(element_node.span, self.current_span_offset),
             );
             let namespace_expr = ir::Expr::XmlNamespace(ir::XmlNamespace {
                 prefix: prefix_atom,
@@ -4424,7 +4454,7 @@ impl<'a> IrConverter<'a> {
 
         let bindings = bindings.concat(sort_bindings).concat(param_bindings);
 
-        let span = (apply_templates.span.start..apply_templates.span.end).into();
+        let span = adjusted_span(apply_templates.span, self.current_span_offset);
         Ok(bindings.bind_expr_spanned(
             &mut self.variables,
             ir::Expr::ApplyTemplates(ir::ApplyTemplates {
@@ -4556,7 +4586,7 @@ impl<'a> IrConverter<'a> {
 
         let body = ir::Expr::Map(ir::Map {
             context_names,
-            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), (sort.span.start..sort.span.end).into()),
+            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), adjusted_span(sort.span, self.current_span_offset)),
             return_expr: Box::new(return_bindings.expr()),
         });
         let function = ir::Expr::FunctionDefinition(ir::FunctionDefinition {
@@ -4570,7 +4600,7 @@ impl<'a> IrConverter<'a> {
                 tunnel: false,
             }],
             return_type: None,
-            body: Box::new(Spanned::new(body, (sort.span.start..sort.span.end).into())),
+            body: Box::new(Spanned::new(body, adjusted_span(sort.span, self.current_span_offset))),
             static_base_uri: self.current_static_base_uri_string(),
         });
 
@@ -4584,7 +4614,7 @@ impl<'a> IrConverter<'a> {
         } else if !sort.sequence_constructor.is_empty() {
             self.sequence_constructor_with_temporary_output_state(&sort.sequence_constructor)?
         } else {
-            self.variables.context_item((sort.span.start..sort.span.end).into())?
+            self.variables.context_item(adjusted_span(sort.span, self.current_span_offset))?
         };
         self.atomized_key_bindings(key_bindings, self.sort_data_type(sort)?)
     }
@@ -4623,7 +4653,7 @@ impl<'a> IrConverter<'a> {
                 let sep = if base.contains('?') { ";" } else { "?" };
                 let uri = format!("{}{}{}", base, sep, suffix);
                 Ok((
-                    Spanned::new(ir::Atom::Const(ir::Const::String(uri)), (sort.span.start..sort.span.end).into()),
+                    Spanned::new(ir::Atom::Const(ir::Const::String(uri)), adjusted_span(sort.span, self.current_span_offset)),
                     Bindings::empty(),
                 ))
             } else {
@@ -4632,12 +4662,12 @@ impl<'a> IrConverter<'a> {
         } else if let Some(suffix) = &case_first_suffix {
             let uri = format!("http://www.w3.org/2013/collation/UCA?{}", suffix);
             Ok((
-                Spanned::new(ir::Atom::Const(ir::Const::String(uri)), (sort.span.start..sort.span.end).into()),
+                Spanned::new(ir::Atom::Const(ir::Const::String(uri)), adjusted_span(sort.span, self.current_span_offset)),
                 Bindings::empty(),
             ))
         } else {
             Ok((
-                Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (sort.span.start..sort.span.end).into()),
+                Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), adjusted_span(sort.span, self.current_span_offset)),
                 Bindings::empty(),
             ))
         }
@@ -4758,7 +4788,7 @@ impl<'a> IrConverter<'a> {
             params,
         });
 
-        let span = (call_template.span.start..call_template.span.end).into();
+        let span = adjusted_span(call_template.span, self.current_span_offset);
         Ok(param_bindings.bind_expr_spanned(&mut self.variables, call_template_expr, span))
     }
 
@@ -4885,7 +4915,7 @@ impl<'a> IrConverter<'a> {
                 return self.try_fallback_bindings(try_);
             }
             return Err(
-                error::Error::XTSE0010.with_ast_span((try_.span.start..try_.span.end).into())
+                error::Error::XTSE0010.with_ast_span(adjusted_span(try_.span, self.current_span_offset))
             );
         }
 
@@ -4915,7 +4945,7 @@ impl<'a> IrConverter<'a> {
                 .unwrap_or_else(|| "*".to_string());
             pattern_atoms.push(Spanned::new(
                 ir::Atom::Const(ir::Const::String(pattern)),
-                (try_.span.start..try_.span.end).into(),
+                adjusted_span(try_.span, self.current_span_offset),
             ));
         }
 
@@ -4931,7 +4961,7 @@ impl<'a> IrConverter<'a> {
                 }
                 .to_string(),
             )),
-            (try_.span.start..try_.span.end).into(),
+            adjusted_span(try_.span, self.current_span_offset),
         );
         let nonrecoverable_on_error_atom = Spanned::new(
             ir::Atom::Const(ir::Const::String(
@@ -4944,7 +4974,7 @@ impl<'a> IrConverter<'a> {
                 }
                 .to_string(),
             )),
-            (try_.span.start..try_.span.end).into(),
+            adjusted_span(try_.span, self.current_span_offset),
         );
 
         let expr = self.static_function_call_expr(
@@ -5055,7 +5085,7 @@ impl<'a> IrConverter<'a> {
                 ast::ValueTemplateItem::String { text, span } => {
                     let text_atom = Spanned::new(
                         ir::Atom::Const(ir::Const::String(text.clone())),
-                        (span.start..span.end).into(),
+                        adjusted_span(*span, self.current_span_offset),
                     );
                     let bindings = Bindings::empty();
                     bindings.bind_expr_no_span(&mut self.variables, ir::Expr::Atom(text_atom))
@@ -5069,7 +5099,7 @@ impl<'a> IrConverter<'a> {
                     bindings.bind_expr_no_span(&mut self.variables, ir::Expr::Atom(text_atom))
                 }
                 ast::ValueTemplateItem::Value { xpath, span } => {
-                    let ir_span = (span.start..span.end).into();
+                    let ir_span = adjusted_span(*span, self.current_span_offset);
                     let (atom, bindings) = self.xpath(&xpath.0, &[])?.atom_bindings();
                     let expr = self.simple_content_expr_spanned(atom, self.space_separator_atom(), ir_span);
                     bindings.bind_expr_no_span(&mut self.variables, expr)
@@ -5128,7 +5158,7 @@ impl<'a> IrConverter<'a> {
                 Bindings::empty().bind_expr_no_span(&mut self.variables, empty_string)
             };
             let var_bindings =
-                self.convert_bindings(var_bindings, variable.as_.as_ref(), RaisedError::XTTE0570)?;
+                self.convert_bindings(var_bindings, variable.as_.as_ref(), RaisedError::XTTE0570, variable.span.clone())?;
             let name = self.variables.declare_var_name(&variable.name);
             Ok(Some((name, var_bindings)))
         } else {
@@ -5310,7 +5340,7 @@ impl<'a> IrConverter<'a> {
             } else if !merge_key.sequence_constructor.is_empty() {
                 self.sequence_constructor_with_temporary_output_state(&merge_key.sequence_constructor)?
             } else {
-                self.variables.context_item((merge_source.span.start..merge_source.span.end).into())?
+                self.variables.context_item(adjusted_span(merge_source.span, self.current_span_offset))?
             };
             let key_bindings = self.atomized_key_bindings(key_bindings, SortDataType::Text)?;
             merged_key_bindings = Some(match merged_key_bindings {
@@ -5327,7 +5357,7 @@ impl<'a> IrConverter<'a> {
 
         let body = ir::Expr::Map(ir::Map {
             context_names,
-            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), (merge_source.span.start..merge_source.span.end).into()),
+            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), adjusted_span(merge_source.span, self.current_span_offset)),
             return_expr: Box::new(return_bindings.expr()),
         });
         let function = ir::Expr::FunctionDefinition(ir::FunctionDefinition {
@@ -5341,7 +5371,7 @@ impl<'a> IrConverter<'a> {
                 tunnel: false,
             }],
             return_type: None,
-            body: Box::new(Spanned::new(body, (merge_source.span.start..merge_source.span.end).into())),
+            body: Box::new(Spanned::new(body, adjusted_span(merge_source.span, self.current_span_offset))),
             static_base_uri: self.current_static_base_uri_string(),
         });
 
@@ -5422,9 +5452,9 @@ impl<'a> IrConverter<'a> {
             var_expr: Box::new(Spanned::new(
                 ir::Expr::Atom(Spanned::new(
                     ir::Atom::Variable(item_param.clone()),
-                    (for_each_group.span.start..for_each_group.span.end).into(),
+                    adjusted_span(for_each_group.span, self.current_span_offset),
                 )),
-                (for_each_group.span.start..for_each_group.span.end).into(),
+                adjusted_span(for_each_group.span, self.current_span_offset),
             )),
             return_expr: Box::new(Spanned::new(
                 ir::Expr::Let(ir::Let {
@@ -5432,9 +5462,9 @@ impl<'a> IrConverter<'a> {
                     var_expr: Box::new(Spanned::new(
                         ir::Expr::Atom(Spanned::new(
                             ir::Atom::Variable(pos_param.clone()),
-                            (for_each_group.span.start..for_each_group.span.end).into(),
+                            adjusted_span(for_each_group.span, self.current_span_offset),
                         )),
-                        (for_each_group.span.start..for_each_group.span.end).into(),
+                        adjusted_span(for_each_group.span, self.current_span_offset),
                     )),
                     return_expr: Box::new(Spanned::new(
                         ir::Expr::Let(ir::Let {
@@ -5442,16 +5472,16 @@ impl<'a> IrConverter<'a> {
                             var_expr: Box::new(Spanned::new(
                                 ir::Expr::Atom(Spanned::new(
                                     ir::Atom::Variable(last_param.clone()),
-                                    (for_each_group.span.start..for_each_group.span.end).into(),
+                                    adjusted_span(for_each_group.span, self.current_span_offset),
                                 )),
-                                (for_each_group.span.start..for_each_group.span.end).into(),
+                                adjusted_span(for_each_group.span, self.current_span_offset),
                             )),
                             return_expr: Box::new(body_bindings.expr()),
                         }),
-                        (for_each_group.span.start..for_each_group.span.end).into(),
+                        adjusted_span(for_each_group.span, self.current_span_offset),
                     )),
                 }),
-                (for_each_group.span.start..for_each_group.span.end).into(),
+                adjusted_span(for_each_group.span, self.current_span_offset),
             )),
         });
 
@@ -5499,7 +5529,7 @@ impl<'a> IrConverter<'a> {
                 (key_atom, key_bindings, descending, numeric)
             } else {
                 // No sort: pass empty sequence as sort key function
-                let empty = Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), (for_each_group.span.start..for_each_group.span.end).into());
+                let empty = Spanned::new(ir::Atom::Const(ir::Const::EmptySequence), adjusted_span(for_each_group.span, self.current_span_offset));
                 let bindings = Bindings::empty();
                 (empty, bindings, false, false)
             };
@@ -5508,13 +5538,13 @@ impl<'a> IrConverter<'a> {
             ir::Atom::Const(ir::Const::String(
                 if sort_descending { "yes" } else { "no" }.to_string(),
             )),
-            (for_each_group.span.start..for_each_group.span.end).into(),
+            adjusted_span(for_each_group.span, self.current_span_offset),
         );
         let sort_numeric_atom = Spanned::new(
             ir::Atom::Const(ir::Const::String(
                 if sort_numeric { "yes" } else { "no" }.to_string(),
             )),
-            (for_each_group.span.start..for_each_group.span.end).into(),
+            adjusted_span(for_each_group.span, self.current_span_offset),
         );
 
         let expr = self.static_function_call_expr(
@@ -5548,7 +5578,7 @@ impl<'a> IrConverter<'a> {
         let bindings = self.atomized_key_bindings(bindings, SortDataType::Text)?;
         self.variables.pop_context();
 
-        let span = (group_by.span.start..group_by.span.end).into();
+        let span = adjusted_span(group_by.span, self.current_span_offset);
         let body = ir::Expr::Map(ir::Map {
             context_names,
             var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), span),
@@ -5590,7 +5620,7 @@ impl<'a> IrConverter<'a> {
         let bindings = self.xpath(&expr, &[])?;
         self.variables.pop_context();
 
-        let span = (pattern.span.start..pattern.span.end).into();
+        let span = adjusted_span(pattern.span, self.current_span_offset);
         let body = ir::Expr::Let(ir::Let {
             name: context_names.item.clone(),
             var_expr: Box::new(Spanned::new(
@@ -5725,12 +5755,12 @@ impl<'a> IrConverter<'a> {
                             node_test: axis_step.node_test.clone(),
                             predicates: axis_step.predicates.clone(),
                         }),
-                        (pattern.span.start..pattern.span.end).into(),
+                        adjusted_span(pattern.span, self.current_span_offset),
                     )],
                 }),
-                (pattern.span.start..pattern.span.end).into(),
+                adjusted_span(pattern.span, self.current_span_offset),
             )]),
-            (pattern.span.start..pattern.span.end).into(),
+            adjusted_span(pattern.span, self.current_span_offset),
         ))
     }
 
@@ -5832,7 +5862,7 @@ impl<'a> IrConverter<'a> {
         let (context_atom, bindings) = if let Some(select) = &copy.select {
             self.expression(select)?.atom_bindings()
         } else {
-            self.variables.context_item((copy.span.start..copy.span.end).into())?.atom_bindings()
+            self.variables.context_item(adjusted_span(copy.span, self.current_span_offset))?.atom_bindings()
         };
         // copy shallow this item
         let expr = ir::Expr::CopyShallow(ir::CopyShallow {
@@ -5890,8 +5920,8 @@ impl<'a> IrConverter<'a> {
 
         let if_expr = ir::Expr::If(ir::If {
             condition: is_element_or_document_atom,
-            then: Box::new(Spanned::new(append, (copy.span.start..copy.span.end).into())),
-            else_: Box::new(Spanned::new(copy_expr, (copy.span.start..copy.span.end).into())),
+            then: Box::new(Spanned::new(append, adjusted_span(copy.span, self.current_span_offset))),
+            else_: Box::new(Spanned::new(copy_expr, adjusted_span(copy.span, self.current_span_offset))),
         });
 
         Ok(bindings.bind_expr_no_span(&mut self.variables, if_expr))
@@ -5928,7 +5958,7 @@ impl<'a> IrConverter<'a> {
     }
 
     fn xml_name(&mut self, name: &ast::Name, span: ast::Span) -> error::SpannedResult<Bindings> {
-        let ir_span = (span.start..span.end).into();
+        let ir_span = adjusted_span(span, self.current_span_offset);
         let local_name = Spanned::new(
             ir::Atom::Const(ir::Const::String(name.local_name().to_string())),
             ir_span,
@@ -5955,7 +5985,7 @@ impl<'a> IrConverter<'a> {
         default_namespace: &str,
         span: ast::Span,
     ) -> error::SpannedResult<Bindings> {
-        let ir_span = (span.start..span.end).into();
+        let ir_span = adjusted_span(span, self.current_span_offset);
         let literal_name = self.static_value_template(name);
         let (localname_atom, bindings) = if let Some((local_name, namespace_uri)) =
             literal_name.as_deref().and_then(|literal_name| {
@@ -6174,11 +6204,11 @@ impl<'a> IrConverter<'a> {
         ) {
             let prefix_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(namespace.prefix)),
-                (element.span.start..element.span.end).into(),
+                adjusted_span(element.span, self.current_span_offset),
             );
             let namespace_atom = Spanned::new(
                 ir::Atom::Const(ir::Const::String(namespace.uri)),
-                (element.span.start..element.span.end).into(),
+                adjusted_span(element.span, self.current_span_offset),
             );
             let namespace_expr = ir::Expr::XmlNamespace(ir::XmlNamespace {
                 prefix: prefix_atom,
@@ -6253,7 +6283,7 @@ impl<'a> IrConverter<'a> {
             &mut self.variables,
             Spanned::new(
                 load_expr,
-                (source_document.span.start..source_document.span.end).into(),
+                adjusted_span(source_document.span, self.current_span_offset),
             ),
         );
         let (document_atom, load_bindings) = load_bindings.atom_bindings();
@@ -6284,7 +6314,7 @@ impl<'a> IrConverter<'a> {
             &mut self.variables,
             Spanned::new(
                 expr,
-                (source_document.span.start..source_document.span.end).into(),
+                adjusted_span(source_document.span, self.current_span_offset),
             ),
         ))
     }
@@ -6410,7 +6440,7 @@ impl<'a> IrConverter<'a> {
     // fn throw_error(&mut self) -> error::SpannedResult<Bindings> {
     //     let error_atom = self.error_atom();
     //     let expr = ir::Expr::FunctionCall(ir::FunctionCall {
-    //         atom: Spanned::new(error_atom, (pi.span.start..pi.span.end).into()),
+    //         atom: Spanned::new(error_atom, adjusted_span(pi.span, self.current_span_offset)),
     //         args: vec![],
     //     });
     //     Ok(Bindings::new(self.variables.new_binding_no_span(expr)))

@@ -4,6 +4,24 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-17 08:51 CEST
+
+### Status snapshot
+
+- Checkpoint focus: span rebasing for imported stylesheets — error locations
+  now correctly point to the actual file and line in imported XSLT modules.
+- Result: **5398 passed**, 0 check failures (unchanged).
+- Root cause: AST spans from imported files were file-local byte offsets, but
+  the source chunk resolver expected global offsets in a virtual concatenated
+  source space. Errors in imported files pointed to wrong file/line.
+- Fix: `adjusted_span()` free function rebases AST spans by adding the
+  imported file's start offset (from `build_source_chunks`). The offset map
+  is built once and stored on `IrConverter`; `with_declaration_base_uri`
+  sets `current_span_offset` per declaration. ~97 span conversion sites
+  updated mechanically.
+- DocBook test now shows error at `docbook-paged.xsl:107` (correct) with
+  context chain through `chunk-cleanup.xsl`, `docbook.xsl`, `print.xsl`.
+
 ## 2026-04-17 07:24 CEST
 
 ### Status snapshot
