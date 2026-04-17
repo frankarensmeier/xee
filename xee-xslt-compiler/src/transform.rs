@@ -21,8 +21,23 @@ impl TransformEvaluator for XsltTransformEvaluator {
     ) -> error::SpannedResult<function::Map> {
         let options = &request.options;
 
-        // Extract required option: stylesheet-location
-        let stylesheet_location = get_string_option(options, "stylesheet-location")?;
+        // Extract stylesheet-location (optional — alternatives exist per spec)
+        let stylesheet_location =
+            get_optional_string_option(options, "stylesheet-location", interpreter.xot())?;
+
+        // If no stylesheet-location, check for unsupported alternatives and
+        // report FOXT0002 (cannot locate stylesheet)
+        let stylesheet_location = match stylesheet_location {
+            Some(loc) => loc,
+            None => {
+                return Err(error::SpannedError {
+                    error: error::Error::FOXT0002,
+                    span: None,
+                    detail: None,
+                    contexts: Vec::new(),
+                });
+            }
+        };
 
         // Extract optional source-node
         let source_node = get_node_option(options, "source-node")?;
@@ -36,10 +51,7 @@ impl TransformEvaluator for XsltTransformEvaluator {
         // Read and compile the stylesheet
         let xslt_source =
             fs::read_to_string(&stylesheet_path).map_err(|_| error::SpannedError {
-                error: error::Error::Unsupported(format!(
-                    "fn:transform: cannot read stylesheet '{}'",
-                    stylesheet_path.display()
-                )),
+                error: error::Error::FOXT0002,
                 span: None,
             detail: None,
 
@@ -86,40 +98,24 @@ impl TransformEvaluator for XsltTransformEvaluator {
     }
 }
 
-fn get_string_option(options: &function::Map, key: &str) -> error::SpannedResult<String> {
+fn get_optional_string_option(
+    options: &function::Map,
+    key: &str,
+    xot: &xot::Xot,
+) -> error::SpannedResult<Option<String>> {
     let key_atomic = atomic::Atomic::String(StringType::String, key.into());
-    let value = options
-        .get(&key_atomic)
-        .ok_or_else(|| error::SpannedError {
-            error: error::Error::Unsupported(format!(
-                "fn:transform: required option '{}' not provided",
-                key,
-            )),
+    let Some(value) = options.get(&key_atomic) else {
+        return Ok(None);
+    };
+    value
+        .string_value(xot)
+        .map(Some)
+        .map_err(|e| error::SpannedError {
+            error: e,
             span: None,
-        detail: None,
-
-        contexts: Vec::new(),
-        })?;
-    let item = value.clone().one().map_err(|e| error::SpannedError {
-        error: e,
-        span: None,
-    detail: None,
-
-    contexts: Vec::new(),
-    })?;
-    match item {
-        sequence::Item::Atomic(atomic::Atomic::String(_, s)) => Ok(s.to_string()),
-        _ => Err(error::SpannedError {
-            error: error::Error::type_error(format!(
-                "fn:transform: option '{}' must be a string",
-                key
-            )),
-            span: None,
-        detail: None,
-
-        contexts: Vec::new(),
-        }),
-    }
+            detail: None,
+            contexts: Vec::new(),
+        })
 }
 
 fn get_node_option(options: &function::Map, key: &str) -> error::SpannedResult<Option<xot::Node>> {
@@ -215,10 +211,7 @@ fn resolve_stylesheet_path(
     }
 
     Err(error::SpannedError {
-        error: error::Error::Unsupported(format!(
-            "fn:transform: cannot resolve stylesheet location '{}'",
-            location,
-        )),
+        error: error::Error::FOXT0002,
         span: None,
     detail: None,
 

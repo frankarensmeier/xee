@@ -1659,7 +1659,7 @@ impl<'a> Interpreter<'a> {
         self.state.regex(pattern, flags)
     }
 
-    pub(crate) fn xot(&self) -> &Xot {
+    pub fn xot(&self) -> &Xot {
         self.state.xot()
     }
 

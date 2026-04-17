@@ -4,6 +4,20 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-17 23:05 CEST
+
+### Status snapshot
+
+- Checkpoint focus: improve `fn:transform` error handling and compatibility.
+- Fixed transform-001: non-existent stylesheet now returns FOXT0002 instead of
+  Unsupported error.
+- Fixed transform-008: `stylesheet-location` specified via `xsl:map-entry`
+  text content (document node) now correctly extracted via `string_value()`.
+- Improved error codes: missing `stylesheet-location` returns FOXT0002 (was
+  Unsupported), made it optional (alternatives like `package-name` exist).
+- Made `Interpreter::xot()` public for use by transform evaluator.
+- Vendor test results: 5404 passed (+2), 46 errors (-1), 1 WrongE (-1).
+
 ## 2026-04-17 22:32 CEST
 
 ### Status snapshot
