@@ -2594,6 +2594,7 @@ fn test_for_each_descending_numeric_sort_places_nan_last() {
         r#"
 <xsl:transform xmlns:xs="http://www.w3.org/2001/XMLSchema"
                xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               exclude-result-prefixes="xs"
                version="2.0">
   <xsl:template match="/">
     <out>
@@ -2886,6 +2887,7 @@ fn test_apply_templates_current_falls_back_to_unnamed_mode_outside_template_rule
         r##"
 <xsl:stylesheet xmlns:f="http://example.com/test"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                exclude-result-prefixes="f"
                 version="3.0">
   <xsl:template match="/">
     <out>
@@ -3037,7 +3039,7 @@ fn test_document_instruction_satisfies_item_return_type() {
         &mut xot,
         "<doc/>",
         r#"
-<xsl:transform xmlns:my="http://uri.test" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+<xsl:transform xmlns:my="http://uri.test" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" exclude-result-prefixes="my" version="2.0">
   <xsl:template match="/">
     <out>
       <xsl:call-template name="a5"/>
@@ -5441,6 +5443,7 @@ fn test_unused_local_variable_does_not_trigger_global_circularity() {
         r#"
 <xsl:transform xmlns:my="http://www.my.com"
                xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+               exclude-result-prefixes="my"
                version="2.0">
   <xsl:variable name="x" select="my:func(1)"/>
 
@@ -6101,7 +6104,7 @@ fn test_xsl_element_with_prefixed_name_uses_static_namespace() {
         &mut xot,
         r#"<doc/>"#,
         r#"
-<xsl:transform expand-text="true" xmlns:my="http://www.mytest.net" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3">
+<xsl:transform expand-text="true" xmlns:my="http://www.mytest.net" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" exclude-result-prefixes="my" version="3">
   <xsl:template match="/">
     <o><xsl:element name="my:elem">content</xsl:element></o>
   </xsl:template>
@@ -7025,7 +7028,7 @@ fn test_xsl_evaluate_vendor_evaluate_023_enforces_as_type() {
   )
   .unwrap_err();
 
-    assert_eq!(error.error, error::Error::XPTY0004(None));
+    assert!(matches!(error.error, error::Error::XPTY0004(_)));
 }
 
 #[test]
@@ -7058,7 +7061,7 @@ fn test_xsl_evaluate_vendor_evaluate_018d_uses_xtte0590_for_child_with_param_typ
         evaluate_with_stylesheet_base(&mut xot, "<add>$p1 + $p2</add>", &xslt, &stylesheet_path)
             .unwrap_err();
 
-    assert_eq!(error.error, error::Error::XTTE0590(None));
+    assert!(matches!(error.error, error::Error::XTTE0590(_)));
 }
 
 #[test]

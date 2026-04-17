@@ -4,6 +4,25 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-17 21:12 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix all 8 pre-existing unit test failures in
+  xee-xslt-compiler.
+- Root causes:
+  1. Two `xsl:evaluate` type-error tests (`XPTY0004`, `XTTE0590`) now
+     include detail messages in `Some(...)` after earlier error-enrichment
+     commits — assertions updated to `matches!()`.
+  2. Five tests had unused stylesheet namespaces (`xmlns:xs`, `xmlns:my`,
+     `xmlns:f`) leaking onto result elements — added
+     `exclude-result-prefixes` to each stylesheet.
+  3. One test used whitespace-padded `version=" 3.0 "` — added
+     `trim_token()` in `_stylesheet_version_decimal` so it matches other
+     attribute parsers.
+- Result: **287 passed, 0 failed** in xee-xslt-compiler (was 279/8).
+  **5398 passed, 0 check failures** in vendor suite (unchanged).
+
 ## 2026-04-17 13:00 CEST
 
 ### Status snapshot

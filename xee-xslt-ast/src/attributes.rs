@@ -362,6 +362,7 @@ impl<'a> Attributes<'a> {
     }
 
     fn _stylesheet_version_decimal(s: &str, span: Span) -> Result<Decimal, AttributeError> {
+        let s = Self::trim_token(s);
         Decimal::from_str(s).map_err(|_| AttributeError::StaticError {
             code: "XTSE0110",
             span,
