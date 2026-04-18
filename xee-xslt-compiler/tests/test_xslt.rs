@@ -5688,20 +5688,44 @@ fn test_copy_empty_sequence() {
 }
 
 #[test]
-fn test_copy_not_one_item_fails() {
+fn test_copy_select_multiple_items_error() {
     let mut xot = Xot::new();
     let output = evaluate(
         &mut xot,
-        "<doc/>",
+        "<doc><a/><b/></doc>",
         r#"
 <xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3" >
   <xsl:template match="/">
-    <o><xsl:copy select="(1, 2)"/></o>
+    <o><xsl:copy select="/doc/*"/></o>
   </xsl:template>
 </xsl:transform>"#,
     );
-    // TODO: check the right error value
+    // XTTE3180: xsl:copy select must produce at most one item
     assert!(matches!(output, error::SpannedResult::Err(_)));
+}
+
+#[test]
+fn test_copy_select_with_context_body() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc x='1' y='2'><child/></doc>",
+        r#"
+<xsl:transform xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3">
+  <xsl:template match="/">
+    <xsl:variable name="parent" select="/doc"/>
+    <xsl:variable name="result">
+      <xsl:copy select="$parent">
+        <xsl:copy-of select="@*"/>
+        <xsl:text>hello</xsl:text>
+      </xsl:copy>
+    </xsl:variable>
+    <o x="{$result/doc/@x}" y="{$result/doc/@y}" t="{$result/doc/text()}"/>
+  </xsl:template>
+</xsl:transform>"#,
+    )
+    .unwrap();
+    assert_eq!(xml(&xot, output), r#"<o x="1" y="2" t="hello"/>"#);
 }
 
 #[test]

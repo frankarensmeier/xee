@@ -5869,11 +5869,94 @@ impl<'a> IrConverter<'a> {
     }
 
     fn copy(&mut self, copy: &ast::Copy) -> error::SpannedResult<Bindings> {
-        let (context_atom, bindings) = if let Some(select) = &copy.select {
-            self.expression(select)?.atom_bindings()
+        let span = adjusted_span(copy.span, self.current_span_offset);
+
+        if let Some(select) = &copy.select {
+            // xsl:copy with select: CopyShallow enforces cardinality (XTTE3180
+            // if >1 items). The sequence constructor body needs the selected
+            // item as context, so we use Map over the select result (0 or 1
+            // items after the cardinality check).
+            let (select_atom, bindings) = self.expression(select)?.atom_bindings();
+
+            // CopyShallow checks cardinality and creates the shallow copy
+            let expr = ir::Expr::CopyShallow(ir::CopyShallow {
+                select: select_atom.clone(),
+            });
+            let (copy_atom, bindings) = bindings
+                .bind_expr_no_span(&mut self.variables, expr)
+                .atom_bindings();
+
+            // Element/document checks on the copy
+            let is_element_expr = self.is_element_expr(copy_atom.clone());
+            let (is_element_atom, bindings) = bindings
+                .bind_expr_no_span(&mut self.variables, is_element_expr)
+                .atom_bindings();
+            let is_document_expr = self.is_document_expr(copy_atom.clone());
+            let (is_document_atom, bindings) = bindings
+                .bind_expr_no_span(&mut self.variables, is_document_expr)
+                .atom_bindings();
+            let is_element_or_document_expr = ir::Expr::Binary(ir::Binary {
+                left: is_element_atom,
+                op: ir::BinaryOperator::Or,
+                right: is_document_atom,
+            });
+            let (is_element_or_document_atom, bindings) = bindings
+                .bind_expr_no_span(&mut self.variables, is_element_or_document_expr)
+                .atom_bindings();
+
+            let copy_expr = ir::Expr::Atom(copy_atom.clone());
+
+            // Sequence constructor with context established via Map over
+            // select_atom (the original, not the copy — spec says "the element
+            // being copied" is the context item)
+            let context_names = self.variables.push_context();
+            let attribute_set_bindings =
+                self.attribute_set_bindings(copy.use_attribute_sets.as_deref().unwrap_or(&[]))?;
+            let sc_bindings = self.with_template_continuation_availability(false, |this| {
+                this.sequence_constructor(&copy.sequence_constructor)
+            })?;
+            self.variables.pop_context();
+
+            let inner_bindings = if copy.use_attribute_sets.is_some() {
+                self.comma_bindings(attribute_set_bindings, sc_bindings)
+            } else {
+                sc_bindings
+            };
+
+            let map_expr = ir::Expr::Map(ir::Map {
+                context_names,
+                var_atom: select_atom,
+                return_expr: Box::new(inner_bindings.expr()),
+            });
+            let (body_atom, body_bindings) =
+                Bindings::empty()
+                    .bind_expr_no_span(&mut self.variables, map_expr)
+                    .atom_bindings();
+
+            let bindings = bindings.concat(body_bindings);
+
+            let append = ir::Expr::XmlAppend(ir::XmlAppend {
+                parent: copy_atom,
+                child: body_atom,
+            });
+
+            let if_expr = ir::Expr::If(ir::If {
+                condition: is_element_or_document_atom,
+                then: Box::new(Spanned::new(append, span)),
+                else_: Box::new(Spanned::new(copy_expr, span)),
+            });
+
+            Ok(bindings.bind_expr_no_span(&mut self.variables, if_expr))
         } else {
-            self.variables.context_item(adjusted_span(copy.span, self.current_span_offset))?.atom_bindings()
-        };
+            self.copy_body(copy)
+        }
+    }
+
+    fn copy_body(&mut self, copy: &ast::Copy) -> error::SpannedResult<Bindings> {
+        let (context_atom, bindings) = self.variables
+            .context_item(adjusted_span(copy.span, self.current_span_offset))?
+            .atom_bindings();
+
         // copy shallow this item
         let expr = ir::Expr::CopyShallow(ir::CopyShallow {
             select: context_atom,
@@ -5906,13 +5989,8 @@ impl<'a> IrConverter<'a> {
         let attribute_set_bindings =
             self.attribute_set_bindings(copy.use_attribute_sets.as_deref().unwrap_or(&[]))?;
 
-        let sequence_constructor_bindings = if copy.select.is_some() {
-            self.with_template_continuation_availability(false, |this| {
-                this.sequence_constructor(&copy.sequence_constructor)
-            })?
-        } else {
-            self.sequence_constructor(&copy.sequence_constructor)?
-        };
+        let sequence_constructor_bindings =
+            self.sequence_constructor(&copy.sequence_constructor)?;
         let append_content_bindings = if copy.use_attribute_sets.is_some() {
             self.comma_bindings(attribute_set_bindings, sequence_constructor_bindings)
         } else {

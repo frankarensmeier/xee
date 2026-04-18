@@ -4,6 +4,26 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-18 13:56 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix `xsl:copy select=` context item for sequence
+  constructor body.
+- Root cause: `xsl:copy select="expr"` evaluated the select expression but did
+  not establish the selected item as the context item for the body. Expressions
+  like `@*` in the body failed with XPDY0002 (context item undefined).
+- Fix: restructured copy compilation — CopyShallow runs first (preserving the
+  XTTE3180 cardinality check for >1 items), then the sequence constructor body
+  is compiled inside a Map over the select result to establish context.
+- Added 2 new tests: `test_copy_select_with_context_body` (attributes + text
+  via context), `test_copy_select_multiple_items_error` (XTTE3180).
+- Updated `test_copy_not_one_item_fails` → `test_copy_select_multiple_items_error`.
+- snapshot-0102a: compilation error resolved; now FAIL (deeper snapshot
+  reference implementation mismatch, pre-existing issue shared with other
+  snapshot tests).
+- Vendor test results: 5402 passed, 7 errors (-1), 0 WrongE, 4169 filtered.
+
 ## 2026-04-18 07:59 CEST
 
 ### Status snapshot
