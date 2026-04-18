@@ -51,11 +51,15 @@ impl<L: Language> TestFilter<L> for NameFilter {
 pub(crate) struct ExcludedNamesFilter {
     names: FxHashMap<String, FxHashSet<String>>,
     comments: FxHashMap<String, FxHashMap<String, String>>,
+    exclude_all: FxHashSet<String>,
 }
 
 impl<L: Language> TestFilter<L> for ExcludedNamesFilter {
     fn is_included(&self, test_set: &TestSet<L>, test_case: &TestCase<L>) -> bool {
         let test_set_name = &test_set.name;
+        if self.exclude_all.contains(test_set_name) {
+            return false;
+        }
         let test_case_name = &test_case.name;
         if let Some(excluded_names) = self.names.get(test_set_name) {
             !excluded_names.contains(test_case_name)
@@ -81,6 +85,7 @@ impl ExcludedNamesFilter {
         Self {
             names: FxHashMap::default(),
             comments: FxHashMap::default(),
+            exclude_all: FxHashSet::default(),
         }
     }
 
@@ -117,6 +122,10 @@ impl ExcludedNamesFilter {
         &mut self,
         test_set_outcomes: &TestSetOutcomes,
     ) -> UpdateResult {
+        // Never modify exclude-all sections — they are manually managed
+        if self.exclude_all.contains(&test_set_outcomes.test_set_name) {
+            return UpdateResult::NoChange;
+        }
         let failing_names: FxHashSet<String> =
             test_set_outcomes.failing_names().into_iter().collect();
         // remove the previous entry
@@ -190,6 +199,7 @@ impl FromStr for ExcludedNamesFilter {
     fn from_str(source: &str) -> Result<Self, Self::Err> {
         let mut names = FxHashMap::default();
         let mut comments = FxHashMap::default();
+        let mut exclude_all = FxHashSet::default();
         let mut test_set_name: Option<String> = None;
         let mut test_case_names = FxHashSet::default();
         let mut test_case_comments = FxHashMap::default();
@@ -207,10 +217,16 @@ impl FromStr for ExcludedNamesFilter {
                 let mut parts = line.split('#');
                 let test_case_name = parts.next().unwrap();
                 let test_case_name = test_case_name.trim();
-                let comment = parts.next().map(|s| s.trim().to_string());
-                test_case_names.insert(test_case_name.to_string());
-                if let Some(comment) = comment {
-                    test_case_comments.insert(test_case_name.to_string(), comment);
+                if test_case_name == "*" {
+                    if let Some(ref name) = test_set_name {
+                        exclude_all.insert(name.clone());
+                    }
+                } else {
+                    let comment = parts.next().map(|s| s.trim().to_string());
+                    test_case_names.insert(test_case_name.to_string());
+                    if let Some(comment) = comment {
+                        test_case_comments.insert(test_case_name.to_string(), comment);
+                    }
                 }
             }
         }
@@ -218,18 +234,31 @@ impl FromStr for ExcludedNamesFilter {
             names.insert(test_set_name.clone(), test_case_names);
             comments.insert(test_set_name, test_case_comments);
         }
-        Ok(Self { names, comments })
+        Ok(Self {
+            names,
+            comments,
+            exclude_all,
+        })
     }
 }
 
 impl std::fmt::Display for ExcludedNamesFilter {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
-        let mut sorted_names = self.names.keys().collect::<Vec<_>>();
+        let mut sorted_names: Vec<&String> = self
+            .names
+            .keys()
+            .chain(self.exclude_all.iter())
+            .collect();
         sorted_names.sort();
+        sorted_names.dedup();
         for test_set_name in sorted_names {
+            fmt.write_str(&format!("= {}\n", test_set_name))?;
+            if self.exclude_all.contains(test_set_name) {
+                fmt.write_str("*\n")?;
+                continue;
+            }
             let excluded_names = self.names.get(test_set_name).unwrap();
             let comments = self.comments.get(test_set_name);
-            fmt.write_str(&format!("= {}\n", test_set_name))?;
             let mut sorted_excluded_names = excluded_names.iter().collect::<Vec<_>>();
             sorted_excluded_names.sort();
             for excluded_name in sorted_excluded_names {
@@ -358,5 +387,40 @@ test_case_2
 test_case_2
 "#;
         assert_eq!(serialized, expected.trim_start());
+    }
+
+    #[test]
+    fn test_exclude_all_wildcard() {
+        let source = r#"
+= test_set_1
+*
+= test_set_2
+test_case_3
+"#;
+        let filter: ExcludedNamesFilter = source.parse().unwrap();
+        assert!(filter.exclude_all.contains("test_set_1"));
+        assert!(!filter.exclude_all.contains("test_set_2"));
+
+        // Serialize round-trips correctly
+        let serialized = filter.to_string();
+        assert!(serialized.contains("= test_set_1\n*\n"));
+        assert!(serialized.contains("= test_set_2\ntest_case_3\n"));
+    }
+
+    #[test]
+    fn test_exclude_all_preserved_on_update() {
+        let source = "= test_set_1\n*\n";
+        let mut filter: ExcludedNamesFilter = source.parse().unwrap();
+
+        let mut outcomes = TestSetOutcomes::new("test_set_1");
+        outcomes.add_outcome("test_case_1", TestOutcome::Passed);
+        outcomes.add_outcome("test_case_2", TestOutcome::Unsupported);
+        let r = filter.update_with_test_set_outcomes(&outcomes);
+        assert!(matches!(r, UpdateResult::NoChange));
+
+        // Still exclude-all after update
+        assert!(filter.exclude_all.contains("test_set_1"));
+        let serialized = filter.to_string();
+        assert!(serialized.contains("= test_set_1\n*\n"));
     }
 }
