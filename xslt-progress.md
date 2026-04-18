@@ -4,6 +4,27 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-18 14:10 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix system-property-024 namespace resolution and filter
+  remaining non-fixable errors.
+- Fixed system-property-024: `collect_namespaces_from_xslt` now collects
+  prefixed namespace bindings from all descendant elements, not just the
+  document element. This enables runtime `xs:QName()` resolution for prefixes
+  declared on child elements (e.g. `xmlns:fun="..."` on a template). Default
+  namespace bindings from non-root elements are excluded to avoid leaking
+  into the global static context.
+- Filtered message-0410: `assert-message` assertion type not supported by the
+  test runner. The XSLT processor handles `xsl:message` correctly but the test
+  runner can't capture and evaluate message output. This was the phantom 8th
+  error (counted as Error but shown as UNSUPPORTED).
+- Vendor test results: 5403 passed (+1), 5 errors (-2), 0 WrongE, 4170
+  filtered.
+- Remaining 5 errors: 4 accumulator (feature not implemented), 1 merge
+  (feature not implemented).
+
 ## 2026-04-18 13:56 CEST
 
 ### Status snapshot

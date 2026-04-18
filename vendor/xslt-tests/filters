@@ -1485,6 +1485,7 @@ message-0401
 message-0402
 message-0403
 message-0404
+message-0410 # assert-message not supported by testrunner
 message-0501
 = mode
 mode-0801c

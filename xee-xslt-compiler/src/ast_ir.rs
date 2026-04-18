@@ -592,10 +592,29 @@ fn collect_namespaces_from_xslt(xslt: &str, namespaces: &mut Namespaces) {
         return;
     };
 
+    // Collect from document element: all namespace bindings including default
     for (prefix_id, namespace_id) in xot.namespaces_in_scope(document_element) {
         let prefix = xot.prefix_str(prefix_id);
         let namespace = xot.namespace_str(namespace_id);
         namespaces.add(&[(prefix, namespace)]);
+    }
+
+    // Collect from descendant elements: only prefixed bindings. This picks up
+    // prefixes declared on child elements (e.g. xmlns:fun="..." on a template)
+    // for runtime QName resolution, without leaking default namespace
+    // declarations from literal result elements into the global context.
+    for node in xot.descendants(document_element) {
+        if node == document_element || !xot.is_element(node) {
+            continue;
+        }
+        for (prefix_id, namespace_id) in xot.namespaces_in_scope(node) {
+            let prefix = xot.prefix_str(prefix_id);
+            if prefix.is_empty() {
+                continue;
+            }
+            let namespace = xot.namespace_str(namespace_id);
+            namespaces.add(&[(prefix, namespace)]);
+        }
     }
 }
 
