@@ -4,7 +4,7 @@ Per element.
 
 ## xsl:accept
 
-TODO: import subsystem
+Not planned — part of the xsl:package system (see xsl:package).
 
 ## xsl:accumulator
 
@@ -120,7 +120,7 @@ TODO
 
 ## xsl:expose
 
-TODO: import subsystem
+Not planned — part of the xsl:package system (see xsl:package).
 
 ## xsl:fallback
 
@@ -264,11 +264,25 @@ TODO
 
 ## xsl:override
 
-TODO: import subsystem
+Not planned — part of the xsl:package system (see xsl:package).
 
 ## xsl:package
 
-TODO: import subsystem
+Not planned. xsl:package (and the related xsl:use-package, xsl:override,
+xsl:accept, xsl:expose) define a modular packaging system for XSLT 3.0.
+However:
+
+- Even Saxon gates xsl:package behind its paid Enterprise Edition (EE) license.
+  The free Home Edition (HE) and open-source Community Edition do not support it.
+- Real-world adoption is minimal — virtually no stylesheets in the wild use it.
+- Implementation cost is enormous: package versioning, component visibility
+  (public/private/final/abstract), cross-package linking, and the full
+  accept/expose/override machinery.
+- The W3C vendor test suite contains ~308 package-related tests across 5 test
+  sets (expose, override, package, package-version, use-package), all excluded
+  via wildcard filter.
+
+xsl:import and xsl:include (the traditional module system) are supported.
 
 ## xsl:param
 
@@ -342,7 +356,7 @@ TODO
 
 ## xsl:use-package
 
-TODO: import subsystem
+Not planned — part of the xsl:package system (see xsl:package).
 
 ## xsl:value-of
 

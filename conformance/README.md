@@ -28,6 +28,10 @@ See [fn.md](fn.md) for details.
 XSLT is parsed into a complete AST and a large subset of XSLT works, but
 there are gaps all over the place.
 
+`xsl:package` and its related elements (`xsl:use-package`, `xsl:override`,
+`xsl:accept`, `xsl:expose`) are not planned — even Saxon gates this behind its
+paid Enterprise Edition, and real-world adoption is minimal.
+
 `xsl:template`, `xsl:value-of`, `xsl:variable`, `xsl:if` `xsl:choose`,
 `xsl:when`, `xsl:otherwise`, `xsl:for-each`, `xsl:copy`, `xsl:copy-of`,
 `xsl:sequence`, `xsl:apply-templates`, `xsl:text`, `xsl:attribute`,
