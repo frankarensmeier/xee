@@ -4,6 +4,26 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-19 11:51 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix LRE namespace prefix resolution for
+  `exclude-result-prefixes="#all"`.
+- Bug: when a stylesheet declares both `xmlns:h="..."` and `xmlns="..."` for
+  the same namespace, xot's `prefix_for_namespace()` returns the first prefix
+  in declaration order (`h:`) even for unprefixed LRE elements. Output had
+  `<h:html xmlns:h="...">` instead of `<html xmlns="...">`, with `xmlns:h`
+  repeated on every element.
+- Fix: in `ElementNode::parse()`, after resolving an LRE element name, check
+  if the default namespace maps to the same namespace and prefer the empty
+  prefix if so.
+- Added unit test with `xpath-default-namespace=""` to correctly mirror the
+  DocBook pattern.
+- DocBook NG output now produces clean HTML with proper default namespace.
+- Vendor test results unchanged: 5408 passed, 5 errors, 0 WrongE, 4165
+  filtered.
+
 ## 2026-04-19 11:12 CEST
 
 ### Status snapshot
