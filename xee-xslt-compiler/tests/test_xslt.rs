@@ -8069,3 +8069,38 @@ fn test_large_every_satisfies_matches_via_xslt_named_template() {
     let result = xml(&xot, output.unwrap());
     assert_eq!(result, "<true/>");
 }
+
+#[test]
+fn test_exclude_result_prefixes_all_prefers_default_namespace() {
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r##"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0"
+                xmlns:h="http://www.w3.org/1999/xhtml"
+                xmlns="http://www.w3.org/1999/xhtml"
+                xpath-default-namespace=""
+                exclude-result-prefixes="#all">
+  <xsl:template match="doc">
+    <html>
+      <body><p>hello</p></body>
+    </html>
+  </xsl:template>
+</xsl:stylesheet>"##,
+    )
+    .unwrap();
+
+    let result = xml(&xot, output);
+    // Elements should use the default namespace, not the h: prefix
+    assert!(
+        !result.contains("h:"),
+        "Output should not contain h: prefix, got: {}",
+        result
+    );
+    assert!(
+        result.contains(r#"<html xmlns="http://www.w3.org/1999/xhtml">"#),
+        "Output should have default XHTML namespace, got: {}",
+        result
+    );
+}

@@ -246,6 +246,38 @@ impl InstructionParser for ast::ElementNode {
         };
 
         let element_name = resolve_owned_name(attributes.element.name())?;
+        // xot's prefix_for_namespace returns the first matching prefix in
+        // declaration order. When a stylesheet declares both xmlns:h="..." and
+        // xmlns="..." for the same namespace, it may pick h: even for unprefixed
+        // elements like <html>. For LRE elements, prefer the empty prefix when
+        // the default namespace maps to the element's namespace — this matches
+        // the XSLT 3.0 spec §11.1.1 requirement that the output prefix should
+        // match the prefix used in the stylesheet source.
+        let element_name = if !element_name.prefix().is_empty()
+            && !element_name.namespace().is_empty()
+        {
+            let ns_id = content
+                .state
+                .xot
+                .namespace_for_name(attributes.element.name());
+            let empty_prefix = content.state.xot.empty_prefix();
+            if content
+                .state
+                .xot
+                .namespace_for_prefix(content.node, empty_prefix)
+                == Some(ns_id)
+            {
+                OwnedName::new(
+                    element_name.local_name().to_string(),
+                    element_name.namespace().to_string(),
+                    String::new(),
+                )
+            } else {
+                element_name
+            }
+        } else {
+            element_name
+        };
         add_required_namespace(&element_name)?;
         let mut element_attributes = Vec::new();
         for key in content.state.xot.attributes(content.node).keys() {
