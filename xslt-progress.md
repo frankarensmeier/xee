@@ -4,6 +4,48 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-19 16:27 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix current() in pattern predicates + strip-space for doc()-loaded documents.
+- Vendor test results: 5419 passed (+11), 5 errors, 0 WrongE, 4154 filtered (-11).
+
+### Fix: current() in pattern predicates
+
+- **Bug**: `current()` function calls in pattern predicates (match patterns)
+  were not rewritten to variable references during compilation. The rewriting
+  only happened in `expression()` but not in `pattern_predicate()`.
+- At runtime, `fn:current()` is a synthetic function with no actual runtime
+  implementation (it's always rewritten at compile time). When called
+  unrewritten, it silently errored and the predicate returned false — making
+  patterns with `current()` never match.
+- **Fix**: Added `bind_current_focus_variable()` call in `pattern_predicate()`
+  (in `xee-xslt-compiler/src/ast_ir.rs`), mirroring the approach in
+  `expression()`. This rewrites `current()` to a variable bound to the
+  context item at predicate entry.
+- **Tests fixed (9 net)**:
+  - `current-001` — current() in match pattern
+  - `conflict-resolution-0501`, `conflict-resolution-1501` — conflict resolution with current()
+  - `key-097` — key pattern with current()
+  - `match-049`, `match-099`, `match-126`, `match-216` — pattern matching
+  - `number-1901` — number formatting with current()
+
+### Fix: xsl:strip-space applied to doc()-loaded documents
+
+- **Bug**: `xsl:strip-space elements="*"` only stripped whitespace from the
+  principal source document (wrapped at compile time with
+  `strip-space-document()`). Documents loaded via `doc()` at runtime were not
+  stripped.
+- **Fix**: Added `strip_space_all` flag propagated through
+  `ir::Declarations` → runtime `Declarations` → `Program`. In
+  `load_document()` (`xee-interpreter/src/library/external.rs`), after
+  loading a document, strip whitespace if the flag is set.
+- Made `strip_whitespace_only_text_children()` pub(crate) in
+  `hidden_xslt.rs`.
+- **Tests fixed (2 net)**:
+  - `outermost-021`, `outermost-022` — outermost() on doc()-loaded data
+
 ## 2026-04-19 11:56 CEST
 
 ### Status snapshot

@@ -81,6 +81,12 @@ fn load_document(
         .borrow()
         .get_node_by_handle(handle)
         .ok_or_else(|| resource_error(uri.as_str().to_string()))?;
+
+    // Apply xsl:strip-space to loaded documents
+    if context.program().declarations.strip_space_all {
+        super::hidden_xslt::strip_whitespace_only_text_children(interpreter.xot_mut(), document);
+    }
+
     Ok(Some(document))
 }
 

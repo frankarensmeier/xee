@@ -80,6 +80,7 @@ impl<'a> DeclarationCompiler<'a> {
         declarations: &ir::Declarations,
     ) -> error::SpannedResult<()> {
         self.program.declarations.serialization_params = declarations.serialization_params.clone();
+        self.program.declarations.strip_space_all = declarations.strip_space_all;
 
         // first keep track of what modes exist, to create a ModeId for them. We do
         // this early so any mode reference within apply-templates will resolve.

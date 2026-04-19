@@ -475,6 +475,7 @@ pub struct Declarations {
     pub number_patterns: Vec<NumberPatternDefinition>,
     pub main: FunctionDefinition,
     pub serialization_params: SerializationParameters,
+    pub strip_space_all: bool,
 }
 
 impl Declarations {
@@ -489,6 +490,7 @@ impl Declarations {
             number_patterns: Vec::new(),
             main,
             serialization_params: SerializationParameters::new(),
+            strip_space_all: false,
         }
     }
 }

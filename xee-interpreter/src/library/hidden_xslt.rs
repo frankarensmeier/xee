@@ -525,7 +525,7 @@ fn matcher_matches_item(
     Ok(matched)
 }
 
-fn strip_whitespace_only_text_children(xot: &mut Xot, node: xot::Node) {
+pub(crate) fn strip_whitespace_only_text_children(xot: &mut Xot, node: xot::Node) {
     let mut to_remove = Vec::new();
     for descendant in xot.descendants(node) {
         let xot::Value::Text(text) = xot.value(descendant) else {

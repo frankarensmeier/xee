@@ -1248,6 +1248,7 @@ impl<'a> IrConverter<'a> {
         let main = self.sequence_constructor_function(&main_sequence_constructor)?;
         let mut ir_declarations = ir::Declarations::new(main);
         ir_declarations.global_variables = global_vars;
+        ir_declarations.strip_space_all = self.strip_source_document_whitespace;
 
         for declaration in declarations {
             self.with_declaration_base_uri(declaration, |this| {
@@ -7398,7 +7399,22 @@ impl<'a> IrConverter<'a> {
         expr: &xpath_ast::ExprS,
     ) -> error::SpannedResult<ir::FunctionDefinition> {
         let context_names = self.variables.push_context();
-        let bindings = self.xpath(expr, &[])?;
+        // Rewrite current() calls in pattern predicates so they resolve to the
+        // match focus (context item at predicate entry) rather than failing at
+        // runtime as an unknown function.
+        let mut rewritten_expr = expr.clone();
+        let current_focus = self.bind_current_focus_variable(&mut rewritten_expr);
+        let bindings = self.xpath(&rewritten_expr, &[]);
+        let current_focus = current_focus?;
+        if let Some((_, current_name)) = &current_focus {
+            self.variables
+                .remove_var_name_in_current_scope(current_name);
+        }
+        let bindings = bindings?;
+        let bindings = match current_focus {
+            Some((current_bindings, _)) => current_bindings.concat(bindings),
+            None => bindings,
+        };
         self.variables.pop_context();
         // a predicate is a function that takes a sequence as an argument and returns
         // a boolean that is true if the sequence matches the predicate

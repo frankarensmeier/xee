@@ -141,9 +141,7 @@ analyze-string-100
 = apply-templates
 apply-templates-001
 apply-templates-002
-conflict-resolution-0501
 conflict-resolution-0503
-conflict-resolution-1501
 = arrays
 = as
 as-0106a
@@ -441,7 +439,6 @@ copy-5201
 = copy-of
 = core-function
 = current
-current-001
 = current-output-uri
 current-output-uri-002
 current-output-uri-003
@@ -1256,7 +1253,6 @@ key-093
 key-094
 key-095
 key-096
-key-097
 key-098
 = load-xquery-module
 load-xquery-module-001
@@ -1324,7 +1320,6 @@ match-032
 match-033
 match-034
 match-048
-match-049
 match-060
 match-068
 match-069
@@ -1336,13 +1331,10 @@ match-081a
 match-082a
 match-082b
 match-082c
-match-099
 match-105
-match-126
 match-129
 match-134
 match-135
-match-216
 match-233
 match-235
 match-236
@@ -1696,7 +1688,6 @@ number-1502
 number-1701
 number-1702
 number-1801
-number-1901
 number-1902
 number-1903
 number-2002
@@ -1936,8 +1927,6 @@ on-non-empty-012
 on-non-empty-013
 on-non-empty-014
 = outermost
-outermost-021
-outermost-022
 = output
 output-0101
 output-0101a

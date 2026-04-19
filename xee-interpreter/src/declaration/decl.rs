@@ -127,6 +127,7 @@ pub struct Declarations {
     template_params: HashMap<function::InlineFunctionId, Vec<TemplateParamDeclaration>>,
     template_import_precedence: HashMap<function::InlineFunctionId, i64>,
     template_module_path: HashMap<function::InlineFunctionId, Vec<usize>>,
+    pub strip_space_all: bool,
 }
 
 impl Declarations {
@@ -143,6 +144,7 @@ impl Declarations {
             template_params: HashMap::new(),
             template_import_precedence: HashMap::new(),
             template_module_path: HashMap::new(),
+            strip_space_all: false,
         }
     }
 
