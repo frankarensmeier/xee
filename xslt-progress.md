@@ -4,6 +4,28 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-19 11:12 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix XSLT function name collision bug (the "DocBook
+  XTTE0590" that persisted for weeks).
+- Root cause: `register_xslt_function_names()` in ast_ir.rs used
+  `HashMap::len()` to generate unique hidden names for XSLT functions.
+  When a function was overridden (same QName+arity from stylesheet import),
+  `HashMap::insert` overwrites without increasing `len()`, so subsequent
+  different functions got duplicate names in the IR. This caused wrong
+  function dispatch at runtime — e.g. calling `f:chunk-title` (returns
+  `node()*`) instead of `fp:root-base-uri` (returns `xs:anyURI`).
+- Fix: replaced `HashMap::len()` with a monotonic counter
+  (`xslt_function_counter`). 3-line change.
+- DocBook NG transformation (`print.xsl`) now produces valid HTML output!
+- Added stack watchpoint debugging infrastructure to the interpreter
+  (`XEE_WATCH_STACK` env var). Zero overhead when not enabled.
+- 5 newly passing vendor tests: copy-4501, element-0307, system-property-025,
+  type-0150, type-0168b.
+- Vendor test results: 5408 passed (+5), 5 errors, 0 WrongE, 4165 filtered.
+
 ## 2026-04-18 14:10 CEST
 
 ### Status snapshot

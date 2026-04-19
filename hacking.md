@@ -163,6 +163,51 @@ instead to make debugging more easy. Such tests currently exist in
 `xee-xpath` API, including building up a context dynamically and providing it
 with the exact context you want it to have.
 
+## Debugging
+
+### Stack watchpoint (`XEE_WATCH_STACK`)
+
+The interpreter uses a stack machine. When diagnosing issues where the wrong
+value appears at a stack position (e.g. a type error deep in a complex
+stylesheet), you can enable a stack watchpoint to trace every mutation that
+affects a specific stack position.
+
+**Enable it** by setting the `XEE_WATCH_STACK` environment variable to the
+stack position (zero-based index) you want to monitor:
+
+```
+XEE_WATCH_STACK=42 cargo run -p xee -- xslt stylesheet.xsl input.xml
+```
+
+This logs to stderr every time stack position 42 is created, overwritten, or
+destroyed, including:
+
+- The operation that caused the mutation (`push`, `set_var`, `pop`,
+  `restore`, etc.)
+- Old and new values (type and item count)
+- The current stack length
+- The full frame chain (function ID and base pointer for each frame)
+
+There is also a diagnostic dump for `XTTE0590` type errors in the
+`ConvertSequence` instruction handler. When `XEE_WATCH_STACK` is set and an
+XTTE0590 fires, it prints the sequence type expectation, the actual value,
+and a full stack + frame dump.
+
+**Typical workflow:**
+
+1. Run the failing transformation without the watchpoint to get the error
+   message. Note which parameter or variable has the wrong value.
+2. Run with `XEE_WATCH_STACK=99999` (a position that won't exist) just to
+   trigger the XTTE0590 dump — this shows the stack position, frame chain,
+   and value details at the point of failure.
+3. Re-run with `XEE_WATCH_STACK=<position>` set to the relevant stack
+   position from step 2. This produces a full trace of every operation that
+   touched that position, letting you find where the wrong value was written.
+
+**Performance:** The watchpoint has zero overhead when the environment variable
+is not set — it's behind an `Option` check. When enabled, expect significant
+output on deep stylesheets.
+
 ## XSLT
 
 ### Testing XSLT
