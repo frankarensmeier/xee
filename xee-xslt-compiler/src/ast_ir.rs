@@ -34,6 +34,7 @@ struct IrConverter<'a> {
     overridden_static_context: Option<StaticContext>,
     initial_mode: ast::ApplyTemplatesModeValue,
     xslt_functions: HashMap<(OwnedName, u8), OwnedName>,
+    xslt_function_counter: usize,
     accumulator_declarations: HashMap<OwnedName, PreprocessedDeclaration>,
     referenced_accumulators: HashSet<OwnedName>,
     namespace_aliases: HashMap<String, String>,
@@ -979,6 +980,7 @@ impl<'a> IrConverter<'a> {
             overridden_static_context: None,
             initial_mode,
             xslt_functions: HashMap::new(),
+            xslt_function_counter: 0,
             accumulator_declarations: HashMap::new(),
             referenced_accumulators: HashSet::new(),
             namespace_aliases: HashMap::new(),
@@ -1796,10 +1798,11 @@ impl<'a> IrConverter<'a> {
             })?;
 
             let hidden_name = OwnedName::new(
-                format!("function-{}", self.xslt_functions.len()),
+                format!("function-{}", self.xslt_function_counter),
                 "urn:xee:internal:function".to_string(),
                 "xee-internal".to_string(),
             );
+            self.xslt_function_counter += 1;
             self.xslt_functions
                 .insert((function.name.clone(), arity), hidden_name.clone());
             self.variables.new_var_name(&hidden_name);

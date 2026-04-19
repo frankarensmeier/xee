@@ -433,7 +433,6 @@ copy-4307
 copy-4308
 copy-4309
 copy-4401
-copy-4501
 copy-4601
 copy-4701
 copy-4702
@@ -575,7 +574,6 @@ element-0106
 element-0107
 element-0108
 element-0302
-element-0307
 element-0308
 = embedded-stylesheet
 = error
@@ -2525,7 +2523,6 @@ strip-space-029
 system-property-014a
 system-property-019a
 system-property-022
-system-property-025
 = system-property-gen
 = template
 = transform
@@ -2548,11 +2545,9 @@ tunnel-0219
 tunnel-0226
 = type
 type-0135
-type-0150
 type-0155
 type-0156
 type-0157
-type-0168b
 type-0169
 type-0170
 type-0171
