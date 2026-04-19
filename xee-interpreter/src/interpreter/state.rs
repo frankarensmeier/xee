@@ -14,6 +14,135 @@ use super::program::Program;
 
 const FRAMES_LIMIT: usize = 16_384;
 
+/// Stack watchpoint for debugging stack corruption.
+///
+/// Activated by setting XEE_WATCH_STACK=<position> environment variable.
+/// Logs every mutation that affects the watched stack position, including
+/// the operation, old/new values, and the full frame chain.
+#[derive(Debug)]
+pub(crate) struct Watchpoint {
+    position: usize,
+    previous_len: usize,
+}
+
+impl Watchpoint {
+    fn from_env() -> Option<Self> {
+        std::env::var("XEE_WATCH_STACK").ok().and_then(|s| {
+            s.parse::<usize>().ok().map(|pos| Watchpoint {
+                position: pos,
+                previous_len: 0,
+            })
+        })
+    }
+
+    fn check(
+        &mut self,
+        operation: &str,
+        stack: &[stack::Value],
+        frames: &[Frame],
+    ) {
+        let new_len = stack.len();
+
+        // Report if the watched position was affected
+        if self.position < new_len {
+            // Position exists — report current value
+            let value = &stack[self.position];
+            let item_count = match value {
+                stack::Value::Absent => 0,
+                stack::Value::Sequence(s) => s.len(),
+            };
+
+            // If stack grew to include this position, or shrank past it and came back
+            if self.previous_len <= self.position && new_len > self.position {
+                eprintln!(
+                    "[WATCH] stack[{}] CREATED by {}: {:?} ({} items) | stack_len: {} | frames: {}",
+                    self.position,
+                    operation,
+                    Self::value_summary(value),
+                    item_count,
+                    new_len,
+                    Self::frame_summary(frames),
+                );
+            }
+        } else if self.previous_len > self.position && new_len <= self.position {
+            // Position was destroyed (truncated away)
+            eprintln!(
+                "[WATCH] stack[{}] DESTROYED by {} | stack_len: {} -> {} | frames: {}",
+                self.position,
+                operation,
+                self.previous_len,
+                new_len,
+                Self::frame_summary(frames),
+            );
+        }
+
+        self.previous_len = new_len;
+    }
+
+    fn check_overwrite(
+        &self,
+        operation: &str,
+        position: usize,
+        old_value: &stack::Value,
+        new_value: &stack::Value,
+        stack: &[stack::Value],
+        frames: &[Frame],
+    ) {
+        if position != self.position {
+            return;
+        }
+        let old_count = match old_value {
+            stack::Value::Absent => 0,
+            stack::Value::Sequence(s) => s.len(),
+        };
+        let new_count = match new_value {
+            stack::Value::Absent => 0,
+            stack::Value::Sequence(s) => s.len(),
+        };
+        eprintln!(
+            "[WATCH] stack[{}] OVERWRITTEN by {}: {:?} ({} items) -> {:?} ({} items) | stack_len: {} | frames: {}",
+            self.position,
+            operation,
+            Self::value_summary(old_value),
+            old_count,
+            Self::value_summary(new_value),
+            new_count,
+            stack.len(),
+            Self::frame_summary(frames),
+        );
+    }
+
+    fn value_summary(value: &stack::Value) -> String {
+        match value {
+            stack::Value::Absent => "Absent".to_string(),
+            stack::Value::Sequence(s) => {
+                let len = s.len();
+                if len == 0 {
+                    "Empty".to_string()
+                } else {
+                    // Show first item type and total count
+                    let first = s.iter().next().map(|item| format!("{:?}", item)).unwrap_or_default();
+                    if first.len() > 80 {
+                        format!("{}... ({} items)", &first[..80], len)
+                    } else if len == 1 {
+                        first
+                    } else {
+                        format!("{} (+{} more)", first, len - 1)
+                    }
+                }
+            }
+        }
+    }
+
+    fn frame_summary(frames: &[Frame]) -> String {
+        frames
+            .iter()
+            .map(|f| format!("fn{}@base{}", f.function.get(), f.base))
+            .collect::<Vec<_>>()
+            .join(" > ")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct StateCheckpoint {
     stack_len: usize,
@@ -65,6 +194,7 @@ pub struct State<'a> {
     /// Populated when namespace axis is traversed; needed because xot
     /// namespace nodes created via new_namespace_node() are orphaned.
     pub(crate) namespace_parents: HashMap<xot::Node, xot::Node>,
+    watchpoint: Option<Watchpoint>,
 }
 
 #[derive(Debug)]
@@ -106,6 +236,10 @@ impl From<BuildStackEntry> for sequence::Sequence {
 
 impl<'a> State<'a> {
     pub(crate) fn new(xot: &'a mut Xot) -> Self {
+        let watchpoint = Watchpoint::from_env();
+        if let Some(ref wp) = watchpoint {
+            eprintln!("[WATCH] Stack watchpoint active on position {}", wp.position);
+        }
         Self {
             stack: vec![],
             build_stack: vec![],
@@ -117,6 +251,7 @@ impl<'a> State<'a> {
             current_grouping_key_stack: vec![],
             xot,
             namespace_parents: HashMap::new(),
+            watchpoint,
         }
     }
 
@@ -126,6 +261,9 @@ impl<'a> State<'a> {
     {
         let sequence: sequence::Sequence = sequence.into();
         self.stack.push(sequence.into());
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("push", &self.stack, &self.frames);
+        }
     }
 
     pub(crate) fn push_value<T>(&mut self, value: T)
@@ -133,6 +271,9 @@ impl<'a> State<'a> {
         T: Into<stack::Value>,
     {
         self.stack.push(value.into());
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("push_value", &self.stack, &self.frames);
+        }
     }
 
     pub(crate) fn build_new(&mut self) {
@@ -154,11 +295,17 @@ impl<'a> State<'a> {
     pub(crate) fn build_complete(&mut self) {
         let build = self.build_stack.pop().unwrap();
         self.stack.push(build.into());
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("build_complete", &self.stack, &self.frames);
+        }
     }
 
     pub(crate) fn push_var(&mut self, index: usize) {
         self.stack
             .push(self.stack[self.frame().base + index].clone());
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check(&format!("push_var({})", index), &self.stack, &self.frames);
+        }
     }
 
     pub(crate) fn var_is_absent(&self, index: usize) -> bool {
@@ -169,22 +316,46 @@ impl<'a> State<'a> {
         let function = self.function()?;
         let closure_vars = function.closure_vars();
         self.stack.push(closure_vars[index].clone());
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check(&format!("push_closure_var({})", index), &self.stack, &self.frames);
+        }
         Ok(())
     }
 
     pub(crate) fn set_var(&mut self, index: usize) {
         let base = self.frame().base;
-        self.stack[base + index] = self.stack.pop().unwrap();
+        let pos = base + index;
+        if let Some(ref wp) = self.watchpoint {
+            let old_value = &self.stack[pos];
+            let new_value = self.stack.last().unwrap();
+            wp.check_overwrite(
+                &format!("set_var({})", index),
+                pos,
+                old_value,
+                new_value,
+                &self.stack,
+                &self.frames,
+            );
+        }
+        self.stack[pos] = self.stack.pop().unwrap();
     }
 
     #[inline]
     pub(crate) fn pop(&mut self) -> error::Result<sequence::Sequence> {
-        self.pop_value().try_into()
+        let result = self.pop_value();
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("pop", &self.stack, &self.frames);
+        }
+        result.try_into()
     }
 
     #[inline]
     pub(crate) fn pop_value(&mut self) -> stack::Value {
-        self.stack.pop().unwrap()
+        let value = self.stack.pop().unwrap();
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("pop_value", &self.stack, &self.frames);
+        }
+        value
     }
 
     pub(crate) fn function(&self) -> error::Result<function::Function> {
@@ -228,6 +399,9 @@ impl<'a> State<'a> {
             entry.item.build_stack.truncate(len);
         }
         self.stack.truncate(checkpoint.stack_len);
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("restore", &self.stack, &self.frames);
+        }
         self.build_stack.truncate(checkpoint.build_stack_len);
         self.mutation_count = checkpoint.mutation_count;
         while self.frames.len() > checkpoint.frames_len {
@@ -298,6 +472,9 @@ impl<'a> State<'a> {
 
     pub(crate) fn truncate_arguments(&mut self, arity: usize) {
         self.stack.truncate(self.stack.len() - arity);
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("truncate_arguments", &self.stack, &self.frames);
+        }
     }
 
     pub(crate) fn inline_return(&mut self, start_base: usize) -> bool {
@@ -305,6 +482,25 @@ impl<'a> State<'a> {
 
         // truncate the stack to the base
         let base = self.frame().base;
+
+        if let Some(ref wp) = self.watchpoint {
+            if wp.position >= base && wp.position < self.stack.len() {
+                eprintln!(
+                    "[WATCH] stack[{}] will be TRUNCATED by Return (base={}, stack_len={}) | returning fn{} | return_value: {:?} ({} items) | frames: {}",
+                    wp.position,
+                    base,
+                    self.stack.len(),
+                    self.frame().function.get(),
+                    Watchpoint::value_summary(&return_value),
+                    match &return_value {
+                        stack::Value::Absent => 0,
+                        stack::Value::Sequence(s) => s.len(),
+                    },
+                    Watchpoint::frame_summary(&self.frames),
+                );
+            }
+        }
+
         self.stack.truncate(base);
 
         // pop off the function id we just called
@@ -315,6 +511,10 @@ impl<'a> State<'a> {
 
         // push back return value
         self.stack.push(return_value);
+
+        if let Some(ref mut wp) = self.watchpoint {
+            wp.check("inline_return", &self.stack, &self.frames);
+        }
 
         // now pop off the frame
         self.frames.pop();
@@ -330,6 +530,10 @@ impl<'a> State<'a> {
 
     pub fn stack(&self) -> &[stack::Value] {
         &self.stack
+    }
+
+    pub(crate) fn frames_debug(&self) -> &[Frame] {
+        &self.frames
     }
 
     pub fn regex(&self, pattern: &str, flags: &str) -> error::Result<Rc<regexml::Regex>> {

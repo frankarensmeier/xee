@@ -479,11 +479,33 @@ impl<'a> Interpreter<'a> {
                         .map_err(|e| {
                             let detail = e.detail().map(|s| s.to_string());
                             match raised_error {
+                                RaisedError::XTTE0590 => {
+                                    if std::env::var("XEE_WATCH_STACK").is_ok() {
+                                        eprintln!("[WATCH] XTTE0590 triggered!");
+                                        eprintln!("[WATCH]   fn={}, base={}", self.state.frame().function().get(), self.state.frame().base());
+                                        eprintln!("[WATCH]   sequence_type: {:?}", sequence_type);
+                                        eprintln!("[WATCH]   detail: {:?}", detail);
+                                        eprintln!("[WATCH]   stack_len: {}", self.state.stack().len());
+                                        eprintln!("[WATCH]   frames:");
+                                        for (i, f) in self.state.frames_debug().iter().enumerate() {
+                                            eprintln!("[WATCH]     [{}] fn={} base={}", i, f.function().get(), f.base());
+                                        }
+                                        eprintln!("[WATCH]   stack contents:");
+                                        for (i, v) in self.state.stack().iter().enumerate() {
+                                            let summary = match v {
+                                                stack::Value::Absent => "Absent".to_string(),
+                                                stack::Value::Sequence(s) => format!("{} items: {:?}", s.len(), s),
+                                            };
+                                            let summary = if summary.len() > 120 { format!("{}...", &summary[..120]) } else { summary };
+                                            eprintln!("[WATCH]     [{}] {}", i, summary);
+                                        }
+                                    }
+                                    error::Error::XTTE0590(detail)
+                                },
                                 RaisedError::XTDE0560 => error::Error::XTDE0560,
                                 RaisedError::XTDE0700 => error::Error::XTDE0700,
                                 RaisedError::XTDE1425 => error::Error::XTDE1425,
                                 RaisedError::XTTE0570 => error::Error::XTTE0570,
-                                RaisedError::XTTE0590 => error::Error::XTTE0590(detail),
                                 RaisedError::XTMM9000 => error::Error::XTMM9000,
                                 RaisedError::XPTY0004 => error::Error::XPTY0004(detail),
                             }
