@@ -4,6 +4,20 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-19 11:56 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fix panic on MissingPrefix in pattern matching.
+- `matches_name_test` in `pattern_core.rs` called `.unwrap()` on
+  `xot.node_name_ref(node)`. When a result tree node has a namespace with no
+  in-scope prefix (e.g. DocBook's `ghost` namespace), this panicked. Fixed by
+  using `.ok().flatten()` — a missing prefix simply means no match.
+- Triggered by adding a `<warning>` element to DocBook input, which creates
+  ghost-namespace nodes in the result tree.
+- Vendor test results unchanged: 5408 passed, 5 errors, 0 WrongE, 4165
+  filtered.
+
 ## 2026-04-19 11:51 CEST
 
 ### Status snapshot

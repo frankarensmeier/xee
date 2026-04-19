@@ -423,8 +423,7 @@ pub(crate) trait PredicateMatcher {
     fn matches_name_test(name_test: &pattern::NameTest, node: xot::Node, xot: &Xot) -> bool {
         match name_test {
             pattern::NameTest::Name(expected_name) => {
-                // TODO: unwrap - what if prefix couldn't be identified?
-                if let Some(node_name) = xot.node_name_ref(node).unwrap() {
+                if let Some(node_name) = xot.node_name_ref(node).ok().flatten() {
                     expected_name.value.maybe_to_ref(xot) == Some(node_name)
                 } else {
                     false
