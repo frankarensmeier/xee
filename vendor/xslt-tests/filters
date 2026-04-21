@@ -278,9 +278,6 @@ call-template-0102
 call-template-0111
 call-template-0201
 call-template-0801
-call-template-1001
-call-template-1002
-call-template-1003
 call-template-1701
 call-template-2101
 = castable
@@ -1278,7 +1275,6 @@ maps-909
 = match
 match-001
 match-002
-match-019
 match-021
 match-022
 match-023
@@ -1288,9 +1284,6 @@ match-026
 match-027
 match-028
 match-031
-match-032
-match-033
-match-034
 match-048
 match-060
 match-068
@@ -1314,7 +1307,6 @@ match-237
 match-238
 match-239
 match-256
-match-257
 match-258
 match-259
 match-260
@@ -1450,11 +1442,8 @@ message-0404
 message-0410 # assert-message not supported by testrunner
 message-0501
 = mode
-mode-0801c
 mode-0802
-mode-0803
 mode-0804
-mode-0805
 mode-1105
 mode-1106a
 mode-1106b

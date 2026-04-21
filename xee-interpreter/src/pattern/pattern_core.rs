@@ -268,7 +268,8 @@ pub(crate) trait PredicateMatcher {
                 if let Some(n) = node {
                     let (matches, new_axis) = self.matches_step_expr(step, n);
                     match axis {
-                        pattern::ForwardAxis::Descendant => {
+                        pattern::ForwardAxis::Descendant
+                        | pattern::ForwardAxis::DescendantOrSelf => {
                             if !matches {
                                 node = self.xot().parent(n);
                                 continue;
@@ -279,7 +280,6 @@ pub(crate) trait PredicateMatcher {
                         // TODO: handle other kinds of forward axes, right now make
                         // them NotMatch
                         pattern::ForwardAxis::Self_ => return NodeMatch::NotMatch,
-                        pattern::ForwardAxis::DescendantOrSelf => return NodeMatch::NotMatch,
                         pattern::ForwardAxis::Namespace => return NodeMatch::NotMatch,
                         _ => {
                             if !matches {
