@@ -460,7 +460,6 @@ date-058
 date-060
 date-063
 date-064
-date-068
 date-074a
 date-075a
 date-094a
@@ -932,17 +931,10 @@ extension-functions-0105
 = for-each-group
 for-each-group-005
 for-each-group-007
-for-each-group-009
-for-each-group-011
-for-each-group-012
-for-each-group-013
 for-each-group-015b
 for-each-group-026
 for-each-group-032
 for-each-group-033
-for-each-group-034
-for-each-group-035
-for-each-group-036
 for-each-group-041
 for-each-group-042
 for-each-group-043
@@ -965,7 +957,6 @@ for-each-group-061
 for-each-group-062
 for-each-group-064
 for-each-group-065
-for-each-group-067
 for-each-group-068
 for-each-group-069
 for-each-group-070
@@ -4042,7 +4033,6 @@ version-023a
 version-024
 version-028
 version-029
-version-030
 version-031
 version-032
 version-033

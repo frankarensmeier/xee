@@ -47,7 +47,7 @@ fn simple_content(
 }
 
 #[xpath_fn(
-    "fn:xslt-for-each-group-by($seq as item()*, $key as function(item()) as xs:anyAtomicType*, $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
+    "fn:xslt-for-each-group-by($seq as item()*, $key as function(*), $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
 )]
 fn xslt_for_each_group_by(
     interpreter: &mut Interpreter,
@@ -65,9 +65,17 @@ fn xslt_for_each_group_by(
     let mut group_keys: Vec<atomic::Atomic> = Vec::new();
     let mut groups: HashMap<atomic::Atomic, Vec<sequence::Item>> = HashMap::new();
 
-    for item in seq.iter() {
-        let value =
-            interpreter.call_function_with_arguments(&key_function, &[item.clone().into()])?;
+    let total_items: IBig = seq.len().into();
+    for (index, item) in seq.iter().enumerate() {
+        let position: IBig = (index + 1).into();
+        let value = interpreter.call_function_with_arguments(
+            &key_function,
+            &[
+                item.clone().into(),
+                atomic::Atomic::from(position).into(),
+                atomic::Atomic::from(total_items.clone()).into(),
+            ],
+        )?;
         let keys = value
             .atomized(interpreter.xot())
             .collect::<error::Result<Vec<_>>>()?;
@@ -159,7 +167,7 @@ fn xslt_for_each_group_by(
 }
 
 #[xpath_fn(
-    "fn:xslt-for-each-group-adjacent($seq as item()*, $key as function(item()) as xs:anyAtomicType*, $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
+    "fn:xslt-for-each-group-adjacent($seq as item()*, $key as function(*), $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
 )]
 fn xslt_for_each_group_adjacent(
     interpreter: &mut Interpreter,
@@ -177,9 +185,17 @@ fn xslt_for_each_group_adjacent(
     let mut group_keys: Vec<atomic::Atomic> = Vec::new();
     let mut group_items_list: Vec<Vec<sequence::Item>> = Vec::new();
 
-    for item in seq.iter() {
-        let value =
-            interpreter.call_function_with_arguments(&key_function, &[item.clone().into()])?;
+    let total_items: IBig = seq.len().into();
+    for (index, item) in seq.iter().enumerate() {
+        let position: IBig = (index + 1).into();
+        let value = interpreter.call_function_with_arguments(
+            &key_function,
+            &[
+                item.clone().into(),
+                atomic::Atomic::from(position).into(),
+                atomic::Atomic::from(total_items.clone()).into(),
+            ],
+        )?;
         let k = value
             .atomized(interpreter.xot())
             .next()

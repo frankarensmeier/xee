@@ -5605,29 +5605,85 @@ impl<'a> IrConverter<'a> {
         &mut self,
         group_by: &ast::Expression,
     ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
-        let param_name = self.variables.new_name();
+        let item_param = self.variables.new_name();
+        let pos_param = self.variables.new_name();
+        let last_param = self.variables.new_name();
+
         let context_names = self.variables.push_context();
         let bindings = self.expression(group_by)?;
         let bindings = self.atomized_key_bindings(bindings, SortDataType::Text)?;
         self.variables.pop_context();
 
         let span = adjusted_span(group_by.span, self.current_span_offset);
-        let body = ir::Expr::Map(ir::Map {
-            context_names,
-            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), span),
-            return_expr: Box::new(bindings.expr()),
+
+        // Build Let chain: bind context variables from closure params
+        // so that position()/last() work correctly in the key expression
+        let body = ir::Expr::Let(ir::Let {
+            name: context_names.item.clone(),
+            var_expr: Box::new(Spanned::new(
+                ir::Expr::Atom(Spanned::new(
+                    ir::Atom::Variable(item_param.clone()),
+                    span,
+                )),
+                span,
+            )),
+            return_expr: Box::new(Spanned::new(
+                ir::Expr::Let(ir::Let {
+                    name: context_names.position.clone(),
+                    var_expr: Box::new(Spanned::new(
+                        ir::Expr::Atom(Spanned::new(
+                            ir::Atom::Variable(pos_param.clone()),
+                            span,
+                        )),
+                        span,
+                    )),
+                    return_expr: Box::new(Spanned::new(
+                        ir::Expr::Let(ir::Let {
+                            name: context_names.last.clone(),
+                            var_expr: Box::new(Spanned::new(
+                                ir::Expr::Atom(Spanned::new(
+                                    ir::Atom::Variable(last_param.clone()),
+                                    span,
+                                )),
+                                span,
+                            )),
+                            return_expr: Box::new(bindings.expr()),
+                        }),
+                        span,
+                    )),
+                }),
+                span,
+            )),
         });
 
         let function_definition = ir::FunctionDefinition {
             declared_name: None,
-            params: vec![ir::Param {
-                name: param_name,
-                type_: None,
-                default: None,
-                required: false,
-                original_name: None,
-                tunnel: false,
-            }],
+            params: vec![
+                ir::Param {
+                    name: item_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: pos_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: last_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+            ],
             return_type: None,
             body: Box::new(Spanned::new(body, span)),
             static_base_uri: self.current_static_base_uri_string(),

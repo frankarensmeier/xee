@@ -1,6 +1,6 @@
 // https://www.w3.org/TR/xpath-functions-31/#sequence-functions
 
-use ahash::HashMap;
+use ahash::{HashMap, HashMapExt};
 use ibig::IBig;
 use xee_xpath_macros::xpath_fn;
 
@@ -176,11 +176,13 @@ fn distinct_values(
     let default_offset = context.implicit_timezone();
     // we use a HashMap first to remove items to compare. It removes easy
     // duplicates. It can't generate false positives as the default
-    // string compare is in use. We store the order in the value.
-    let distinct_set = arg
-        .enumerate()
-        .map(|(i, atom)| Ok((atom?, i)))
-        .collect::<error::Result<HashMap<_, _>>>()?;
+    // string compare is in use. We store the order in the value,
+    // keeping the first occurrence index for correct ordering.
+    let mut distinct_set: HashMap<Atomic, usize> = HashMap::new();
+    for (i, atom) in arg.enumerate() {
+        let atom = atom?;
+        distinct_set.entry(atom).or_insert(i);
+    }
     if distinct_set.is_empty() {
         return Ok(Vec::new());
     }
