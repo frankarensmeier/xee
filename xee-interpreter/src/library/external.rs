@@ -22,13 +22,20 @@ fn doc(
     }
 }
 
-#[xpath_fn("fn:document($uri as xs:string?) as document-node()?")]
+#[xpath_fn("fn:document($uris as item()*) as document-node()*")]
 fn document(
     context: &DynamicContext,
     interpreter: &mut Interpreter,
-    uri: Option<&str>,
-) -> error::Result<Option<xot::Node>> {
-    doc(context, interpreter, uri)
+    uris: &Sequence,
+) -> error::Result<Vec<xot::Node>> {
+    let mut result = Vec::new();
+    for item in uris.iter() {
+        let uri_str = item.string_value(interpreter.xot())?;
+        if let Some(node) = document_node(context, interpreter, &uri_str)? {
+            result.push(node);
+        }
+    }
+    Ok(result)
 }
 
 #[xpath_fn("fn:doc-available($uri as xs:string?) as xs:boolean")]

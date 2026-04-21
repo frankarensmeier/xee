@@ -262,7 +262,6 @@ bug-2201
 bug-2401
 bug-2502
 bug-2601
-bug-2701
 bug-2801
 bug-3001
 bug-3701
@@ -523,21 +522,6 @@ doe-0177a
 = docbook
 docbook-004
 = document
-document-0105
-document-0106
-document-0107
-document-0109
-document-0110
-document-0111
-document-0113
-document-0114
-document-0115
-document-0117
-document-0118
-document-0119
-document-0201
-document-0202
-document-0203
 document-0302
 document-0308
 document-0309
@@ -550,7 +534,6 @@ document-1001
 document-1002
 document-1003
 document-1004
-document-1102
 document-1501
 document-1502
 document-2003
@@ -1218,7 +1201,6 @@ key-038
 key-039
 key-040
 key-041
-key-042
 key-047
 key-049
 key-055
