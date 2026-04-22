@@ -4,6 +4,51 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 11:36 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Correct `position()` and `last()` in sort key expressions.
+- Vendor test results: 5541 passed, 0 failed, 0 errors, 4037 filtered.
+- Delta: +1 net test passing (sort-011 newly passing).
+
+### Fix: position() in sort key expressions
+
+Sort key functions were wrapped in a `Map` over a single item, causing
+`position()` and `last()` inside sort keys to always evaluate to 1. Replaced
+`Map`-based sort key functions with 3-parameter closures `(item, position,
+last)` using nested `Let` bindings to alias the context names.
+
+Changes:
+- `sort_key_function()` in ast_ir.rs: 3-param function with Let chain instead
+  of 1-param function with Map body.
+- `apply_template_sorts()`: ascending + key now uses `xslt-sort#3` (new hidden
+  function), descending + key uses `xslt-sort-descending#3` (updated to 3-arg).
+- New `sorted_by_key_indexed()` in creation.rs: wraps `sorted_by_key_with_order`
+  with position tracking, passing `(item, 1-based pos, len)` to closure.
+- New `xslt_sort3` hidden function in hidden_xslt.rs for ascending sort with
+  3-arg key. Updated `xslt_sort_descending3` for 3-arg key.
+- All for-each-group sort key call sites (3 locations in hidden_xslt.rs)
+  updated to pass 3 args to sort key functions.
+
+### Fix: CallTemplate context in Let optimization
+
+The `compile_let` optimization skips Let bindings when the return expression
+doesn't use the bound name and the var expression is effect-free. The
+`expr_uses_name` check for `CallTemplate` only inspected `params`, missing
+the `context` field (item, position, last). Fixed in function_compiler.rs.
+
+### Fix: for-each document-order population
+
+XSLT 3.0 §13.1 requires the for-each population to be in document order
+when the select result is a sequence of nodes. Without this, `position()`
+in sort keys on reverse-axis selections (e.g. `ancestor::module`) returned
+positions based on reverse document order, producing wrong sort results.
+Added `Deduplicate` wrapper around the for-each select expression before
+sorting.
+
+Newly passing: sort-011 (sort by position() descending), sort-069 (bonus).
+
 ## 2026-04-22 10:55 CEST
 
 ### Status snapshot
