@@ -22,6 +22,12 @@ Ok(Instruction(If(If(
       start: 63,
       end: 69,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+    ],
   ),
   sequence_constructor: [
     Content(Element(ElementNode(
@@ -31,6 +37,7 @@ Ok(Instruction(If(If(
         prefix_str: "",
       ),
       namespaces: [],
+      use_attribute_sets: None,
       attributes: [],
       sequence_constructor: [
         Content(Element(ElementNode(
@@ -40,6 +47,7 @@ Ok(Instruction(If(If(
             prefix_str: "",
           ),
           namespaces: [],
+          use_attribute_sets: None,
           attributes: [],
           sequence_constructor: [],
           span: Span(

@@ -1,6 +1,5 @@
 ---
 source: xee-xpath-compiler/src/span.rs
-assertion_line: 28
 expression: "convert_ir(&static_context, expr)"
 ---
 Ok(
@@ -99,6 +98,7 @@ Ok(
                     ),
                     span: 0..8,
                 },
+                static_base_uri: None,
             },
         ),
         span: 0..9,

@@ -1,5 +1,5 @@
 ---
-source: xee-xpath-compiler/tests/xpath.rs
+source: xee-xpath/tests/xpath.rs
 expression: "run(\"'bar baz' cast as xs:QName\")"
 ---
 Err(
@@ -11,5 +11,7 @@ Err(
                 26,
             ),
         ),
+        detail: None,
+        contexts: [],
     },
 )

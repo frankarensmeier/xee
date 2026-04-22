@@ -1,5 +1,5 @@
 ---
-source: xee-xslt-ast/src/instruction.rs
+source: xee-xslt-ast/tests/snapshot_tests.rs
 expression: "parse_sequence_constructor_item(r#\"<xsl:copy xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" select=\"true()\" copy-namespaces=\"no\" inherit-namespaces=\"no\" validation=\"strict\">Hello</xsl:copy>\"#)"
 ---
 Ok(Instruction(Copy(Copy(
@@ -22,6 +22,12 @@ Ok(Instruction(Copy(Copy(
       start: 67,
       end: 73,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+    ],
   )),
   copy_namespaces: false,
   inherit_namespaces: false,

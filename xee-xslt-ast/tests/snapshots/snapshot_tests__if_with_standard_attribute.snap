@@ -1,5 +1,5 @@
 ---
-source: xee-xslt-ast/src/instruction.rs
+source: xee-xslt-ast/tests/snapshot_tests.rs
 expression: "parse_sequence_constructor_item(r#\"<xsl:if xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" test=\"true()\" expand-text=\"yes\">Hello</xsl:if>\"#)"
 ---
 Ok(Instruction(If(If(
@@ -22,6 +22,12 @@ Ok(Instruction(If(If(
       start: 63,
       end: 69,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+    ],
   ),
   sequence_constructor: [
     Content(Text("Hello")),

@@ -1,5 +1,5 @@
 ---
-source: xee-xslt-ast/src/instruction.rs
+source: xee-xslt-ast/tests/snapshot_tests.rs
 expression: "parse_sequence_constructor_item(r#\"<xsl:variable xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" name=\"foo\" as=\"xs:string\" select=\"true()\">Hello</xsl:variable>\"#)"
 ---
 Ok(Instruction(Variable(Variable(
@@ -27,6 +27,16 @@ Ok(Instruction(Variable(Variable(
       start: 141,
       end: 147,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+      LiteralNamespace(
+        prefix: "xs",
+        uri: "http://www.w3.org/2001/XMLSchema",
+      ),
+    ],
   )),
   as_: Some(Item(Item(
     item_type: AtomicOrUnionType(String),

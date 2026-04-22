@@ -78,6 +78,7 @@ pub enum Const {
     String(String),
     Double(OrderedFloat<f64>),
     Decimal(Decimal),
+    Boolean(bool),
     StaticFunctionReference(StaticFunctionId, Option<ContextNames>),
     ConcatFunctionReference(usize),
     PatternMatcherFunction(Pattern<FunctionDefinition>),

@@ -1,6 +1,5 @@
 ---
 source: xee-xpath-compiler/src/ast_ir.rs
-assertion_line: 947
 expression: "convert_expr_single(\"function($x) { $x + 1 }(3)\")"
 ---
 Ok(
@@ -51,6 +50,7 @@ Ok(
                                 ),
                                 span: 15..21,
                             },
+                            static_base_uri: None,
                         },
                     ),
                     span: 0..23,

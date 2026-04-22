@@ -9,6 +9,7 @@ Ok(Content(Element(ElementNode(
     prefix_str: "",
   ),
   namespaces: [],
+  use_attribute_sets: None,
   attributes: [],
   sequence_constructor: [],
   span: Span(

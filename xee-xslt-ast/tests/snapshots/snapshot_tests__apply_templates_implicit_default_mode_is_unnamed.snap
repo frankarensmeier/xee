@@ -19,6 +19,7 @@ Ok(Instruction(ApplyTemplates(ApplyTemplates(
       start: 0,
       end: 0,
     ),
+    namespaces: [],
   ),
   mode: Unnamed,
   builtin_template_params_passthrough: true,

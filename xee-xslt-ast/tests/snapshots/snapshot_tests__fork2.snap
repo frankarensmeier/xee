@@ -1,5 +1,5 @@
 ---
-source: xee-xslt-ast/src/instruction.rs
+source: xee-xslt-ast/tests/snapshot_tests.rs
 expression: "parse_sequence_constructor_item(r#\"<xsl:fork xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\"><xsl:for-each-group select=\"true()\">Content</xsl:for-each-group></xsl:fork>\"#)"
 ---
 Ok(Instruction(Fork(Fork(
@@ -24,6 +24,12 @@ Ok(Instruction(Fork(Fork(
         start: 87,
         end: 93,
       ),
+      namespaces: [
+        LiteralNamespace(
+          prefix: "xsl",
+          uri: "http://www.w3.org/1999/XSL/Transform",
+        ),
+      ],
     ),
     group_by: None,
     group_adjacent: None,

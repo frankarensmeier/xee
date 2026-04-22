@@ -19,6 +19,12 @@ Ok(Instruction(ApplyTemplates(ApplyTemplates(
       start: 97,
       end: 98,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+    ],
   ),
   mode: EqName(OwnedName(
     local_name_str: "foo",

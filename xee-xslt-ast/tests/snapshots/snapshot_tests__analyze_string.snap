@@ -1,5 +1,5 @@
 ---
-source: xee-xslt-ast/src/instruction.rs
+source: xee-xslt-ast/tests/snapshot_tests.rs
 expression: "parse_sequence_constructor_item(r#\"<xsl:analyze-string xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" select=\"true()\" regex=\"foo\"><xsl:matching-substring>Matching</xsl:matching-substring><xsl:non-matching-substring>Nonmatching</xsl:non-matching-substring><xsl:fallback>Fallback 1</xsl:fallback><xsl:fallback>Fallback 2</xsl:fallback></xsl:analyze-string>\"#)"
 ---
 Ok(Instruction(AnalyzeString(AnalyzeString(
@@ -22,6 +22,12 @@ Ok(Instruction(AnalyzeString(AnalyzeString(
       start: 77,
       end: 83,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+    ],
   ),
   regex: ValueTemplate(
     template: [

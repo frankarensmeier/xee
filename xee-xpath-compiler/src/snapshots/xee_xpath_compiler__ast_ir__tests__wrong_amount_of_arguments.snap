@@ -11,5 +11,7 @@ Err(
                 18,
             ),
         ),
+        detail: None,
+        contexts: [],
     },
 )
