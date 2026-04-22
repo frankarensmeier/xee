@@ -4,6 +4,58 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 18:00 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Performance — fix O(tree-size) root traversal hotspot.
+- Vendor test results: 5626 passed, 0 failed, 0 errors, 3952 filtered.
+- Delta: no net vendor test change (performance only).
+
+### Perf: fix O(tree-size) root traversal in stable_document_root_key
+
+Profiling input-large.xml (1.7 MB DocBook) revealed `stable_document_root_key`
+consuming 99.9% of CPU time (8149/8159 samples). Two problems:
+
+Used `xot.all_reverse_preorder(node).last()` to find the document root —
+traverses every node before the current one in document order, O(tree-size).
+Replaced with `xot.root(node)` which walks ancestors only, O(depth).
+
+Kept the `format!("{:?}")` + string parsing for the sort key because the
+visit order of roots determines document IDs assigned by
+DocumentOrderAnnotations — a hash-based key scrambled the order and caused
+4 array test regressions (square-array-014/017/115/116). The parsing cost
+on a single root node is negligible; the bottleneck was the traversal.
+
+Result: function dropped from 99.9% → 0% of profile. input-large.xml 122s → 93s.
+
+## 2026-04-22 17:00 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Performance — cache compiled dynamic XPath programs.
+- Vendor test results: 5626 passed, 0 failed, 0 errors, 3952 filtered.
+- Delta: no net vendor test change; all 42/42 xsl:evaluate conformance tests pass.
+
+### Perf: cache compiled programs for xsl:evaluate (17x speedup)
+
+The DocBook NG stylesheet uses `xsl:evaluate` extensively (thousands of
+calls with repeated XPath expressions). Each call was re-parsing and
+re-compiling the XPath expression from scratch.
+
+Added a `HashMap<DynamicXPathCacheKey, Rc<Program>>` cache on
+`XsltDynamicXPathEvaluator`. Cache key includes: xpath string, default
+element/function namespaces, namespace bindings (sorted), variable names
+(sorted), default collation, base URI, and context-item-supplied flag.
+
+On cache hit, the compiled program is reused via `Rc::clone`. On miss, the
+program is compiled and stored.
+
+Also added `prefix_iter()` to `xee_name::Namespaces` to expose namespace
+bindings for cache key construction.
+
+Result: input-small.xml 48s → 2.8s (17x), input-large.xml 524s → 122s (4.3x).
+
 ## 2026-04-22 14:36 CEST
 
 ### Status snapshot
