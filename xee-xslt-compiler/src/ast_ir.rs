@@ -377,7 +377,7 @@ fn compile_preprocessed_declarations(
     let mut ir_converter = IrConverter::new(&static_context, initial_mode, span_offsets);
     let declarations = ir_converter.transform(&declarations)?;
     let mut program = compile_xslt(declarations, static_context)?;
-    program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
+    program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator::default()));
     program.set_transform_evaluator(Box::new(crate::transform::XsltTransformEvaluator));
     program.set_source(xslt.to_string());
     for (uri, start_offset, end_offset, source) in source_chunks {

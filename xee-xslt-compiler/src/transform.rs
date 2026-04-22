@@ -61,7 +61,7 @@ impl TransformEvaluator for XsltTransformEvaluator {
         let mut program = crate::run::parse_with_stylesheet_path(&xslt_source, &stylesheet_path)?;
         // Inject evaluators so nested transforms work
         program
-            .set_dynamic_xpath_evaluator(Box::new(crate::dynamic_xpath::XsltDynamicXPathEvaluator));
+            .set_dynamic_xpath_evaluator(Box::new(crate::dynamic_xpath::XsltDynamicXPathEvaluator::default()));
         program.set_transform_evaluator(Box::new(XsltTransformEvaluator));
 
         // Build variables from stylesheet-params

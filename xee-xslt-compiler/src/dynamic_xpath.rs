@@ -1,5 +1,6 @@
 use ahash::{HashMap, HashMapExt, HashSetExt};
 use iri_string::types::{IriAbsoluteString, IriReferenceStr, IriReferenceString};
+use std::cell::RefCell;
 use std::rc::Rc;
 use xee_interpreter::{
     context::{self, DynamicContext},
@@ -14,11 +15,25 @@ use xee_ir::{
 };
 use xee_name::{Name, Namespaces, VariableNames};
 use xee_xpath_ast::ast as xpath_ast;
-use xot::xmlname::OwnedName;
+use xot::xmlname::{NameStrInfo, OwnedName};
 use xot::Xot;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DynamicXPathCacheKey {
+    xpath: String,
+    default_element_namespace: String,
+    default_function_namespace: String,
+    namespace_bindings: Vec<(String, String)>,
+    variable_names: Vec<(String, String)>,
+    default_collation: String,
+    base_uri: Option<String>,
+    context_item_supplied: bool,
+}
+
 #[derive(Debug, Default)]
-pub(crate) struct XsltDynamicXPathEvaluator;
+pub(crate) struct XsltDynamicXPathEvaluator {
+    cache: RefCell<HashMap<DynamicXPathCacheKey, Rc<Program>>>,
+}
 
 impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
     fn evaluate(
@@ -36,6 +51,31 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
             namespaces.default_element_namespace = request.xpath_default_namespace.clone();
         }
         let (variables, variable_names) = variables_for_request(request.with_params.as_ref())?;
+
+        // Build cache key and check for a previously compiled program
+        let cache_key = build_cache_key(
+            &request.xpath,
+            &namespaces,
+            &variable_names,
+            &request.default_collation,
+            request.base_uri.as_deref(),
+            request.context_item_supplied,
+        );
+
+        if let Some(cached_program) = self.cache.borrow().get(&cache_key).cloned() {
+            let context_item = if request.context_item_supplied {
+                request.context_item.clone()
+            } else {
+                context.context_item().cloned()
+            };
+            let dynamic_context =
+                context.clone_for_program(cached_program.as_ref(), context_item, variables);
+            let result = cached_program
+                .runnable(&dynamic_context)
+                .many(interpreter.xot_mut())?;
+            return Ok(result.with_owned_inline_program(cached_program));
+        }
+
         let mut static_context = context
             .static_context()
             .clone_with_namespaces_and_variables(namespaces, variable_names);
@@ -56,7 +96,7 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
         let mut program =
             compile_dynamic_xpath(context, static_context, xpath, stylesheet_functions)
                 .map_err(map_dynamic_xpath_static_error)?;
-        program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator));
+        program.set_dynamic_xpath_evaluator(Box::new(XsltDynamicXPathEvaluator::default()));
         program.set_transform_evaluator(Box::new(crate::transform::XsltTransformEvaluator));
         program.set_initial_focus_mode(if request.context_item_supplied {
             InitialFocusMode::Full
@@ -71,9 +111,49 @@ impl DynamicXPathEvaluator for XsltDynamicXPathEvaluator {
             context.context_item().cloned()
         };
         let program = Rc::new(program);
+        self.cache
+            .borrow_mut()
+            .insert(cache_key, Rc::clone(&program));
         let dynamic_context = context.clone_for_program(program.as_ref(), context_item, variables);
         let result = program.runnable(&dynamic_context).many(interpreter.xot_mut())?;
         Ok(result.with_owned_inline_program(program))
+    }
+}
+
+fn build_cache_key(
+    xpath: &str,
+    namespaces: &Namespaces,
+    variable_names: &VariableNames,
+    default_collation: &str,
+    base_uri: Option<&str>,
+    context_item_supplied: bool,
+) -> DynamicXPathCacheKey {
+    let mut namespace_bindings: Vec<(String, String)> = namespaces
+        .prefix_iter()
+        .map(|(prefix, uri)| (prefix.to_string(), uri.to_string()))
+        .collect();
+    namespace_bindings.sort();
+
+    let mut var_names: Vec<(String, String)> = variable_names
+        .iter()
+        .map(|name| {
+            (
+                name.namespace().to_string(),
+                name.local_name().to_string(),
+            )
+        })
+        .collect();
+    var_names.sort();
+
+    DynamicXPathCacheKey {
+        xpath: xpath.to_string(),
+        default_element_namespace: namespaces.default_element_namespace.clone(),
+        default_function_namespace: namespaces.default_function_namespace.clone(),
+        namespace_bindings,
+        variable_names: var_names,
+        default_collation: default_collation.to_string(),
+        base_uri: base_uri.map(|s| s.to_string()),
+        context_item_supplied,
     }
 }
 

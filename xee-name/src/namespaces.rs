@@ -81,6 +81,13 @@ impl Namespaces {
     pub fn default_element_namespace(&self) -> &str {
         self.default_element_namespace.as_str()
     }
+
+    /// Iterate over prefix-to-namespace-URI bindings.
+    pub fn prefix_iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.namespaces
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+    }
 }
 
 impl Default for Namespaces {
