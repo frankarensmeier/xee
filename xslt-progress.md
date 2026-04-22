@@ -4,6 +4,31 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 08:14 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Fix match pattern bugs in backward matching.
+- Vendor test results: 5495 passed, 0 failed, 0 errors, 4083 filtered.
+
+### Fix: Three match pattern bugs in pattern_core.rs
+
+- **Self axis**: `matches_relative_steps` returned `NotMatch` for `Self_`
+  axis. Fixed: stays on the same node (no parent traversal) using a
+  `skip_parent` flag. Fixes patterns like `self::foo/self::*[@att1]/baz`.
+- **Descendant positional predicates**: `chapter/descendant::foo[1]`
+  evaluated `[1]` against the wrong parent (immediate parent instead of
+  the anchor from the left-hand step). Fixed: predicates on descendant axis
+  steps are deferred until the anchor is found, then evaluated forward via
+  `forward_axis_predicate_context`. Also extended `axis_predicate_context`
+  to handle Descendant/DescendantOrSelf/Self_ axes.
+- **PostfixExpr axis propagation**: Parenthesized expressions like
+  `x/(child::a|descendant::b)` hardcoded `Child` axis, so the backward walk
+  only checked the immediate parent instead of searching ancestors. Fixed:
+  `effective_axis_of_expr` extracts the widest axis from the inner
+  expression (Descendant > Child > Self).
+- **Tests fixed**: match-235, 237, 238, 258, 259, 266, 268, 269, 282 (9 total).
+
 ## 2026-04-22 06:52 CEST
 
 ### Status snapshot
