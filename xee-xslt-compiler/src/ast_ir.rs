@@ -2911,9 +2911,159 @@ impl<'a> IrConverter<'a> {
         sequence_constructor: &[ast::SequenceConstructorItem],
     ) -> error::SpannedResult<Bindings> {
         self.variables.push_scope();
-        let result = self.sequence_constructor_in_scope(sequence_constructor);
+        let has_on_empty = sequence_constructor
+            .iter()
+            .any(|i| self.is_on_empty_or_on_non_empty(i));
+        let result = if has_on_empty {
+            self.sequence_constructor_with_on_empty(sequence_constructor)
+        } else {
+            self.sequence_constructor_in_scope(sequence_constructor)
+        };
         self.variables.pop_scope();
         result
+    }
+
+    fn is_on_empty_or_on_non_empty(&self, item: &ast::SequenceConstructorItem) -> bool {
+        matches!(
+            item,
+            ast::SequenceConstructorItem::Instruction(
+                ast::SequenceConstructorInstruction::OnEmpty(_)
+                    | ast::SequenceConstructorInstruction::OnNonEmpty(_)
+            )
+        )
+    }
+
+    fn sequence_constructor_with_on_empty(
+        &mut self,
+        items: &[ast::SequenceConstructorItem],
+    ) -> error::SpannedResult<Bindings> {
+        // Partition items into main content and on-empty/on-non-empty
+        let main_items: Vec<_> = items
+            .iter()
+            .filter(|i| !self.is_on_empty_or_on_non_empty(i))
+            .cloned()
+            .collect();
+
+        // Compile main content and bind to a variable
+        let main_bindings = self.sequence_constructor_in_scope(&main_items)?;
+        let (main_atom, main_bindings) = main_bindings.atom_bindings();
+
+        // Check populated: fn:exists(fn:xslt-where-populated($main))
+        let wp_expr = self.static_function_call_expr(
+            "xslt-where-populated",
+            FN_NAMESPACE,
+            1,
+            vec![main_atom.clone()],
+        );
+        let wp_bindings = main_bindings.bind_expr_no_span(&mut self.variables, wp_expr);
+        let (wp_atom, wp_bindings) = wp_bindings.atom_bindings();
+
+        let exists_expr =
+            self.static_function_call_expr("exists", FN_NAMESPACE, 1, vec![wp_atom]);
+        let exists_bindings = wp_bindings.bind_expr_no_span(&mut self.variables, exists_expr);
+        let (is_pop_atom, mut all_bindings) = exists_bindings.atom_bindings();
+
+        // Walk items in original order, generating conditional output.
+        // Main items: output $main (if populated) at the position of the
+        // first main item; subsequent main items are skipped since they're
+        // already included in $main.
+        // On-non-empty: if populated then content else ()
+        // On-empty: if not populated then content else ()
+        let mut first_main_seen = false;
+        let mut result_atom: Option<ir::AtomS> = None;
+
+        for item in items {
+            let part_atom = if self.is_on_empty_or_on_non_empty(item) {
+                let is_on_empty = matches!(
+                    item,
+                    ast::SequenceConstructorItem::Instruction(
+                        ast::SequenceConstructorInstruction::OnEmpty(_)
+                    )
+                );
+
+                let content_bindings = self.sequence_constructor_item(item)?;
+                let (content_atom, content_bindings) = content_bindings.atom_bindings();
+                all_bindings = all_bindings.concat(content_bindings);
+
+                // on-empty: if $is_pop then () else content
+                // on-non-empty: if $is_pop then content else ()
+                let empty = self.empty_sequence();
+                let if_expr = if is_on_empty {
+                    ir::Expr::If(ir::If {
+                        condition: is_pop_atom.clone(),
+                        then: Box::new(empty),
+                        else_: Box::new(Spanned::new(
+                            ir::Expr::Atom(content_atom),
+                            (0..0).into(),
+                        )),
+                    })
+                } else {
+                    ir::Expr::If(ir::If {
+                        condition: is_pop_atom.clone(),
+                        then: Box::new(Spanned::new(
+                            ir::Expr::Atom(content_atom),
+                            (0..0).into(),
+                        )),
+                        else_: Box::new(empty),
+                    })
+                };
+                let bind =
+                    Bindings::empty().bind_expr_no_span(&mut self.variables, if_expr);
+                let (atom, bind) = bind.atom_bindings();
+                all_bindings = all_bindings.concat(bind);
+                Some(atom)
+            } else if !first_main_seen {
+                first_main_seen = true;
+                // Output $main (if populated) at the position of the first
+                // main item.
+                let empty = self.empty_sequence();
+                let if_expr = ir::Expr::If(ir::If {
+                    condition: is_pop_atom.clone(),
+                    then: Box::new(Spanned::new(
+                        ir::Expr::Atom(main_atom.clone()),
+                        (0..0).into(),
+                    )),
+                    else_: Box::new(empty),
+                });
+                let bind =
+                    Bindings::empty().bind_expr_no_span(&mut self.variables, if_expr);
+                let (atom, bind) = bind.atom_bindings();
+                all_bindings = all_bindings.concat(bind);
+                Some(atom)
+            } else {
+                // Subsequent main items — already included in $main
+                None
+            };
+
+            if let Some(part) = part_atom {
+                result_atom = Some(if let Some(prev) = result_atom {
+                    let comma_expr = ir::Expr::Binary(ir::Binary {
+                        left: prev,
+                        op: ir::BinaryOperator::Comma,
+                        right: part,
+                    });
+                    let bind = Bindings::empty()
+                        .bind_expr_no_span(&mut self.variables, comma_expr);
+                    let (atom, bind) = bind.atom_bindings();
+                    all_bindings = all_bindings.concat(bind);
+                    atom
+                } else {
+                    part
+                });
+            }
+        }
+
+        if let Some(result) = result_atom {
+            Ok(all_bindings.bind_expr_no_span(
+                &mut self.variables,
+                ir::Expr::Atom(result),
+            ))
+        } else {
+            let empty = self.empty_sequence();
+            Ok(Bindings::new(
+                self.variables.new_binding(empty.value, empty.span),
+            ))
+        }
     }
 
     fn sequence_constructor_in_scope(
@@ -3024,6 +3174,8 @@ impl<'a> IrConverter<'a> {
             MapEntry(entry) => self.map_entry(entry),
             AnalyzeString(analyze_string) => self.analyze_string(analyze_string),
             WherePopulated(where_populated) => self.where_populated(where_populated),
+            OnEmpty(on_empty) => self.on_empty_content(on_empty),
+            OnNonEmpty(on_non_empty) => self.on_non_empty_content(on_non_empty),
             _ => Err(error::Error::Unsupported(format!(
                 "Instruction not supported: {:?}",
                 instruction
@@ -3222,6 +3374,25 @@ impl<'a> IrConverter<'a> {
                 adjusted_span(where_populated.span, self.current_span_offset),
             ),
         ))
+    }
+
+    fn on_empty_content(&mut self, on_empty: &ast::OnEmpty) -> error::SpannedResult<Bindings> {
+        if let Some(select) = &on_empty.select {
+            self.expression(select)
+        } else {
+            self.sequence_constructor(&on_empty.sequence_constructor)
+        }
+    }
+
+    fn on_non_empty_content(
+        &mut self,
+        on_non_empty: &ast::OnNonEmpty,
+    ) -> error::SpannedResult<Bindings> {
+        if let Some(select) = &on_non_empty.select {
+            self.expression(select)
+        } else {
+            self.sequence_constructor(&on_non_empty.sequence_constructor)
+        }
     }
 
     fn evaluate(&mut self, evaluate: &ast::Evaluate) -> error::SpannedResult<Bindings> {
