@@ -343,12 +343,13 @@ impl Sequence {
 }
 
 fn stable_document_root_key(node: xot::Node, xot: &Xot) -> (usize, usize) {
-    let root = xot.all_reverse_preorder(node).last().unwrap_or(node);
-    stable_node_key(root)
-}
-
-fn stable_node_key(node: xot::Node) -> (usize, usize) {
-    let debug = format!("{node:?}");
+    let root = xot.root(node);
+    // Extract a stable sort key from the Node's debug representation.
+    // Node wraps indextree::NodeId which has (index1: NonZeroUsize, stamp: NodeStamp).
+    // We need a deterministic Ord key (not just grouping) because the visit
+    // order of roots determines the document IDs assigned by
+    // DocumentOrderAnnotations, which in turn determines final sort order.
+    let debug = format!("{root:?}");
     let mut numbers = debug
         .split(|ch: char| !ch.is_ascii_digit())
         .filter(|part| !part.is_empty())
