@@ -4,6 +4,39 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 12:09 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Implement `xsl:on-empty` and `xsl:on-non-empty`.
+- Vendor test results: 5626 passed, 0 failed, 0 errors, 3952 filtered.
+- Delta: +85 net tests passing.
+
+### Feature: xsl:on-empty and xsl:on-non-empty
+
+Implemented the XSLT 3.0 `xsl:on-empty` and `xsl:on-non-empty` instructions.
+These allow conditional content in sequence constructors based on whether
+the "main content" (all non-on-empty/on-non-empty siblings) produces any
+populated output.
+
+Implementation approach:
+- `sequence_constructor` detects on-empty/on-non-empty items and delegates
+  to `sequence_constructor_with_on_empty`.
+- Main content is compiled separately and checked for populatedness via
+  `fn:exists(fn:xslt-where-populated(main))`.
+- Items are processed in original order: main content conditionally outputs
+  at the first main item's position; on-empty/on-non-empty produce
+  conditional output using `ir::If`.
+- Added `on_empty_content` and `on_non_empty_content` methods for compiling
+  instruction content (select expression or sequence constructor).
+
+Known limitation: variables interleaved with on-empty/on-non-empty items
+(e.g., on-non-empty-007) cause "variable not found" errors because main items
+are compiled in a separate scope from on-empty/on-non-empty items.
+
+Newly passing: 64/72 on-empty tests, 12/14 on-non-empty tests, plus 8 copy
+tests and 1 seqtor test (85 total).
+
 ## 2026-04-22 11:36 CEST
 
 ### Status snapshot
