@@ -666,7 +666,7 @@ fn parse_initial_mode_value(
     )))
 }
 
-fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
+fn map_parse_error(_xslt: &str, error: ElementError) -> error::SpannedError {
     match error {
         ElementError::Unsupported(reason) => {
             if reason.starts_with("Could not read stylesheet: ") {
@@ -718,14 +718,12 @@ fn map_parse_error(xslt: &str, error: ElementError) -> error::SpannedError {
             },
             other => error::Error::Unsupported(format!("Failed parsing XSLT: {:?}", other)).into(),
         },
-        ElementError::Unexpected { span } => {
-            let text = xslt.get(span.start..span.end).unwrap_or_default();
-            error::Error::Unsupported(format!(
-                "Failed parsing XSLT, Unexpected {} {:?}",
-                text, span
-            ))
-            .into()
-        }
+        ElementError::Unexpected { span } => error::SpannedError {
+            error: error::Error::XTSE0010,
+            span: Some((span.start..span.end).into()),
+            detail: None,
+            contexts: Vec::new(),
+        },
         ElementError::XPathRunTime(spanned_error) => spanned_error,
         other => error::Error::Unsupported(format!("Failed parsing XSLT: {:?}", other)).into(),
     }
