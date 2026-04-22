@@ -543,7 +543,15 @@ impl Assertable for AssertXml {
         normalize_xml_for_comparison(&mut compare_xot, found);
 
         let expected = match &self {
-            Self::MatchString(s) => compare_xot.parse_fragment(s).unwrap(),
+            Self::MatchString(s) => match compare_xot.parse_fragment(s) {
+                Ok(node) => node,
+                Err(error) => {
+                    return TestOutcome::EnvironmentError(format!(
+                        "Error parsing expected xml string: {}",
+                        error
+                    ))
+                }
+            },
             Self::MatchFile(path) => {
                 let expected_xml = std::fs::File::open(path).and_then(std::io::read_to_string);
 
@@ -557,7 +565,15 @@ impl Assertable for AssertXml {
                     }
                 };
 
-                compare_xot.parse(&expected_xml).unwrap()
+                match compare_xot.parse(&expected_xml) {
+                    Ok(node) => node,
+                    Err(error) => {
+                        return TestOutcome::EnvironmentError(format!(
+                            "Error parsing expected xml file: {}",
+                            error
+                        ))
+                    }
+                }
             }
         };
         normalize_xml_for_comparison(&mut compare_xot, expected);

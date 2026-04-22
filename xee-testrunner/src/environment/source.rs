@@ -126,10 +126,10 @@ impl Source {
                     .unwrap())
             }
             SourceContent::ContentAndSelect(_value, _select) => {
-                todo!("Don't know yet how to execute xpath here")
+                anyhow::bail!("Source with content and select is not yet supported")
             }
             SourceContent::Select(_value) => {
-                todo!("Don't know yet how to execute xpath here")
+                anyhow::bail!("Source with select is not yet supported")
             }
         }
     }
