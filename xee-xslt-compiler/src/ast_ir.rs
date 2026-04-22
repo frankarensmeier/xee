@@ -724,6 +724,7 @@ fn map_parse_error(_xslt: &str, error: ElementError) -> error::SpannedError {
             detail: None,
             contexts: Vec::new(),
         },
+        ElementError::UnexpectedEnd => error::Error::XTSE0010.into(),
         ElementError::XPathRunTime(spanned_error) => spanned_error,
         other => error::Error::Unsupported(format!("Failed parsing XSLT: {:?}", other)).into(),
     }
@@ -4557,11 +4558,17 @@ impl<'a> IrConverter<'a> {
         for sort in sorts.iter().rev() {
             self.ensure_supported_sort(sort)?;
             let (collation_atom, collation_bindings) = self.sort_collation_atom(sort)?;
+            let is_descending = self.sort_is_descending(sort)?;
 
             bindings = bindings.concat(collation_bindings);
+            let sort_fn_name = if is_descending {
+                "xslt-sort-descending"
+            } else {
+                "sort"
+            };
             let sort_expr = if self.sort_uses_default_text_key(sort)? {
                 self.static_function_call_expr(
-                    "sort",
+                    sort_fn_name,
                     FN_NAMESPACE,
                     2,
                     vec![current_atom.clone(), collation_atom],
@@ -4570,7 +4577,7 @@ impl<'a> IrConverter<'a> {
                 let (key_atom, key_bindings) = self.sort_key_function(sort)?;
                 bindings = bindings.concat(key_bindings);
                 self.static_function_call_expr(
-                    "sort",
+                    sort_fn_name,
                     FN_NAMESPACE,
                     3,
                     vec![current_atom.clone(), collation_atom, key_atom],
@@ -4581,20 +4588,6 @@ impl<'a> IrConverter<'a> {
                 .atom_bindings();
             bindings = sorted_bindings;
             current_atom = sorted_atom;
-
-            if self.sort_is_descending(sort)? {
-                let reverse_expr = self.static_function_call_expr(
-                    "reverse",
-                    FN_NAMESPACE,
-                    1,
-                    vec![current_atom.clone()],
-                );
-                let (reversed_atom, reversed_bindings) = bindings
-                    .bind_expr_no_span(&mut self.variables, reverse_expr)
-                    .atom_bindings();
-                bindings = reversed_bindings;
-                current_atom = reversed_atom;
-            }
         }
 
         Ok((current_atom, bindings))

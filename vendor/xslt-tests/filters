@@ -261,7 +261,6 @@ bug-1601
 bug-2201
 bug-2401
 bug-2502
-bug-2601
 bug-2801
 bug-3001
 bug-3701
@@ -320,7 +319,6 @@ choose-0107
 choose-1204
 = collation
 = collations
-collations-0102
 collations-0103
 collations-0104
 collations-0105
@@ -2279,9 +2277,8 @@ snapshot-0110
 snapshot-0111
 snapshot-0112
 = sort
-sort-001
-sort-005
 sort-010
+sort-011
 sort-012
 sort-019
 sort-026
@@ -2291,11 +2288,8 @@ sort-029
 sort-041
 sort-042
 sort-043
-sort-050
-sort-051
 sort-054
 sort-066
-sort-072
 sort-078
 sort-079
 sort-080

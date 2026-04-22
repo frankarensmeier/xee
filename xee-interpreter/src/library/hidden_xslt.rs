@@ -2406,6 +2406,37 @@ fn is_item_populated(xot: &Xot, item: sequence::Item) -> bool {
     }
 }
 
+#[xpath_fn("fn:xslt-sort-descending($input as item()*, $collation as xs:string?) as item()*")]
+fn xslt_sort_descending2(
+    context: &crate::context::DynamicContext,
+    interpreter: &Interpreter,
+    input: &sequence::Sequence,
+    collation: Option<&str>,
+) -> error::Result<sequence::Sequence> {
+    let collation = context.static_context().resolve_collation_str(collation)?;
+    input.sorted_by_key_descending(context, collation, |item| {
+        let seq: sequence::Sequence = item.into();
+        seq.atomized(interpreter.xot())
+            .collect::<error::Result<sequence::Sequence>>()
+    })
+}
+
+#[xpath_fn("fn:xslt-sort-descending($input as item()*, $collation as xs:string?, $key as function(item()) as xs:anyAtomicType*) as item()*")]
+fn xslt_sort_descending3(
+    context: &crate::context::DynamicContext,
+    interpreter: &mut Interpreter,
+    input: &sequence::Sequence,
+    collation: Option<&str>,
+    key: sequence::Item,
+) -> error::Result<sequence::Sequence> {
+    let collation = context.static_context().resolve_collation_str(collation)?;
+    let function = key.to_function()?;
+    input.sorted_by_key_descending(context, collation, |item| {
+        let value = interpreter.call_function_with_arguments(&function, &[item.clone().into()])?;
+        Ok(value)
+    })
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
@@ -2449,6 +2480,8 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_message_terminate),
         wrap_xpath_fn!(fn_transform),
         wrap_xpath_fn!(xslt_where_populated),
+        wrap_xpath_fn!(xslt_sort_descending2),
+        wrap_xpath_fn!(xslt_sort_descending3),
     ]
 }
 

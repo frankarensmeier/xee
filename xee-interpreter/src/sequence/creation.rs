@@ -159,6 +159,31 @@ impl Sequence {
     where
         F: FnMut(Item) -> error::Result<Sequence>,
     {
+        self.sorted_by_key_with_order(context, collation, get, false)
+    }
+
+    pub fn sorted_by_key_descending<F>(
+        &self,
+        context: &context::DynamicContext,
+        collation: Rc<Collation>,
+        get: F,
+    ) -> error::Result<Self>
+    where
+        F: FnMut(Item) -> error::Result<Sequence>,
+    {
+        self.sorted_by_key_with_order(context, collation, get, true)
+    }
+
+    fn sorted_by_key_with_order<F>(
+        &self,
+        context: &context::DynamicContext,
+        collation: Rc<Collation>,
+        get: F,
+        descending: bool,
+    ) -> error::Result<Self>
+    where
+        F: FnMut(Item) -> error::Result<Sequence>,
+    {
         // see also sort_by_sequence in array.rs. The signatures are
         // sufficiently different we don't want to try to unify them.
 
@@ -170,7 +195,12 @@ impl Sequence {
         // to be infallible. It's not in reality, so we make any failures
         // sort less, so they appear early on in the sequence.
         keys_and_items.sort_by(|(a_key, _), (b_key, _)| {
-            a_key.compare(b_key, &collation, context.implicit_timezone())
+            let ord = a_key.compare(b_key, &collation, context.implicit_timezone());
+            if descending {
+                ord.reverse()
+            } else {
+                ord
+            }
         });
         // a pass to detect any errors; if sorting between two items is
         // impossible we want to raise a type error
