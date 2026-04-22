@@ -4,7 +4,7 @@ use crate::common::input_xml;
 use crate::error::{render_error, render_program_error};
 use anyhow::Context;
 use clap::Parser;
-use xot::Xot;
+use xot::{ParseOptions, Xot};
 
 #[derive(Debug, Parser)]
 pub(crate) struct Xslt {
@@ -21,6 +21,10 @@ pub(crate) struct Xslt {
     /// Dump the intermediate representation (IR) instead of transforming
     #[arg(long)]
     pub(crate) dump_ir: bool,
+
+    /// Accept documents with duplicate xml:id values
+    #[arg(long)]
+    pub(crate) relaxed: bool,
 }
 
 impl Xslt {
@@ -67,8 +71,11 @@ impl Xslt {
 
         // Perform the XSLT transformation
         let mut xot = Xot::new();
+        let parse_options = ParseOptions {
+            allow_duplicate_ids: self.relaxed,
+        };
         let root = xot
-            .parse(&xml)
+            .parse_with_options(&xml, &parse_options)
             .map_err(|e| anyhow::anyhow!("Failed to parse input XML: {}", e))?;
         let result = match xee_xslt_compiler::evaluate_program(&mut xot, &program, root) {
             Ok(result) => result,
