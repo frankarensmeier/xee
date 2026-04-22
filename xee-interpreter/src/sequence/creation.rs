@@ -342,18 +342,11 @@ impl Sequence {
     }
 }
 
-fn stable_document_root_key(node: xot::Node, xot: &Xot) -> (usize, usize) {
-    let root = xot.all_reverse_preorder(node).last().unwrap_or(node);
-    stable_node_key(root)
-}
-
-fn stable_node_key(node: xot::Node) -> (usize, usize) {
-    let debug = format!("{node:?}");
-    let mut numbers = debug
-        .split(|ch: char| !ch.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<usize>().ok());
-    let index = numbers.next().unwrap_or_default();
-    let stamp = numbers.next().unwrap_or_default();
-    (index, stamp)
+fn stable_document_root_key(node: xot::Node, xot: &Xot) -> u64 {
+    let root = xot.root(node);
+    // Node implements Hash; use a deterministic hasher to get a stable sort key.
+    // We only need a consistent grouping, not a cryptographic hash.
+    let mut hasher = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(&root, &mut hasher);
+    std::hash::Hasher::finish(&hasher)
 }
