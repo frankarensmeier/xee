@@ -4,6 +4,32 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 19:49 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Pattern matching performance — avoid `prefix_for_namespace` ancestor walk.
+- Vendor test results: 5626 passed, 0 failed, 0 errors, 3952 filtered.
+- Delta: no net vendor test change (performance only).
+
+### Perf: eliminate prefix_for_namespace from pattern matching name comparison
+
+`matches_name_test` in `pattern_core.rs` compared node names by:
+1. `xot.node_name_ref(node)` — calls `prefix_for_namespace()` which walks
+   ancestor nodes to find the prefix for a namespace (O(depth))
+2. `expected_name.value.maybe_to_ref(xot)` — converts OwnedName to RefName
+   via string hash lookups
+3. `RefName == RefName` — compares only the `name_id` integer field
+
+Both sides did expensive work only to compare a single integer. Fix: resolve
+the expected name to a `NameId` via `maybe_to_ref`, then compare directly
+against `xot.node_name(node)` which returns `Option<NameId>` in O(1).
+
+This eliminates ~15% of profile samples (`prefix_for_namespace` 7.9% +
+`node_name_ref` 3.3% + part of `name_ns` 8.8%) from the hot path.
+
+Result: DocBook transform 68s → 52s (24% speedup).
+
 ## 2026-04-22 19:33 CEST
 
 ### Status snapshot

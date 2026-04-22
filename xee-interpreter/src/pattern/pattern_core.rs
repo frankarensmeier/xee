@@ -685,8 +685,15 @@ pub(crate) trait PredicateMatcher {
     fn matches_name_test(name_test: &pattern::NameTest, node: xot::Node, xot: &Xot) -> bool {
         match name_test {
             pattern::NameTest::Name(expected_name) => {
-                if let Some(node_name) = xot.node_name_ref(node).ok().flatten() {
-                    expected_name.value.maybe_to_ref(xot) == Some(node_name)
+                // Compare NameId directly — avoids node_name_ref() which walks
+                // ancestors to resolve prefixes (O(depth) per comparison).
+                // NameId encodes local-name + namespace, which is all that
+                // matters for pattern matching. This also correctly matches
+                // elements created by xsl:element with dynamic namespaces
+                // that lack in-scope prefix declarations.
+                if let Some(expected_ref) = expected_name.value.maybe_to_ref(xot) {
+                    let expected_name_id = expected_ref.name_id();
+                    xot.node_name(node) == Some(expected_name_id)
                 } else {
                     false
                 }
