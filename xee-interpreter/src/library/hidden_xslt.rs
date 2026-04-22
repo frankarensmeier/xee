@@ -5,7 +5,7 @@ use ahash::{HashMap, HashMapExt};
 use ibig::IBig;
 use iri_string::types::{IriReferenceStr, IriString};
 use xee_name::{Name, Namespaces};
-use xee_xpath_ast::parse_name;
+use xee_xpath_ast::{parse_name, Pattern};
 use xee_xpath_macros::xpath_fn;
 use xot::xmlname::{NameStrInfo, OwnedName};
 use xot::Xot;
@@ -1101,6 +1101,8 @@ fn count_single_level_pattern(
     from_index: i64,
 ) -> i64 {
     let use_default_count = count_index < 0;
+    let count_pattern = clone_number_pattern(interpreter, count_index);
+    let from_pattern = clone_number_pattern(interpreter, from_index);
 
     // Collect ancestor-or-self first to avoid borrow conflicts
     let ancestor_or_self: Vec<_> = std::iter::once(node)
@@ -1113,8 +1115,8 @@ fn count_single_level_pattern(
         let mut found = None;
         for n in ancestor_or_self {
             // If we hit a from-boundary ancestor, stop searching
-            if from_index >= 0 {
-                if node_matches_pattern(interpreter, n, from_index as usize) {
+            if let Some(ref from_pattern) = from_pattern {
+                if node_matches_pattern(interpreter, n, from_pattern) {
                     break;
                 }
             }
@@ -1123,9 +1125,11 @@ fn count_single_level_pattern(
                     found = Some(n);
                     break;
                 }
-            } else if node_matches_pattern(interpreter, n, count_index as usize) {
-                found = Some(n);
-                break;
+            } else if let Some(ref count_pattern) = count_pattern {
+                if node_matches_pattern(interpreter, n, count_pattern) {
+                    found = Some(n);
+                    break;
+                }
             }
         }
         found
@@ -1146,8 +1150,10 @@ fn count_single_level_pattern(
             if node_matches_default_count_for(interpreter.xot(), node, sibling) {
                 count += 1;
             }
-        } else if node_matches_pattern(interpreter, sibling, count_index as usize) {
-            count += 1;
+        } else if let Some(ref count_pattern) = count_pattern {
+            if node_matches_pattern(interpreter, sibling, count_pattern) {
+                count += 1;
+            }
         }
     }
     count
@@ -1181,6 +1187,8 @@ fn count_any_level_pattern(
     from_index: i64,
 ) -> i64 {
     let use_default_count = count_index < 0;
+    let count_pattern = clone_number_pattern(interpreter, count_index);
+    let from_pattern = clone_number_pattern(interpreter, from_index);
 
     // Count the current node if it matches count
     let mut count: i64 = if use_default_count {
@@ -1189,8 +1197,12 @@ fn count_any_level_pattern(
         } else {
             0
         }
-    } else if node_matches_pattern(interpreter, node, count_index as usize) {
-        1
+    } else if let Some(ref count_pattern) = count_pattern {
+        if node_matches_pattern(interpreter, node, count_pattern) {
+            1
+        } else {
+            0
+        }
     } else {
         0
     };
@@ -1200,8 +1212,8 @@ fn count_any_level_pattern(
 
     for n in preceding {
         // If we hit a from-boundary, stop counting
-        if from_index >= 0 {
-            if node_matches_pattern(interpreter, n, from_index as usize) {
+        if let Some(ref from_pattern) = from_pattern {
+            if node_matches_pattern(interpreter, n, from_pattern) {
                 break;
             }
         }
@@ -1209,8 +1221,10 @@ fn count_any_level_pattern(
             if node_matches_default_count_for(interpreter.xot(), node, n) {
                 count += 1;
             }
-        } else if node_matches_pattern(interpreter, n, count_index as usize) {
-            count += 1;
+        } else if let Some(ref count_pattern) = count_pattern {
+            if node_matches_pattern(interpreter, n, count_pattern) {
+                count += 1;
+            }
         }
     }
 
@@ -1288,6 +1302,8 @@ fn count_multiple_level_pattern(
     from_index: i64,
 ) -> Vec<i64> {
     let use_default_count = count_index < 0;
+    let count_pattern = clone_number_pattern(interpreter, count_index);
+    let from_pattern = clone_number_pattern(interpreter, from_index);
 
     // Collect ancestor-or-self first to avoid borrow conflicts
     // xot.ancestors() includes self (indextree semantics)
@@ -1297,15 +1313,17 @@ fn count_multiple_level_pattern(
     for n in &ancestor_or_self {
         let n = *n;
         // If we hit a from-boundary ancestor, stop
-        if from_index >= 0 {
-            if node_matches_pattern(interpreter, n, from_index as usize) {
+        if let Some(ref from_pattern) = from_pattern {
+            if node_matches_pattern(interpreter, n, from_pattern) {
                 break;
             }
         }
         let matches_count = if use_default_count {
             node_matches_default_count_for(interpreter.xot(), node, n)
+        } else if let Some(ref count_pattern) = count_pattern {
+            node_matches_pattern(interpreter, n, count_pattern)
         } else {
-            node_matches_pattern(interpreter, n, count_index as usize)
+            false
         };
         if matches_count {
             // Count 1 + preceding siblings matching count pattern
@@ -1317,8 +1335,10 @@ fn count_multiple_level_pattern(
             for sibling in siblings {
                 let sibling_matches = if use_default_count {
                     node_matches_default_count_for(interpreter.xot(), node, sibling)
+                } else if let Some(ref count_pattern) = count_pattern {
+                    node_matches_pattern(interpreter, sibling, count_pattern)
                 } else {
-                    node_matches_pattern(interpreter, sibling, count_index as usize)
+                    false
                 };
                 if sibling_matches {
                     count += 1;
@@ -1333,20 +1353,32 @@ fn count_multiple_level_pattern(
 }
 
 /// Test if a node matches the compiled pattern stored at the given index.
+fn clone_number_pattern(
+    interpreter: &Interpreter,
+    pattern_index: i64,
+) -> Option<Pattern<function::InlineFunctionId>> {
+    if pattern_index < 0 {
+        None
+    } else {
+        Some(
+            interpreter
+                .runnable()
+                .program()
+                .declarations
+                .number_pattern(pattern_index as usize)
+                .pattern
+                .clone(),
+        )
+    }
+}
+
 fn node_matches_pattern(
     interpreter: &mut Interpreter,
     node: xot::Node,
-    pattern_index: usize,
+    pattern: &Pattern<function::InlineFunctionId>,
 ) -> bool {
-    let pattern = interpreter
-        .runnable()
-        .program()
-        .declarations
-        .number_pattern(pattern_index)
-        .pattern
-        .clone();
     let item = sequence::Item::from(node);
-    interpreter.matches(&pattern, &item)
+    interpreter.matches(pattern, &item)
 }
 
 /// Test if a candidate node matches the default count pattern for the reference node.

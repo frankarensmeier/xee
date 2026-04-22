@@ -4,6 +4,32 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 19:00 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Performance — hoist pattern clone out of xsl:number loops.
+- Vendor test results: 5626 passed, 0 failed, 0 errors, 3952 filtered.
+- Delta: no net vendor test change (performance only).
+
+### Perf: hoist pattern clone out of xsl:number per-node loop (3.4x speedup)
+
+Profiling input-large.xml revealed `BinaryExpr::clone` consuming ~11% of
+samples (758/6646), called from `node_matches_pattern` inside the
+`xsl:number level="any"` counting loop.
+
+`node_matches_pattern()` was cloning the entire pattern AST (deep
+`BinaryExpr` tree with `Box`es, `Vec`s, `String`s) on every call — once
+per node in reverse document order. For the DocBook stylesheet this means
+thousands of deep clones per `xsl:number` evaluation.
+
+Fix: introduced `clone_number_pattern()` which clones once before the loop,
+and changed `node_matches_pattern()` to accept `&Pattern` by reference.
+Updated all three callers: `count_single_level_pattern`,
+`count_any_level_pattern`, `count_multiple_level_pattern`.
+
+Result: input-large.xml 93s → 27s (3.4x), input-small.xml 2.8s → 2.4s.
+
 ## 2026-04-22 18:00 CEST
 
 ### Status snapshot
