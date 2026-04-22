@@ -4,6 +4,39 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 10:55 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Stable descending sort + UnexpectedEnd error mapping.
+- Vendor test results: 5540 passed, 0 failed, 0 errors, 4038 filtered.
+- Delta: +6 net tests passing (+7 newly passing, -1 intentional regression).
+
+### Fix: Stable descending sort
+
+The previous `xsl:sort order="descending"` implementation sorted ascending
+then called `fn:reverse` on the result. This broke stable sort semantics:
+elements with equal keys had their relative order reversed instead of
+preserved. Affected multi-key sorts and NaN ordering.
+
+Replaced with a proper descending comparator using `Ordering::reverse()` in
+the sort callback. Added `sorted_by_key_descending` and
+`sorted_by_key_with_order` to `xee-interpreter/src/sequence/creation.rs`,
+plus hidden `xslt-sort-descending` functions (2-arg and 3-arg) in
+`xee-interpreter/src/library/hidden_xslt.rs`. The compiler in
+`xee-xslt-compiler/src/ast_ir.rs` now emits `xslt-sort-descending` calls
+instead of sort+reverse.
+
+Newly passing: sort-001, sort-005, sort-050, sort-051, sort-072,
+bug-2601, collations-0102.
+Regressed: sort-011 (position() in sort key always returns 1 — pre-existing
+limitation that sort+reverse accidentally masked).
+
+### Fix: ElementError::UnexpectedEnd → XTSE0010
+
+Mapped `ElementError::UnexpectedEnd` to `XTSE0010` in `map_parse_error`,
+consistent with the `ElementError::Unexpected` fix from the previous commit.
+
 ## 2026-04-22 10:38 CEST
 
 ### Status snapshot
