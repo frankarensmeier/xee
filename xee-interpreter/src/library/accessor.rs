@@ -30,7 +30,24 @@ fn node_name(
                 ))
             }
         } else {
-            xot.node_name_ref(node)?.map(|n| n.to_owned())
+            match xot.node_name_ref(node) {
+                Ok(name_ref) => name_ref.map(|n| n.to_owned()),
+                Err(xot::Error::MissingPrefix(_)) => {
+                    // The node has a namespace but no in-scope prefix for it
+                    // (e.g. a temporary result tree element). Fall back to
+                    // constructing the name from local-name and namespace URI
+                    // with an empty prefix.
+                    xot.node_name(node).map(|name_id| {
+                        let (local_name, namespace) = xot.name_ns_str(name_id);
+                        ast::Name::new(
+                            local_name.to_string(),
+                            namespace.to_string(),
+                            String::new(),
+                        )
+                    })
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
     } else {
         None

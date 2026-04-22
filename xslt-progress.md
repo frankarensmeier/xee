@@ -4,6 +4,38 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 19:33 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Fix XPST0081 error on dynamic `xsl:element` with namespace.
+- Vendor test results: 5626 passed, 0 failed, 0 errors, 3952 filtered.
+- Delta: no net vendor test change (bug fix only).
+
+### Fix: fn:node-name() MissingPrefix on temporary result tree elements
+
+Running the DocBook transform (`print.xsl input-large.xml`) produced an
+XPST0081 "Unknown namespace prefix" error. Root cause: `xsl:element` with
+dynamic AVT name/namespace (e.g. `<xsl:element name="{node-name(.)}"
+namespace="{namespace-uri(.)}">`) creates elements whose NameId includes a
+namespace but which have no namespace declaration nodes attached. When
+`fn:node-name()` was later called on such elements, `xot.node_name_ref()`
+internally calls `prefix_for_namespace()` which walks in-scope namespace
+declarations — finding none, it returns `MissingPrefix`, which was
+propagated as XPST0081.
+
+An initial fix that added namespace declarations in the `XmlElement`
+instruction handler worked but caused 4 test regressions — it created
+default namespace declarations (`xmlns="..."`) that conflicted with
+expected prefixed serialization.
+
+Final fix: handle `MissingPrefix` gracefully in `fn:node-name()` itself
+(`xee-interpreter/src/library/accessor.rs`). When `node_name_ref()` fails
+with `MissingPrefix`, construct the QName from the element's local-name
+and namespace URI with an empty prefix, rather than propagating the error.
+This is correct because the element does have a name — it just lacks a
+prefix declaration in its tree context.
+
 ## 2026-04-22 19:00 CEST
 
 ### Status snapshot
