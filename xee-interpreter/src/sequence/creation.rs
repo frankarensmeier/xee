@@ -174,6 +174,31 @@ impl Sequence {
         self.sorted_by_key_with_order(context, collation, get, true)
     }
 
+    pub fn sorted_by_key_indexed<F>(
+        &self,
+        context: &context::DynamicContext,
+        collation: Rc<Collation>,
+        mut get: F,
+        descending: bool,
+    ) -> error::Result<Self>
+    where
+        F: FnMut(Item, usize, usize) -> error::Result<Sequence>,
+    {
+        let len = self.len();
+        self.sorted_by_key_with_order(
+            context,
+            collation,
+            {
+                let mut pos = 0usize;
+                move |item| {
+                    pos += 1;
+                    get(item, pos, len)
+                }
+            },
+            descending,
+        )
+    }
+
     fn sorted_by_key_with_order<F>(
         &self,
         context: &context::DynamicContext,

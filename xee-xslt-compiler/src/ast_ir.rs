@@ -4561,12 +4561,13 @@ impl<'a> IrConverter<'a> {
             let is_descending = self.sort_is_descending(sort)?;
 
             bindings = bindings.concat(collation_bindings);
-            let sort_fn_name = if is_descending {
-                "xslt-sort-descending"
-            } else {
-                "sort"
-            };
             let sort_expr = if self.sort_uses_default_text_key(sort)? {
+                // No key function — use fn:sort#2 or xslt-sort-descending#2
+                let sort_fn_name = if is_descending {
+                    "xslt-sort-descending"
+                } else {
+                    "sort"
+                };
                 self.static_function_call_expr(
                     sort_fn_name,
                     FN_NAMESPACE,
@@ -4574,6 +4575,14 @@ impl<'a> IrConverter<'a> {
                     vec![current_atom.clone(), collation_atom],
                 )
             } else {
+                // Key function with 3 params (item, position, last) —
+                // use xslt-sort#3 or xslt-sort-descending#3 which pass
+                // context position/size to the key function.
+                let sort_fn_name = if is_descending {
+                    "xslt-sort-descending"
+                } else {
+                    "xslt-sort"
+                };
                 let (key_atom, key_bindings) = self.sort_key_function(sort)?;
                 bindings = bindings.concat(key_bindings);
                 self.static_function_call_expr(
@@ -4603,28 +4612,79 @@ impl<'a> IrConverter<'a> {
         &mut self,
         sort: &ast::Sort,
     ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
-        let param_name = self.variables.new_name();
+        let item_param = self.variables.new_name();
+        let position_param = self.variables.new_name();
+        let last_param = self.variables.new_name();
         let context_names = self.variables.push_context();
         let return_bindings = self.sort_key_return_bindings(sort)?;
         self.variables.pop_context();
 
-        let body = ir::Expr::Map(ir::Map {
-            context_names,
-            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), adjusted_span(sort.span, self.current_span_offset)),
-            return_expr: Box::new(return_bindings.expr()),
+        let span = adjusted_span(sort.span, self.current_span_offset);
+
+        // Build nested Let bindings: let $item := $item_param in
+        //   let $position := $position_param in
+        //     let $last := $last_param in <key_expr>
+        // This gives the key expression proper context position/size
+        // instead of wrapping in a Map over a single item (which always
+        // sets position=1, last=1).
+        let body = ir::Expr::Let(ir::Let {
+            name: context_names.item.clone(),
+            var_expr: Box::new(Spanned::new(
+                ir::Expr::Atom(Spanned::new(ir::Atom::Variable(item_param.clone()), span)),
+                span,
+            )),
+            return_expr: Box::new(Spanned::new(
+                ir::Expr::Let(ir::Let {
+                    name: context_names.position.clone(),
+                    var_expr: Box::new(Spanned::new(
+                        ir::Expr::Atom(Spanned::new(ir::Atom::Variable(position_param.clone()), span)),
+                        span,
+                    )),
+                    return_expr: Box::new(Spanned::new(
+                        ir::Expr::Let(ir::Let {
+                            name: context_names.last.clone(),
+                            var_expr: Box::new(Spanned::new(
+                                ir::Expr::Atom(Spanned::new(ir::Atom::Variable(last_param.clone()), span)),
+                                span,
+                            )),
+                            return_expr: Box::new(return_bindings.expr()),
+                        }),
+                        span,
+                    )),
+                }),
+                span,
+            )),
         });
         let function = ir::Expr::FunctionDefinition(ir::FunctionDefinition {
             declared_name: None,
-            params: vec![ir::Param {
-                name: param_name,
-                type_: None,
-                default: None,
-                required: false,
-                original_name: None,
-                tunnel: false,
-            }],
+            params: vec![
+                ir::Param {
+                    name: item_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: position_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: last_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+            ],
             return_type: None,
-            body: Box::new(Spanned::new(body, adjusted_span(sort.span, self.current_span_offset))),
+            body: Box::new(Spanned::new(body, span)),
             static_base_uri: self.current_static_base_uri_string(),
         });
 
@@ -5285,6 +5345,25 @@ impl<'a> IrConverter<'a> {
     fn for_each(&mut self, for_each: &ast::ForEach) -> error::SpannedResult<Bindings> {
         let (select_atom, bindings) = self.expression(&for_each.select)?.atom_bindings();
         let sort_refs = for_each.sort.iter().collect::<Vec<_>>();
+
+        // XSLT 3.0 §13.1: "If the result is a sequence of nodes, then the
+        // population is the same sequence of nodes in document order."
+        // Wrap in Deduplicate (which sorts into document order) so that
+        // position() inside sort key expressions reflects document order.
+        let (select_atom, bindings) = if !sort_refs.is_empty() {
+            let span = adjusted_span(for_each.span, self.current_span_offset);
+            let dedup_expr = ir::Expr::Deduplicate(Box::new(Spanned::new(
+                ir::Expr::Atom(select_atom),
+                span,
+            )));
+            let dedup_bindings =
+                Bindings::empty().bind_expr_no_span(&mut self.variables, dedup_expr);
+            let (dedup_atom, dedup_bindings) = dedup_bindings.atom_bindings();
+            (dedup_atom, bindings.concat(dedup_bindings))
+        } else {
+            (select_atom, bindings)
+        };
+
         let (var_atom, sort_bindings) = self.apply_template_sorts(select_atom, &sort_refs)?;
         let bindings = bindings.concat(sort_bindings);
 

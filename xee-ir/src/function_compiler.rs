@@ -1474,10 +1474,15 @@ fn expr_value_uses_name(expr: &ir::Expr, name: &ir::Name) -> bool {
             .params
             .iter()
             .any(|param| with_param_uses_name(param, name)),
-        ir::Expr::CallTemplate(call_template) => call_template
-            .params
-            .iter()
-            .any(|param| with_param_uses_name(param, name)),
+        ir::Expr::CallTemplate(call_template) => {
+            call_template
+                .params
+                .iter()
+                .any(|param| with_param_uses_name(param, name))
+                || call_template.context.as_ref().is_some_and(|ctx| {
+                    ctx.item == *name || ctx.position == *name || ctx.last == *name
+                })
+        }
         ir::Expr::CopyShallow(copy_shallow) => atom_uses_name(&copy_shallow.select, name),
         ir::Expr::CopyDeep(copy_deep) => atom_uses_name(&copy_deep.select, name),
     }

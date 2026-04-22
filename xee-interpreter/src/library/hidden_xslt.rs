@@ -91,13 +91,18 @@ fn xslt_for_each_group_by(
     let sorted_keys = if !sort_key.is_empty() {
         let sort_key_fn = sort_key.iter().next().unwrap().to_function()?;
         let mut keyed_groups: Vec<(atomic::Atomic, atomic::Atomic)> = Vec::new();
-        for gk in &group_keys {
+        let total_groups: IBig = group_keys.len().into();
+        for (idx, gk) in group_keys.iter().enumerate() {
             let first_item: sequence::Sequence = groups
                 .get(gk)
                 .and_then(|g| g.first())
                 .map(|item| item.clone().into())
                 .unwrap_or_default();
-            let sort_val = interpreter.call_function_with_arguments(&sort_key_fn, &[first_item])?;
+            let pos: IBig = (idx + 1).into();
+            let sort_val = interpreter.call_function_with_arguments(
+                &sort_key_fn,
+                &[first_item, pos.into(), total_groups.clone().into()],
+            )?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
                 .next()
@@ -219,12 +224,17 @@ fn xslt_for_each_group_adjacent(
     let sorted_indices: Vec<usize> = if !sort_key.is_empty() {
         let sort_key_fn = sort_key.iter().next().unwrap().to_function()?;
         let mut keyed: Vec<(usize, atomic::Atomic)> = Vec::new();
+        let total_groups: IBig = group_items_list.len().into();
         for (i, group) in group_items_list.iter().enumerate() {
             let first_item: sequence::Sequence = group
                 .first()
                 .map(|item| item.clone().into())
                 .unwrap_or_default();
-            let sort_val = interpreter.call_function_with_arguments(&sort_key_fn, &[first_item])?;
+            let pos: IBig = (i + 1).into();
+            let sort_val = interpreter.call_function_with_arguments(
+                &sort_key_fn,
+                &[first_item, pos.into(), total_groups.clone().into()],
+            )?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
                 .next()
@@ -481,12 +491,17 @@ fn sort_group_indices(
 
     let sort_key_fn = sort_key.iter().next().unwrap().to_function()?;
     let mut keyed: Vec<(usize, atomic::Atomic)> = Vec::new();
+    let total_groups: IBig = groups.len().into();
     for (i, group) in groups.iter().enumerate() {
         let first_item: sequence::Sequence = group
             .first()
             .map(|item| item.clone().into())
             .unwrap_or_default();
-        let sort_val = interpreter.call_function_with_arguments(&sort_key_fn, &[first_item])?;
+        let pos: IBig = (i + 1).into();
+        let sort_val = interpreter.call_function_with_arguments(
+            &sort_key_fn,
+            &[first_item, pos.into(), total_groups.clone().into()],
+        )?;
         let sort_atomic = sort_val
             .atomized(interpreter.xot())
             .next()
@@ -2406,6 +2421,32 @@ fn is_item_populated(xot: &Xot, item: sequence::Item) -> bool {
     }
 }
 
+#[xpath_fn("fn:xslt-sort($input as item()*, $collation as xs:string?, $key as function(item(), item(), item()) as xs:anyAtomicType*) as item()*")]
+fn xslt_sort3(
+    context: &crate::context::DynamicContext,
+    interpreter: &mut Interpreter,
+    input: &sequence::Sequence,
+    collation: Option<&str>,
+    key: sequence::Item,
+) -> error::Result<sequence::Sequence> {
+    let collation = context.static_context().resolve_collation_str(collation)?;
+    let function = key.to_function()?;
+    input.sorted_by_key_indexed(
+        context,
+        collation,
+        |item, position, last| {
+            let pos_seq: sequence::Sequence = IBig::from(position).into();
+            let last_seq: sequence::Sequence = IBig::from(last).into();
+            let value = interpreter.call_function_with_arguments(
+                &function,
+                &[item.clone().into(), pos_seq, last_seq],
+            )?;
+            Ok(value)
+        },
+        false,
+    )
+}
+
 #[xpath_fn("fn:xslt-sort-descending($input as item()*, $collation as xs:string?) as item()*")]
 fn xslt_sort_descending2(
     context: &crate::context::DynamicContext,
@@ -2421,7 +2462,7 @@ fn xslt_sort_descending2(
     })
 }
 
-#[xpath_fn("fn:xslt-sort-descending($input as item()*, $collation as xs:string?, $key as function(item()) as xs:anyAtomicType*) as item()*")]
+#[xpath_fn("fn:xslt-sort-descending($input as item()*, $collation as xs:string?, $key as function(item(), item(), item()) as xs:anyAtomicType*) as item()*")]
 fn xslt_sort_descending3(
     context: &crate::context::DynamicContext,
     interpreter: &mut Interpreter,
@@ -2431,10 +2472,20 @@ fn xslt_sort_descending3(
 ) -> error::Result<sequence::Sequence> {
     let collation = context.static_context().resolve_collation_str(collation)?;
     let function = key.to_function()?;
-    input.sorted_by_key_descending(context, collation, |item| {
-        let value = interpreter.call_function_with_arguments(&function, &[item.clone().into()])?;
-        Ok(value)
-    })
+    input.sorted_by_key_indexed(
+        context,
+        collation,
+        |item, position, last| {
+            let pos_seq: sequence::Sequence = IBig::from(position).into();
+            let last_seq: sequence::Sequence = IBig::from(last).into();
+            let value = interpreter.call_function_with_arguments(
+                &function,
+                &[item.clone().into(), pos_seq, last_seq],
+            )?;
+            Ok(value)
+        },
+        true,
+    )
 }
 
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
@@ -2480,6 +2531,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_message_terminate),
         wrap_xpath_fn!(fn_transform),
         wrap_xpath_fn!(xslt_where_populated),
+        wrap_xpath_fn!(xslt_sort3),
         wrap_xpath_fn!(xslt_sort_descending2),
         wrap_xpath_fn!(xslt_sort_descending3),
     ]
