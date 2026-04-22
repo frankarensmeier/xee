@@ -99,8 +99,12 @@ accumulator-055
 accumulator-055s
 accumulator-056
 accumulator-057
+accumulator-062
 accumulator-063
 accumulator-064
+accumulator-065
+accumulator-066
+accumulator-067
 accumulator-071
 accumulator-072
 accumulator-077
@@ -1134,6 +1138,7 @@ initial-mode-004
 = initial-template
 initial-template-002
 initial-template-003
+initial-template-004
 initial-template-081
 = innermost
 = iterate
@@ -1407,6 +1412,7 @@ merge-090
 merge-092
 merge-093
 merge-096
+merge-097
 merge-100
 merge-101
 = message
@@ -2009,6 +2015,7 @@ output-0311
 output-0312
 output-0313
 output-0604
+output-0703
 output-0709
 output-0718
 output-0719
