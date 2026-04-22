@@ -4,6 +4,84 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 06:52 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Eliminate testrunner panics.
+- Vendor test results: 5486 passed, 2 failed, 5 errors, 4085 filtered (unchanged).
+
+### Fix: Replace panics with graceful error handling in testrunner
+
+- **Problem**: Two vendor tests (avt-0303, mode-1105) caused panics in the
+  testrunner. Panics are caught by `catch_unwind` so they don't crash the
+  process, but they are invisible in the summary stats — not counted in
+  Passed, Failed, Error, or any other column. A silent blind spot.
+- **avt-0303**: `unwrap()` on `parse_fragment()` in `assert.rs` panicked
+  when the expected test output string wasn't valid XML (plain text result).
+  Fixed by returning `EnvironmentError` instead.
+- **mode-1105**: `todo!()` macro in `source.rs` for `ContentAndSelect` and
+  `Select` source types crashed when a test environment uses XPath-based
+  source selection. Fixed with `anyhow::bail!()`.
+- **Scan result**: These were the only 2 panics across all 14,595 vendor
+  tests (full scan of every test set excluding catalog).
+
+## 2026-04-21 22:33 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Fix descendant-or-self axis in match pattern matching.
+- Vendor test results: 5486 passed (+11), 5 errors, 0 WrongE, 4085 filtered (-11).
+
+### Fix: DescendantOrSelf axis in pattern matching
+
+- **Bug**: `matches_relative_steps()` in `pattern_core.rs` handled the
+  `DescendantOrSelf` axis by unconditionally returning `NotMatch`. This meant
+  any pattern using `//` (e.g. `root//b`, `/sss//*`, `//foo`) would never
+  match any node. The `Descendant` axis was correctly handled (walk up to
+  parent on mismatch), but `DescendantOrSelf` was left as a TODO stub.
+- **Root cause**: The `//` abbreviation in XPath patterns is parsed into a
+  `DescendantOrSelf::node()` step. Pattern matching processes steps in reverse
+  (from the matched node up through ancestors). For descendant axes, if the
+  current step doesn't match, you need to walk up to the parent and retry —
+  the `Descendant` case did this correctly, but `DescendantOrSelf` was missing.
+- **Fix**: One-line change — added `DescendantOrSelf` to the same match arm
+  as `Descendant` in `matches_relative_steps()`.
+- **Tests fixed (11 net)**:
+  - `call-template-1001/1002/1003` — call-template with descendant patterns
+  - `match-019/032/033/034/257` — match patterns using `//`
+  - `mode-0801c/0803/0805` — mode conflict resolution with `sss//*` patterns
+
+## 2026-04-21 22:03 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Construct complex content for XSLT initial template results.
+- Vendor test results: 5475 passed (+28), 5 errors, 0 WrongE, 4096 filtered (-30).
+
+### Fix: Complex content construction for initial template results (§5.7.1)
+
+- **Bug**: XSLT initial templates returned raw sequences where adjacent text
+  nodes weren't merged, zero-length text nodes weren't discarded, and atomic
+  values weren't handled per the §5.7.1 "Constructing Complex Content" spec.
+  The testrunner's `assert-string-value` joins sequence items with spaces,
+  exposing whitespace text nodes between XSLT instructions as separate items.
+  CLI output hid the issue because serialization merges/strips text.
+- **Root cause**: `run_value()` in `runnable.rs` returned the raw sequence
+  from `run_named_template_value()` without any complex content processing.
+  The whitespace stripping in `whitespace.rs` correctly removed whitespace
+  from the stylesheet XML, but the compiler still created `Content::Text`
+  nodes for remaining text, and the interpreter produced separate text nodes.
+- **Fix**: Added `construct_complex_content()` in `runnable.rs`, applied in
+  the initial-template path of `run_value()` and in `named_template()`. The
+  algorithm implements §5.7.1 steps: replace document nodes with children,
+  cast atomics to strings, concatenate adjacent strings with space separator,
+  convert to text nodes, discard zero-length text nodes, merge adjacent text
+  nodes.
+- **Tests fixed (30 net)**:
+  - 29 seqtor tests (seqtor-001 through seqtor-035)
+  - 1 current-output-uri test (current-output-uri-009)
+
 ## 2026-04-19 16:27 CEST
 
 ### Status snapshot
