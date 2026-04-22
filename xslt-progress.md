@@ -4,6 +4,28 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 10:38 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Map `ElementError::Unexpected` to XTSE0010 error code.
+- Vendor test results: 5534 passed, 0 failed, 0 errors, 4044 filtered.
+- Delta: +29 tests passing.
+
+### Fix: ElementError::Unexpected → XTSE0010
+
+The XSLT AST parser combinator produces `ElementError::Unexpected` when child
+elements appear in invalid positions (e.g. `xsl:otherwise` before `xsl:when`,
+duplicate `xsl:otherwise`). Per the XSLT spec, this should raise XTSE0010.
+Previously `map_parse_error` in `xee-xslt-compiler/src/ast_ir.rs` mapped this
+to a generic `Unsupported` error with debug text, causing 29 tests across
+multiple categories (choose, merge, context-item, iterate, etc.) to fail
+their expected-error assertions.
+
+Fixed by constructing a proper `SpannedError` with `error::Error::XTSE0010`
+and the original span. The `xslt` parameter to `map_parse_error` was only
+used by this branch and is now prefixed with `_`.
+
 ## 2026-04-22 09:20 CEST
 
 ### Status snapshot
