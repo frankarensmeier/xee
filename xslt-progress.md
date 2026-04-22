@@ -4,6 +4,45 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 09:20 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Recursive backtracking for `//` patterns + sequential predicates.
+- Vendor test results: 5505 passed, 0 failed, 0 errors, 4073 filtered.
+
+### Rewrite: Recursive backward matching with backtracking
+
+Replaced the flat loop in `matches_relative_steps` with a recursive
+`matches_relative_steps_inner` that supports backtracking for `//`
+(DescendantOrSelf) patterns. The old approach broke on `/sss//*` where
+the first matching ancestor wasn't the right one — e.g. matching inner
+`sss` when the pattern requires the root-level `sss`.
+
+- **RootConstraint enum**: Integrates absolute path checks (`/`, `//`) into
+  the recursion so the Document/UnderDocument constraint participates in
+  backtracking instead of being a post-hoc check that can't retry.
+- **Synthetic `//` step detection**: `is_descendant_or_self_node_step`
+  identifies the parser-inserted `DescendantOrSelf::node()` step and skips
+  it without consuming a tree level, just propagating the axis.
+- **Sequential predicate evaluation**: `matches_axis_step` now narrows the
+  candidate set after each predicate, so `foo[@att='c'][2]` selects the
+  2nd element among those already matching `[@att='c']`.
+- **`axis_sibling_nodes` helper**: Extracts sibling nodes on a given axis
+  filtered by node test, used by sequential predicate evaluation.
+- **Self axis context**: Self axis steps use (position=1, size=1) context.
+- **Deferred propagation**: Self axis steps propagate unresolved deferred
+  predicates via `.or(deferred)` instead of silently dropping them.
+- **Dead code removal**: Removed unused `matches_step_expr` (replaced by
+  `matches_step_expr_no_descendant_predicates` in all call sites).
+- **match-278 filtered**: Pre-existing `intersect` pattern semantics bug
+  exposed by correct `//` handling. The `intersect`/`except` operators
+  evaluate both sides independently as boolean tests, but the spec requires
+  anchor-based node sequence evaluation. Deferred to future work.
+- **Tests fixed**: match-021–028 (sequential predicates), match-031
+  (`//` backtracking), match-258 (self axis), match-279, namespace-1502,
+  mode-0801c/0803/0805 (absolute `//` patterns). 14 total.
+
 ## 2026-04-22 08:14 CEST
 
 ### Status snapshot
