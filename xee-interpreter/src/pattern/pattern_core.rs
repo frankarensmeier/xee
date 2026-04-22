@@ -263,10 +263,16 @@ pub(crate) trait PredicateMatcher {
     ) -> NodeMatch {
         let mut node = Some(node);
         let mut axis = pattern::ForwardAxis::Child;
-        for step in steps.iter().rev() {
+        // Track the original matched node and its descendant step for
+        // deferred positional predicate evaluation once we find the anchor.
+        let mut deferred_descendant_check: Option<(xot::Node, usize)> = None;
+        for (step_index, step) in steps.iter().rev().enumerate() {
+            let mut skip_parent = false;
             loop {
                 if let Some(n) = node {
-                    let (matches, new_axis) = self.matches_step_expr(step, n);
+                    let (matches, new_axis) = self.matches_step_expr_no_descendant_predicates(
+                        step, n,
+                    );
                     match axis {
                         pattern::ForwardAxis::Descendant
                         | pattern::ForwardAxis::DescendantOrSelf => {
@@ -277,9 +283,16 @@ pub(crate) trait PredicateMatcher {
                             axis = new_axis;
                             break;
                         }
-                        // TODO: handle other kinds of forward axes, right now make
-                        // them NotMatch
-                        pattern::ForwardAxis::Self_ => return NodeMatch::NotMatch,
+                        pattern::ForwardAxis::Self_ => {
+                            // Self axis: match on the same node without
+                            // consuming a tree level.
+                            if !matches {
+                                return NodeMatch::NotMatch;
+                            }
+                            axis = new_axis;
+                            skip_parent = true;
+                            break;
+                        }
                         pattern::ForwardAxis::Namespace => return NodeMatch::NotMatch,
                         _ => {
                             if !matches {
@@ -293,13 +306,109 @@ pub(crate) trait PredicateMatcher {
                     return NodeMatch::NotMatch;
                 }
             }
-            if let Some(n) = node {
-                node = self.xot().parent(n);
-            } else {
+            // If the previous step was a descendant axis step with predicates
+            // and we just matched the anchor, verify the predicate now.
+            if let Some((target_node, deferred_step_index)) = deferred_descendant_check.take() {
+                if !self.check_deferred_descendant_predicate(
+                    steps, target_node, deferred_step_index, node,
+                ) {
+                    return NodeMatch::NotMatch;
+                }
+            }
+            // Check if the current step is a descendant axis with predicates
+            // that need deferred evaluation.
+            if let pattern::StepExpr::AxisStep(axis_step) = step {
+                if matches!(
+                    axis_step.forward,
+                    pattern::ForwardAxis::Descendant | pattern::ForwardAxis::DescendantOrSelf
+                ) && !axis_step.predicates.is_empty()
+                {
+                    if let Some(n) = node {
+                        // We matched the node test; defer predicate check
+                        // until we find the anchor in the next iteration.
+                        deferred_descendant_check = Some((n, step_index));
+                    }
+                }
+            }
+            if !skip_parent {
+                if let Some(n) = node {
+                    node = self.xot().parent(n);
+                } else {
+                    return NodeMatch::NotMatch;
+                }
+            }
+        }
+        // Handle deferred check at the end (when descendant step is the
+        // leftmost step — the anchor is the remaining node after all steps).
+        if let Some((target_node, deferred_step_index)) = deferred_descendant_check.take() {
+            if !self.check_deferred_descendant_predicate(
+                steps, target_node, deferred_step_index, node,
+            ) {
                 return NodeMatch::NotMatch;
             }
         }
         NodeMatch::Match(node)
+    }
+
+    /// Evaluates a deferred descendant predicate against the correct anchor.
+    fn check_deferred_descendant_predicate(
+        &mut self,
+        steps: &[pattern::StepExpr<InlineFunctionId>],
+        target_node: xot::Node,
+        deferred_step_index: usize,
+        anchor: Option<xot::Node>,
+    ) -> bool {
+        let Some(anchor) = anchor else {
+            return true;
+        };
+        let pattern::StepExpr::AxisStep(deferred_step) =
+            &steps[steps.len() - 1 - deferred_step_index]
+        else {
+            return true;
+        };
+        let (position, size) =
+            self.forward_axis_predicate_context(deferred_step, anchor, target_node);
+        let item = Item::Node(target_node);
+        deferred_step
+            .predicates
+            .iter()
+            .all(|predicate| self.match_predicate_with_context(*predicate, &item, position, size))
+    }
+
+    /// Matches a step expression, but skips positional predicates for
+    /// descendant axis steps (those are deferred for evaluation against the
+    /// correct anchor).
+    fn matches_step_expr_no_descendant_predicates(
+        &mut self,
+        step: &pattern::StepExpr<InlineFunctionId>,
+        node: xot::Node,
+    ) -> (bool, pattern::ForwardAxis) {
+        match step {
+            pattern::StepExpr::AxisStep(axis_step) => {
+                if matches!(
+                    axis_step.forward,
+                    pattern::ForwardAxis::Descendant | pattern::ForwardAxis::DescendantOrSelf
+                ) && !axis_step.predicates.is_empty()
+                {
+                    // Only check node test, skip predicates (deferred)
+                    if !self.matches_axis_node_test(axis_step, node) {
+                        return (false, axis_step.forward);
+                    }
+                    (true, axis_step.forward)
+                } else {
+                    self.matches_axis_step(axis_step, node)
+                }
+            }
+            pattern::StepExpr::PostfixExpr(postfix_expr) => {
+                let matched = self.matches_postfix_expr(postfix_expr, node);
+                let axis = if matched {
+                    Self::effective_axis_of_expr(&postfix_expr.expr)
+                } else {
+                    pattern::ForwardAxis::Child
+                };
+                (matched, axis)
+            }
+        }
     }
 
     fn matches_step_expr(
@@ -309,11 +418,15 @@ pub(crate) trait PredicateMatcher {
     ) -> (bool, pattern::ForwardAxis) {
         match step {
             pattern::StepExpr::AxisStep(axis_step) => self.matches_axis_step(axis_step, node),
-            // does the child forward axis make sense here?
-            pattern::StepExpr::PostfixExpr(postfix_expr) => (
-                self.matches_postfix_expr(postfix_expr, node),
-                pattern::ForwardAxis::Child,
-            ),
+            pattern::StepExpr::PostfixExpr(postfix_expr) => {
+                let matched = self.matches_postfix_expr(postfix_expr, node);
+                let axis = if matched {
+                    Self::effective_axis_of_expr(&postfix_expr.expr)
+                } else {
+                    pattern::ForwardAxis::Child
+                };
+                (matched, axis)
+            }
         }
     }
 
@@ -383,7 +496,23 @@ pub(crate) trait PredicateMatcher {
                 .filter_map(|name| self.xot().attributes(parent).get_node(name))
                 .filter(|candidate| self.matches_axis_node_test(step, *candidate))
                 .collect::<Vec<_>>(),
-            _ => return (1, 1),
+            pattern::ForwardAxis::Descendant => self
+                .xot()
+                .descendants(parent)
+                .filter(|candidate| self.matches_axis_node_test(step, *candidate))
+                .collect::<Vec<_>>(),
+            pattern::ForwardAxis::DescendantOrSelf => std::iter::once(parent)
+                .chain(self.xot().descendants(parent))
+                .filter(|candidate| self.matches_axis_node_test(step, *candidate))
+                .collect::<Vec<_>>(),
+            pattern::ForwardAxis::Self_ => {
+                if self.matches_axis_node_test(step, node) {
+                    vec![node]
+                } else {
+                    Vec::new()
+                }
+            }
+            pattern::ForwardAxis::Namespace => return (1, 1),
         };
 
         let position = matching_nodes
@@ -452,6 +581,50 @@ pub(crate) trait PredicateMatcher {
         match kind_test {
             KindTest::Any => !xot.is_document(node),
             _ => xml::kind_test(kind_test, xot, node),
+        }
+    }
+
+    /// Determines the effective axis for backward pattern matching from a
+    /// parenthesized expression. Returns the widest axis found — if any
+    /// branch uses Descendant, the backward walk needs ancestor traversal.
+    fn effective_axis_of_expr(
+        expr: &pattern::ExprPattern<InlineFunctionId>,
+    ) -> pattern::ForwardAxis {
+        match expr {
+            pattern::ExprPattern::Path(path) => {
+                // The last step's axis determines the traversal mode
+                if let Some(last_step) = path.steps.last() {
+                    match last_step {
+                        pattern::StepExpr::AxisStep(axis_step) => axis_step.forward,
+                        pattern::StepExpr::PostfixExpr(postfix) => {
+                            Self::effective_axis_of_expr(&postfix.expr)
+                        }
+                    }
+                } else {
+                    pattern::ForwardAxis::Child
+                }
+            }
+            pattern::ExprPattern::BinaryExpr(binary) => {
+                let left = Self::effective_axis_of_expr(&binary.left);
+                let right = Self::effective_axis_of_expr(&binary.right);
+                // Use the widest axis
+                if Self::axis_width(left) >= Self::axis_width(right) {
+                    left
+                } else {
+                    right
+                }
+            }
+        }
+    }
+
+    fn axis_width(axis: pattern::ForwardAxis) -> u8 {
+        match axis {
+            pattern::ForwardAxis::Self_ => 0,
+            pattern::ForwardAxis::Attribute => 1,
+            pattern::ForwardAxis::Child => 1,
+            pattern::ForwardAxis::Namespace => 1,
+            pattern::ForwardAxis::Descendant => 2,
+            pattern::ForwardAxis::DescendantOrSelf => 2,
         }
     }
 }
