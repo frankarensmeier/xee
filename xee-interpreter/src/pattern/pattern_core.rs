@@ -12,6 +12,17 @@ pub(crate) enum NodeMatch {
     NotMatch,
 }
 
+/// Constraint on the root node after all backward steps are consumed.
+#[derive(Clone, Copy)]
+pub(crate) enum RootConstraint {
+    /// No constraint — any ancestor chain is fine.
+    None,
+    /// The remaining node must be a document node.
+    Document,
+    /// The remaining node must have a document ancestor.
+    UnderDocument,
+}
+
 pub(crate) trait PredicateMatcher {
     fn match_predicate_with_context(
         &mut self,
@@ -224,12 +235,10 @@ pub(crate) trait PredicateMatcher {
         steps: &[pattern::StepExpr<InlineFunctionId>],
         node: xot::Node,
     ) -> bool {
-        let node_match = self.matches_relative_steps(steps, node);
-        if let NodeMatch::Match(Some(node)) = node_match {
-            self.xot().is_document(node)
-        } else {
-            false
-        }
+        let node_match = self.matches_relative_steps_inner(
+            steps, Some(node), pattern::ForwardAxis::Child, None, RootConstraint::Document,
+        );
+        matches!(node_match, NodeMatch::Match(_))
     }
 
     fn matches_absolute_double_slash_steps(
@@ -237,23 +246,10 @@ pub(crate) trait PredicateMatcher {
         steps: &[pattern::StepExpr<InlineFunctionId>],
         node: xot::Node,
     ) -> bool {
-        let node_match = self.matches_relative_steps(steps, node);
-        if let NodeMatch::Match(Some(node)) = node_match {
-            // we need to be under root
-            let mut current_node = node;
-            loop {
-                if self.xot().is_document(current_node) {
-                    return true;
-                }
-                if let Some(parent) = self.xot().parent(current_node) {
-                    current_node = parent;
-                } else {
-                    return false;
-                }
-            }
-        } else {
-            false
-        }
+        let node_match = self.matches_relative_steps_inner(
+            steps, Some(node), pattern::ForwardAxis::Child, None, RootConstraint::UnderDocument,
+        );
+        matches!(node_match, NodeMatch::Match(_))
     }
 
     fn matches_relative_steps(
@@ -261,118 +257,192 @@ pub(crate) trait PredicateMatcher {
         steps: &[pattern::StepExpr<InlineFunctionId>],
         node: xot::Node,
     ) -> NodeMatch {
-        let mut node = Some(node);
-        let mut axis = pattern::ForwardAxis::Child;
-        // Track the original matched node and its descendant step for
-        // deferred positional predicate evaluation once we find the anchor.
-        let mut deferred_descendant_check: Option<(xot::Node, usize)> = None;
-        for (step_index, step) in steps.iter().rev().enumerate() {
-            let mut skip_parent = false;
-            loop {
-                if let Some(n) = node {
-                    let (matches, new_axis) = self.matches_step_expr_no_descendant_predicates(
-                        step, n,
-                    );
-                    match axis {
-                        pattern::ForwardAxis::Descendant
-                        | pattern::ForwardAxis::DescendantOrSelf => {
-                            if !matches {
-                                node = self.xot().parent(n);
-                                continue;
-                            }
-                            axis = new_axis;
-                            break;
-                        }
-                        pattern::ForwardAxis::Self_ => {
-                            // Self axis: match on the same node without
-                            // consuming a tree level.
-                            if !matches {
-                                return NodeMatch::NotMatch;
-                            }
-                            axis = new_axis;
-                            skip_parent = true;
-                            break;
-                        }
-                        pattern::ForwardAxis::Namespace => return NodeMatch::NotMatch,
-                        _ => {
-                            if !matches {
-                                return NodeMatch::NotMatch;
-                            }
-                            axis = new_axis;
-                            break;
-                        }
-                    }
-                } else {
-                    return NodeMatch::NotMatch;
-                }
-            }
-            // If the previous step was a descendant axis step with predicates
-            // and we just matched the anchor, verify the predicate now.
-            if let Some((target_node, deferred_step_index)) = deferred_descendant_check.take() {
-                if !self.check_deferred_descendant_predicate(
-                    steps, target_node, deferred_step_index, node,
-                ) {
-                    return NodeMatch::NotMatch;
-                }
-            }
-            // Check if the current step is a descendant axis with predicates
-            // that need deferred evaluation.
-            if let pattern::StepExpr::AxisStep(axis_step) = step {
-                if matches!(
-                    axis_step.forward,
-                    pattern::ForwardAxis::Descendant | pattern::ForwardAxis::DescendantOrSelf
-                ) && !axis_step.predicates.is_empty()
-                {
-                    if let Some(n) = node {
-                        // We matched the node test; defer predicate check
-                        // until we find the anchor in the next iteration.
-                        deferred_descendant_check = Some((n, step_index));
-                    }
-                }
-            }
-            if !skip_parent {
-                if let Some(n) = node {
-                    node = self.xot().parent(n);
-                } else {
-                    return NodeMatch::NotMatch;
-                }
-            }
-        }
-        // Handle deferred check at the end (when descendant step is the
-        // leftmost step — the anchor is the remaining node after all steps).
-        if let Some((target_node, deferred_step_index)) = deferred_descendant_check.take() {
-            if !self.check_deferred_descendant_predicate(
-                steps, target_node, deferred_step_index, node,
-            ) {
-                return NodeMatch::NotMatch;
-            }
-        }
-        NodeMatch::Match(node)
+        self.matches_relative_steps_inner(
+            steps, Some(node), pattern::ForwardAxis::Child, None, RootConstraint::None,
+        )
     }
 
-    /// Evaluates a deferred descendant predicate against the correct anchor.
-    fn check_deferred_descendant_predicate(
+    /// Recursive backward matching through pattern steps.
+    ///
+    /// Walks the steps in reverse, matching each against the current node and
+    /// moving up the tree. Supports backtracking for DescendantOrSelf axis
+    /// (from `//`): when a step matches but remaining steps fail, continues
+    /// walking up ancestors to try alternative matches.
+    fn matches_relative_steps_inner(
         &mut self,
         steps: &[pattern::StepExpr<InlineFunctionId>],
-        target_node: xot::Node,
-        deferred_step_index: usize,
-        anchor: Option<xot::Node>,
-    ) -> bool {
-        let Some(anchor) = anchor else {
-            return true;
+        node: Option<xot::Node>,
+        axis: pattern::ForwardAxis,
+        deferred: Option<(xot::Node, &pattern::AxisStep<InlineFunctionId>)>,
+        root_constraint: RootConstraint,
+    ) -> NodeMatch {
+        if steps.is_empty() {
+            // All steps consumed. Check any remaining deferred predicate.
+            if let Some((target_node, deferred_step)) = deferred {
+                if let Some(anchor) = node {
+                    let (position, size) =
+                        self.forward_axis_predicate_context(deferred_step, anchor, target_node);
+                    let item = Item::Node(target_node);
+                    if !deferred_step.predicates.iter().all(|predicate| {
+                        self.match_predicate_with_context(*predicate, &item, position, size)
+                    }) {
+                        return NodeMatch::NotMatch;
+                    }
+                }
+            }
+            // Check root constraint.
+            match root_constraint {
+                RootConstraint::None => return NodeMatch::Match(node),
+                RootConstraint::Document => {
+                    if let Some(n) = node {
+                        if self.xot().is_document(n) {
+                            return NodeMatch::Match(node);
+                        }
+                    }
+                    return NodeMatch::NotMatch;
+                }
+                RootConstraint::UnderDocument => {
+                    if let Some(mut n) = node {
+                        loop {
+                            if self.xot().is_document(n) {
+                                return NodeMatch::Match(Some(n));
+                            }
+                            if let Some(parent) = self.xot().parent(n) {
+                                n = parent;
+                            } else {
+                                return NodeMatch::NotMatch;
+                            }
+                        }
+                    }
+                    return NodeMatch::NotMatch;
+                }
+            }
+        }
+
+        let step = steps.last().unwrap();
+        let remaining = &steps[..steps.len() - 1];
+
+        // Detect the synthetic DescendantOrSelf::node() step from `//`.
+        // Just propagate the axis without consuming a tree level.
+        if Self::is_descendant_or_self_node_step(step) {
+            return self.matches_relative_steps_inner(
+                remaining,
+                node,
+                pattern::ForwardAxis::DescendantOrSelf,
+                deferred,
+                root_constraint,
+            );
+        }
+
+        let Some(n) = node else {
+            return NodeMatch::NotMatch;
         };
-        let pattern::StepExpr::AxisStep(deferred_step) =
-            &steps[steps.len() - 1 - deferred_step_index]
-        else {
-            return true;
-        };
-        let (position, size) =
-            self.forward_axis_predicate_context(deferred_step, anchor, target_node);
-        let item = Item::Node(target_node);
-        deferred_step
-            .predicates
-            .iter()
-            .all(|predicate| self.match_predicate_with_context(*predicate, &item, position, size))
+
+        match axis {
+            pattern::ForwardAxis::Descendant | pattern::ForwardAxis::DescendantOrSelf => {
+                // Walk up ancestors trying each as a match candidate.
+                // On match, recurse for remaining steps; on failure, backtrack.
+                let mut current = Some(n);
+                while let Some(c) = current {
+                    let (matched, new_axis) =
+                        self.matches_step_expr_no_descendant_predicates(step, c);
+                    if matched {
+                        // Check deferred predicate: the current node's parent
+                        // is the anchor for the deferred descendant predicate.
+                        let deferred_ok = if let Some((target_node, deferred_step)) = &deferred {
+                            // The anchor for the deferred predicate is the
+                            // parent of the node where the descendant step
+                            // matched. Since we're in the DescendantOrSelf
+                            // branch walking up, `c` is where the current
+                            // step matched. The deferred step's anchor is
+                            // the parent of `c` (which is the context for
+                            // the descendant axis).
+                            let (position, size) = self
+                                .forward_axis_predicate_context(deferred_step, c, *target_node);
+                            let item = Item::Node(*target_node);
+                            deferred_step.predicates.iter().all(|predicate| {
+                                self.match_predicate_with_context(
+                                    *predicate, &item, position, size,
+                                )
+                            })
+                        } else {
+                            true
+                        };
+                        if deferred_ok {
+                            let new_deferred = Self::make_deferred(step, c);
+                            let next_node = if matches!(new_axis, pattern::ForwardAxis::Self_) {
+                                Some(c)
+                            } else {
+                                self.xot().parent(c)
+                            };
+                            let result = self.matches_relative_steps_inner(
+                                remaining,
+                                next_node,
+                                new_axis,
+                                new_deferred,
+                                root_constraint,
+                            );
+                            if matches!(result, NodeMatch::Match(_)) {
+                                return result;
+                            }
+                        }
+                    }
+                    current = self.xot().parent(c);
+                }
+                NodeMatch::NotMatch
+            }
+            pattern::ForwardAxis::Self_ => {
+                let (matched, new_axis) =
+                    self.matches_step_expr_no_descendant_predicates(step, n);
+                if !matched {
+                    return NodeMatch::NotMatch;
+                }
+                let new_deferred = Self::make_deferred(step, n).or(deferred);
+                // Self axis: don't consume a tree level.
+                self.matches_relative_steps_inner(remaining, Some(n), new_axis, new_deferred, root_constraint)
+            }
+            pattern::ForwardAxis::Namespace => NodeMatch::NotMatch,
+            _ => {
+                // Child/Attribute: must match exactly.
+                let (matched, new_axis) =
+                    self.matches_step_expr_no_descendant_predicates(step, n);
+                if !matched {
+                    return NodeMatch::NotMatch;
+                }
+                // Check deferred predicate with current node as anchor context.
+                if let Some((target_node, deferred_step)) = &deferred {
+                    let (position, size) =
+                        self.forward_axis_predicate_context(deferred_step, n, *target_node);
+                    let item = Item::Node(*target_node);
+                    if !deferred_step.predicates.iter().all(|predicate| {
+                        self.match_predicate_with_context(*predicate, &item, position, size)
+                    }) {
+                        return NodeMatch::NotMatch;
+                    }
+                }
+                let new_deferred = Self::make_deferred(step, n);
+                let next_node = self.xot().parent(n);
+                self.matches_relative_steps_inner(remaining, next_node, new_axis, new_deferred, root_constraint)
+            }
+        }
+    }
+
+    /// If the step is a descendant axis step with predicates, return it
+    /// paired with the matched node for deferred predicate evaluation.
+    fn make_deferred<'a>(
+        step: &'a pattern::StepExpr<InlineFunctionId>,
+        matched_node: xot::Node,
+    ) -> Option<(xot::Node, &'a pattern::AxisStep<InlineFunctionId>)> {
+        if let pattern::StepExpr::AxisStep(axis_step) = step {
+            if matches!(
+                axis_step.forward,
+                pattern::ForwardAxis::Descendant | pattern::ForwardAxis::DescendantOrSelf
+            ) && !axis_step.predicates.is_empty()
+            {
+                return Some((matched_node, axis_step));
+            }
+        }
+        None
     }
 
     /// Matches a step expression, but skips positional predicates for
@@ -411,25 +481,6 @@ pub(crate) trait PredicateMatcher {
         }
     }
 
-    fn matches_step_expr(
-        &mut self,
-        step: &pattern::StepExpr<InlineFunctionId>,
-        node: xot::Node,
-    ) -> (bool, pattern::ForwardAxis) {
-        match step {
-            pattern::StepExpr::AxisStep(axis_step) => self.matches_axis_step(axis_step, node),
-            pattern::StepExpr::PostfixExpr(postfix_expr) => {
-                let matched = self.matches_postfix_expr(postfix_expr, node);
-                let axis = if matched {
-                    Self::effective_axis_of_expr(&postfix_expr.expr)
-                } else {
-                    pattern::ForwardAxis::Child
-                };
-                (matched, axis)
-            }
-        }
-    }
-
     fn matches_axis_step(
         &mut self,
         step: &pattern::AxisStep<InlineFunctionId>,
@@ -438,15 +489,97 @@ pub(crate) trait PredicateMatcher {
         if !self.matches_axis_node_test(step, node) {
             return (false, step.forward);
         }
-        // if we have a match, check whether the predicates apply
-        let item = Item::Node(node);
-        let (position, size) = self.axis_predicate_context(step, node);
+        if step.predicates.is_empty() {
+            return (true, step.forward);
+        }
+        // Self axis: the context is just the node itself (position=1, size=1).
+        // No sibling-based position computation needed.
+        if step.forward == pattern::ForwardAxis::Self_ {
+            let item = Item::Node(node);
+            for predicate in &step.predicates {
+                if !self.match_predicate_with_context(*predicate, &item, 1, 1) {
+                    return (false, step.forward);
+                }
+            }
+            return (true, step.forward);
+        }
+        // Evaluate predicates sequentially: each predicate narrows the
+        // candidate set, and position/size are computed within the filtered
+        // set from previous predicates.
+        let Some(parent) = self.xot().parent(node) else {
+            let item = Item::Node(node);
+            for predicate in &step.predicates {
+                if !self.match_predicate_with_context(*predicate, &item, 1, 1) {
+                    return (false, step.forward);
+                }
+            }
+            return (true, step.forward);
+        };
+        let mut candidates = self.axis_sibling_nodes(step, parent);
         for predicate in &step.predicates {
+            let position = candidates
+                .iter()
+                .position(|c| *c == node)
+                .map(|i| i + 1);
+            let Some(position) = position else {
+                // Node not in candidate set after previous predicate filtering
+                return (false, step.forward);
+            };
+            let size = candidates.len();
+            let item = Item::Node(node);
             if !self.match_predicate_with_context(*predicate, &item, position, size) {
                 return (false, step.forward);
             }
+            // Filter candidates to those passing this predicate for the next round
+            let mut next_candidates = Vec::new();
+            for (i, &candidate) in candidates.iter().enumerate() {
+                let cand_item = Item::Node(candidate);
+                if self.match_predicate_with_context(*predicate, &cand_item, i + 1, size) {
+                    next_candidates.push(candidate);
+                }
+            }
+            candidates = next_candidates;
         }
         (true, step.forward)
+    }
+
+    /// Collects sibling nodes on the step's axis that match the node test.
+    fn axis_sibling_nodes(
+        &self,
+        step: &pattern::AxisStep<InlineFunctionId>,
+        parent: xot::Node,
+    ) -> Vec<xot::Node> {
+        match step.forward {
+            pattern::ForwardAxis::Child => self
+                .xot()
+                .children(parent)
+                .filter(|candidate| self.matches_axis_node_test(step, *candidate))
+                .collect(),
+            pattern::ForwardAxis::Attribute => self
+                .xot()
+                .attributes(parent)
+                .keys()
+                .filter_map(|name| self.xot().attributes(parent).get_node(name))
+                .filter(|candidate| self.matches_axis_node_test(step, *candidate))
+                .collect(),
+            pattern::ForwardAxis::Descendant => self
+                .xot()
+                .descendants(parent)
+                .filter(|candidate| self.matches_axis_node_test(step, *candidate))
+                .collect(),
+            pattern::ForwardAxis::DescendantOrSelf => std::iter::once(parent)
+                .chain(self.xot().descendants(parent))
+                .filter(|candidate| self.matches_axis_node_test(step, *candidate))
+                .collect(),
+            pattern::ForwardAxis::Self_ => {
+                if self.matches_axis_node_test(step, parent) {
+                    vec![parent]
+                } else {
+                    Vec::new()
+                }
+            }
+            pattern::ForwardAxis::Namespace => Vec::new(),
+        }
     }
 
     fn matches_axis_node_test(
@@ -626,6 +759,20 @@ pub(crate) trait PredicateMatcher {
             pattern::ForwardAxis::Descendant => 2,
             pattern::ForwardAxis::DescendantOrSelf => 2,
         }
+    }
+
+    /// Detects the synthetic `descendant-or-self::node()` step that the
+    /// parser inserts for `//` between path steps. This step only sets the
+    /// axis for backward matching and should not consume a tree level.
+    fn is_descendant_or_self_node_step(step: &pattern::StepExpr<InlineFunctionId>) -> bool {
+        matches!(
+            step,
+            pattern::StepExpr::AxisStep(pattern::AxisStep {
+                forward: pattern::ForwardAxis::DescendantOrSelf,
+                node_test: pattern::NodeTest::KindTest(KindTest::Any),
+                predicates,
+            }) if predicates.is_empty()
+        )
     }
 }
 

@@ -1280,15 +1280,6 @@ maps-909
 = match
 match-001
 match-002
-match-021
-match-022
-match-023
-match-024
-match-025
-match-026
-match-027
-match-028
-match-031
 match-048
 match-060
 match-068
@@ -1313,7 +1304,7 @@ match-260
 match-273
 match-274
 match-275
-match-279
+match-278
 match-284
 = math
 math-1201
@@ -1510,7 +1501,6 @@ namespace-0911
 namespace-0913
 namespace-0914
 namespace-1102
-namespace-1502
 namespace-1601
 namespace-1602
 namespace-2001
