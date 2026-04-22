@@ -1,5 +1,5 @@
 ---
-source: xee-xpath-compiler/tests/xpath.rs
+source: xee-xpath/tests/xpath.rs
 expression: "run(\"'en us' cast as xs:language\")"
 ---
 Err(
@@ -11,5 +11,7 @@ Err(
                 27,
             ),
         ),
+        detail: None,
+        contexts: [],
     },
 )

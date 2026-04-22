@@ -568,6 +568,7 @@ fn write_const(f: &mut fmt::Formatter<'_>, c: &ir::Const) -> fmt::Result {
         ir::Const::String(s) => write!(f, "{s:?}"),
         ir::Const::Double(d) => write!(f, "{d}"),
         ir::Const::Decimal(d) => write!(f, "{d}"),
+        ir::Const::Boolean(b) => write!(f, "{b}"),
         ir::Const::StaticFunctionReference(id, _) => write!(f, "fn#{}", id.as_u16()),
         ir::Const::ConcatFunctionReference(arity) => write!(f, "concat#{arity}"),
         ir::Const::PatternMatcherFunction(_) => write!(f, "pattern-matcher"),

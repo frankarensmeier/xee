@@ -1,6 +1,5 @@
 ---
 source: xee-xpath-compiler/src/ast_ir.rs
-assertion_line: 992
 expression: "convert_xpath(\"child::a\")"
 ---
 Ok(
@@ -71,6 +70,7 @@ Ok(
                     ),
                     span: 0..8,
                 },
+                static_base_uri: None,
             },
         ),
         span: 0..8,

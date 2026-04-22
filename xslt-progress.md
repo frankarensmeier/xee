@@ -4,6 +4,36 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-22 14:36 CEST
+
+### Status snapshot
+
+- Checkpoint focus: Short-circuit evaluation for `and`/`or` (XPath 3.1 §3.6).
+- Vendor test results: 5626 passed, 0 failed, 0 errors, 3952 filtered.
+- Delta: no net vendor test change (fixes real-world DocBook transformation error).
+
+### Fix: short-circuit evaluation for and/or
+
+XPath `and`/`or` operators were eagerly evaluating both operands because
+the IR uses ANF (Administrative Normal Form) — sub-expressions are
+pre-computed in `Let` bindings before the `Binary` node is reached.
+
+This caused XPTY0004 "expected a node" errors when predicates like
+`. instance of element() and @attr` were evaluated on mixed item
+sequences (strings + elements). The `@attr` step was evaluated even
+when `.` was a string, because the `and` didn't short-circuit.
+
+Fix: lower `and`/`or` to nested `If` expressions during AST→IR
+conversion so the right operand lives in a lazy branch:
+- `a and b` → `if (a) then (if (b) then true else false) else false`
+- `a or b`  → `if (a) then true else (if (b) then true else false)`
+
+Also added `Boolean(bool)` variant to `ir::Const` for clean boolean
+constant representation.
+
+This fixes the DocBook NG programlisting transformation error that was
+blocking real-world use.
+
 ## 2026-04-22 12:09 CEST
 
 ### Status snapshot

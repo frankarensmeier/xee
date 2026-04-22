@@ -1,6 +1,5 @@
 ---
 source: xee-xpath-compiler/src/ast_ir.rs
-assertion_line: 877
 expression: "convert_xpath(\"()\")"
 ---
 Ok(
@@ -52,6 +51,7 @@ Ok(
                     ),
                     span: 0..2,
                 },
+                static_base_uri: None,
             },
         ),
         span: 0..2,

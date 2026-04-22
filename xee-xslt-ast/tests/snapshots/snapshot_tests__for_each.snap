@@ -1,5 +1,5 @@
 ---
-source: xee-xslt-ast/src/instruction.rs
+source: xee-xslt-ast/tests/snapshot_tests.rs
 expression: "parse_sequence_constructor_item(r#\"<xsl:for-each xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" select=\"true()\"><xsl:sort>Sort 1</xsl:sort><xsl:sort>Sort 2</xsl:sort>Sequence constructor</xsl:for-each>\"#)"
 ---
 Ok(Instruction(ForEach(ForEach(
@@ -22,6 +22,12 @@ Ok(Instruction(ForEach(ForEach(
       start: 71,
       end: 77,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+    ],
   ),
   sort: [
     Sort(

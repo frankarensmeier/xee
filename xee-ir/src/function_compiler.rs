@@ -136,6 +136,9 @@ impl<'a> FunctionCompiler<'a> {
                     ir::Const::Decimal(d) => {
                         self.builder.emit_constant((*d).into(), span);
                     }
+                    ir::Const::Boolean(b) => {
+                        self.builder.emit_constant((*b).into(), span);
+                    }
                     ir::Const::EmptySequence => self
                         .builder
                         .emit_constant(sequence::Sequence::default(), span),
@@ -320,35 +323,30 @@ impl<'a> FunctionCompiler<'a> {
             ir::BinaryOperator::Concat => {
                 self.builder.emit(Instruction::Concat, span);
             }
-            ir::BinaryOperator::And => {
-                // XXX we don't do any short-circuiting of evaluation yet
-                let first_false = self.builder.emit_jump_forward(JumpCondition::False, span);
-                let second_false = self.builder.emit_jump_forward(JumpCondition::False, span);
-                // both are true, so put true on stack and jump to end
-                self.builder.emit_constant(true.into(), span);
+            ir::BinaryOperator::And | ir::BinaryOperator::Or => {
+                // The XPath compiler lowers and/or to If expressions for
+                // short-circuit evaluation (XPath 3.1 §3.6). However, the
+                // XSLT compiler may still emit Binary::And/Or directly when
+                // both operands are known-safe (e.g., InstanceOf checks).
+                // Handle those here with eager evaluation.
+                let is_and = matches!(binary.op, ir::BinaryOperator::And);
+                let jump_short =
+                    self.builder.emit_jump_forward(
+                        if is_and { JumpCondition::False } else { JumpCondition::True },
+                        span,
+                    );
+                let jump_second =
+                    self.builder.emit_jump_forward(
+                        if is_and { JumpCondition::False } else { JumpCondition::True },
+                        span,
+                    );
+                // both match the "continue" case
+                self.builder.emit_constant(is_and.into(), span);
                 let end = self.builder.emit_jump_forward(JumpCondition::Always, span);
-                self.builder.patch_jump(first_false);
-                // pop the second item on the stack
+                self.builder.patch_jump(jump_short);
                 self.builder.emit(Instruction::Pop, span);
-                self.builder.patch_jump(second_false);
-                // now put false on the stack
-                self.builder.emit_constant(false.into(), span);
-                self.builder.patch_jump(end);
-            }
-            ir::BinaryOperator::Or => {
-                // XXX we don't do any short-circuiting of evaluation yet
-                let first_true = self.builder.emit_jump_forward(JumpCondition::True, span);
-                let second_true = self.builder.emit_jump_forward(JumpCondition::True, span);
-                // both are false, so put false on stack and jump to end
-                self.builder.emit_constant(false.into(), span);
-                let end = self.builder.emit_jump_forward(JumpCondition::Always, span);
-                // if first is true, pop second
-                self.builder.patch_jump(first_true);
-                // pop the second item on the stack
-                self.builder.emit(Instruction::Pop, span);
-                self.builder.patch_jump(second_true);
-                // now put true on the stack
-                self.builder.emit_constant(true.into(), span);
+                self.builder.patch_jump(jump_second);
+                self.builder.emit_constant((!is_and).into(), span);
                 self.builder.patch_jump(end);
             }
             ir::BinaryOperator::Is => {

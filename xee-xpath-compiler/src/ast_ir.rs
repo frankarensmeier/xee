@@ -360,6 +360,14 @@ impl<'a> IrConverter<'a> {
     }
 
     fn binary_expr(&mut self, ast: &ast::BinaryExpr, span: Span) -> error::SpannedResult<Bindings> {
+        // Short-circuit: `and`/`or` must not evaluate the right operand if
+        // the left already determines the result (XPath 3.1 §3.6).
+        // We lower them to `If` so the right side lives in a lazy branch.
+        match ast.operator {
+            ast::BinaryOperator::And => return self.and_expr(ast, span),
+            ast::BinaryOperator::Or => return self.or_expr(ast, span),
+            _ => {}
+        }
         let mut left_bindings = self.path_expr(&ast.left)?;
         let mut right_bindings = self.path_expr(&ast.right)?;
         let op = self.binary_op(ast.operator);
@@ -371,6 +379,51 @@ impl<'a> IrConverter<'a> {
         let binding = self.variables.new_binding(expr, span);
 
         Ok(left_bindings.concat(right_bindings).bind(binding))
+    }
+
+    /// `a and b` → `if (a) then (if (b) then true else false) else false`
+    fn and_expr(&mut self, ast: &ast::BinaryExpr, span: Span) -> error::SpannedResult<Bindings> {
+        let mut left_bindings = self.path_expr(&ast.left)?;
+        let mut right_bindings = self.path_expr(&ast.right)?;
+        let right_condition = right_bindings.atom();
+        let inner_if = ir::Expr::If(ir::If {
+            condition: right_condition,
+            then: Box::new(self.bool_expr(true, span)),
+            else_: Box::new(self.bool_expr(false, span)),
+        });
+        let expr = ir::Expr::If(ir::If {
+            condition: left_bindings.atom(),
+            then: Box::new(right_bindings.bind(self.variables.new_binding(inner_if, span)).expr()),
+            else_: Box::new(self.bool_expr(false, span)),
+        });
+        let binding = self.variables.new_binding(expr, span);
+        Ok(left_bindings.bind(binding))
+    }
+
+    /// `a or b` → `if (a) then true else (if (b) then true else false)`
+    fn or_expr(&mut self, ast: &ast::BinaryExpr, span: Span) -> error::SpannedResult<Bindings> {
+        let mut left_bindings = self.path_expr(&ast.left)?;
+        let mut right_bindings = self.path_expr(&ast.right)?;
+        let right_condition = right_bindings.atom();
+        let inner_if = ir::Expr::If(ir::If {
+            condition: right_condition,
+            then: Box::new(self.bool_expr(true, span)),
+            else_: Box::new(self.bool_expr(false, span)),
+        });
+        let expr = ir::Expr::If(ir::If {
+            condition: left_bindings.atom(),
+            then: Box::new(self.bool_expr(true, span)),
+            else_: Box::new(right_bindings.bind(self.variables.new_binding(inner_if, span)).expr()),
+        });
+        let binding = self.variables.new_binding(expr, span);
+        Ok(left_bindings.bind(binding))
+    }
+
+    fn bool_expr(&self, value: bool, span: Span) -> ir::ExprS {
+        Spanned::new(
+            ir::Expr::Atom(Spanned::new(ir::Atom::Const(ir::Const::Boolean(value)), span)),
+            span,
+        )
     }
 
     fn binary_op(&mut self, operator: ast::BinaryOperator) -> ir::BinaryOperator {

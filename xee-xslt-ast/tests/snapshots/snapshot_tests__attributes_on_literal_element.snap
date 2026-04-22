@@ -8,12 +8,8 @@ Ok(Content(Element(ElementNode(
     namespace_str: "",
     prefix_str: "",
   ),
-  namespaces: [
-    LiteralNamespace(
-      prefix: "xsl",
-      uri: "http://www.w3.org/1999/XSL/Transform",
-    ),
-  ],
+  namespaces: [],
+  use_attribute_sets: None,
   attributes: [
     (OwnedName(
       local_name_str: "foo",

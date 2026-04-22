@@ -1,5 +1,5 @@
 ---
-source: xee-xslt-ast/src/instruction.rs
+source: xee-xslt-ast/tests/snapshot_tests.rs
 expression: "parse_sequence_constructor_item(r#\"<xsl:assert xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" test=\"true()\" error-code=\"foo\">Hello</xsl:assert>\"#)"
 ---
 Ok(Instruction(Assert(Assert(
@@ -22,6 +22,12 @@ Ok(Instruction(Assert(Assert(
       start: 67,
       end: 73,
     ),
+    namespaces: [
+      LiteralNamespace(
+        prefix: "xsl",
+        uri: "http://www.w3.org/1999/XSL/Transform",
+      ),
+    ],
   ),
   select: None,
   error_code: Some(ValueTemplate(

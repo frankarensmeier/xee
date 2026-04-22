@@ -1,15 +1,23 @@
 ---
-source: xee-xpath-compiler/tests/xpath.rs
+source: xee-xpath/tests/xpath.rs
 expression: "run(\"() cast as xs:string\")"
 ---
 Err(
     SpannedError {
-        error: XPTY0004,
+        error: XPTY0004(
+            Some(
+                "cast requires a value, got empty sequence (target type: String)",
+            ),
+        ),
         span: Some(
             SourceSpan(
                 0,
                 20,
             ),
         ),
+        detail: Some(
+            "cast requires a value, got empty sequence (target type: String)",
+        ),
+        contexts: [],
     },
 )

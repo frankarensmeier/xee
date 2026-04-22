@@ -1,5 +1,5 @@
 ---
-source: xee-xpath-compiler/tests/xpath.rs
+source: xee-xpath/tests/xpath.rs
 expression: "run(\"'f' cast as xs:hexBinary\")"
 ---
 Err(
@@ -11,5 +11,7 @@ Err(
                 24,
             ),
         ),
+        detail: None,
+        contexts: [],
     },
 )
