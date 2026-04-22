@@ -324,10 +324,30 @@ impl<'a> FunctionCompiler<'a> {
                 self.builder.emit(Instruction::Concat, span);
             }
             ir::BinaryOperator::And | ir::BinaryOperator::Or => {
-                // Short-circuit evaluation is handled at the AST→IR level
-                // by converting to If expressions. These arms should not
-                // be reached but are kept for exhaustiveness.
-                unreachable!("and/or lowered to If in AST→IR conversion");
+                // The XPath compiler lowers and/or to If expressions for
+                // short-circuit evaluation (XPath 3.1 §3.6). However, the
+                // XSLT compiler may still emit Binary::And/Or directly when
+                // both operands are known-safe (e.g., InstanceOf checks).
+                // Handle those here with eager evaluation.
+                let is_and = matches!(binary.op, ir::BinaryOperator::And);
+                let jump_short =
+                    self.builder.emit_jump_forward(
+                        if is_and { JumpCondition::False } else { JumpCondition::True },
+                        span,
+                    );
+                let jump_second =
+                    self.builder.emit_jump_forward(
+                        if is_and { JumpCondition::False } else { JumpCondition::True },
+                        span,
+                    );
+                // both match the "continue" case
+                self.builder.emit_constant(is_and.into(), span);
+                let end = self.builder.emit_jump_forward(JumpCondition::Always, span);
+                self.builder.patch_jump(jump_short);
+                self.builder.emit(Instruction::Pop, span);
+                self.builder.patch_jump(jump_second);
+                self.builder.emit_constant((!is_and).into(), span);
+                self.builder.patch_jump(end);
             }
             ir::BinaryOperator::Is => {
                 self.builder.emit(Instruction::Is, span);
