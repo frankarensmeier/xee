@@ -256,9 +256,6 @@ bug-2401
 bug-2502
 bug-2801
 bug-3001
-bug-3701
-bug-4401
-bug-4501
 bug-5101
 bug-5601
 bug-6401
@@ -1058,7 +1055,6 @@ id-019
 id-034
 id-037
 = import
-import-1301
 = import-schema
 import-schema-191
 = include
@@ -1151,12 +1147,6 @@ json-to-xml-escape-003
 json-to-xml-escape-004
 json-to-xml-typed-010
 = key
-key-001
-key-002
-key-010
-key-013
-key-027
-key-028
 key-030
 key-031
 key-032
@@ -1171,18 +1161,12 @@ key-040
 key-041
 key-047
 key-049
-key-055
-key-056
-key-058
 key-064
 key-065
 key-069
 key-070
 key-071
 key-077
-key-078
-key-079
-key-080
 key-081
 key-083
 key-087
@@ -1193,7 +1177,6 @@ key-093
 key-094
 key-095
 key-096
-key-098
 = load-xquery-module
 load-xquery-module-001
 load-xquery-module-002

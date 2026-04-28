@@ -604,6 +604,12 @@ pub enum Error {
     /// It is a dynamic error if the picture string supplied to
     /// format-number is invalid.
     XTDE1310,
+    /// No matching key definition.
+    ///
+    /// It is a non-recoverable dynamic error if the name attribute of the
+    /// key() function does not match the name of any xsl:key declaration
+    /// in the stylesheet.
+    XTDE1260,
     /// Result-document evaluated while temporary output state is active.
     ///
     /// It is a dynamic error if xsl:result-document is evaluated in temporary
