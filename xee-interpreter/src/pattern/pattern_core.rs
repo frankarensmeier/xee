@@ -604,6 +604,14 @@ pub(crate) trait PredicateMatcher {
         } else if step.forward == pattern::ForwardAxis::Attribute {
             return false;
         }
+        // Namespace nodes only match on the namespace axis
+        if self.xot().is_namespace_node(node) {
+            if step.forward != pattern::ForwardAxis::Namespace {
+                return false;
+            }
+        } else if step.forward == pattern::ForwardAxis::Namespace {
+            return false;
+        }
         Self::matches_node_test(&step.node_test, node, self.xot())
     }
 

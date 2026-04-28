@@ -258,7 +258,6 @@ bug-2801
 bug-3001
 bug-5101
 bug-5601
-bug-6401
 = built-in-templates
 built-in-templates-0201
 built-in-templates-0202
@@ -1159,16 +1158,13 @@ key-038
 key-039
 key-040
 key-041
-key-047
 key-049
 key-064
 key-065
 key-071
 key-077
 key-083
-key-087
 key-089
-key-090
 = load-xquery-module
 load-xquery-module-001
 load-xquery-module-002
@@ -1868,7 +1864,6 @@ output-0722
 = path
 = position
 position-0103
-position-1801
 position-3901
 position-4001
 position-4104
@@ -2231,7 +2226,6 @@ strip-space-005
 strip-space-006
 strip-space-010
 strip-space-011
-strip-space-012
 strip-space-013
 strip-space-014
 strip-space-015

@@ -4,6 +4,32 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-28 23:46 CEST
+
+### Status snapshot
+
+- **XSLT conformance**: 5667 passed / 0 failed / 0 error / 3911 filtered / 5017 unsupported (14595 total)
+- **+6 new passes** over previous filters (key-047, key-087, key-090, bug-6401, position-1801, strip-space-012)
+
+### What was done
+
+1. **Namespace node iteration in key()** (+2: key-087, key-090): Keys with `match="namespace-node()"` patterns now work. The key helper's second pass iterates `namespaces_in_scope()` for each element, creates namespace nodes via `new_namespace_node()`, and registers parent elements in `interpreter.state.namespace_parents` so parent/ancestor axes work from namespace nodes.
+
+2. **Strip-space for initial source document** (+2: key-047, strip-space-012): Applied `strip_whitespace_only_text_children` in `Runnable::many()` when `strip_space_all` is true. This ensures `xsl:strip-space` applies to the initial source document regardless of entry point (CLI via `evaluate_program` or test runner's direct `runnable.many()`).
+
+3. **Namespace node pattern matching fix** (+2: key-078, bug-6401): Fixed `matches_axis_node_test` in the pattern matcher to gate namespace nodes to the namespace axis only. Previously `node()` as a pattern incorrectly matched namespace nodes (which caused key-078 to count 15 nodes instead of 11). Now namespace nodes only match on `ForwardAxis::Namespace`, consistent with XSLT spec.
+
+### Remaining key test gaps
+
+- **18 XTSE0340 errors**: key() in match patterns (key-030..041, key-049, key-064, key-065, key-071, key-083, key-089) — architectural pattern compiler limitation
+- **key-077**: xml:id in temporary trees — xot's `id_nodes_map` only populated during XML parsing, not for programmatically built trees
+
+### Validation used
+
+- `cargo build --release` — clean build
+- `cargo run --release -p xee-testrunner -- check vendor/xslt-tests` — 5667 passed / 0 failed / 0 error
+- `python3 update.py` — filter update, only removals (no new entries)
+
 ## 2026-04-28 19:08 CEST
 
 ### Status snapshot

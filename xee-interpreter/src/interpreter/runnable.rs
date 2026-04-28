@@ -171,6 +171,15 @@ impl<'a> Runnable<'a> {
 
     /// Run the program against a sequence item.
     pub fn many(&self, xot: &'a mut Xot) -> error::SpannedResult<sequence::Sequence> {
+        // Apply xsl:strip-space to the initial source document before execution
+        if self.program.declarations.strip_space_all {
+            if let Some(context_item) = self.dynamic_context.context_item() {
+                if let sequence::Item::Node(node) = context_item {
+                    crate::library::strip_whitespace_only_text_children(xot, *node);
+                }
+            }
+        }
+
         let result = self.run_value(xot)?.try_into()?;
         self.merge_principal_result_documents(result)
     }

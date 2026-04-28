@@ -196,8 +196,9 @@ fn key_helper(
     let default_offset = context.implicit_timezone();
 
     // Collect all nodes in the document tree (search from root).
-    // Include attribute nodes since key patterns can match them.
+    // Include attribute and namespace nodes since key patterns can match them.
     let mut nodes: Vec<Node> = Vec::new();
+    // First pass: collect element, text, comment, PI, and attribute nodes
     for node in std::iter::once(root).chain(interpreter.xot().descendants(root)) {
         nodes.push(node);
         // Add attribute nodes for element nodes
@@ -205,6 +206,21 @@ fn key_helper(
             for attr_node in interpreter.xot().attribute_nodes(node) {
                 nodes.push(attr_node);
             }
+        }
+    }
+    // Second pass: collect namespace nodes (requires &mut Xot for new_namespace_node)
+    let elements: Vec<Node> = nodes
+        .iter()
+        .copied()
+        .filter(|n| interpreter.xot().is_element(*n))
+        .collect();
+    for element in elements {
+        let ns_bindings: Vec<_> = interpreter.xot().namespaces_in_scope(element).collect();
+        for (prefix_id, namespace_id) in ns_bindings {
+            let ns_node = interpreter.xot_mut().new_namespace_node(prefix_id, namespace_id);
+            // Register parent so parent/ancestor axes work from namespace nodes
+            interpreter.state.namespace_parents.insert(ns_node, element);
+            nodes.push(ns_node);
         }
     }
 
@@ -267,11 +283,19 @@ fn key_helper(
         result.retain(|node| is_descendant_or_self(interpreter.xot(), *node, top));
     }
 
-    // Sort by document order and deduplicate
+    // Sort by document order and deduplicate.
+    // Namespace nodes are orphans, so use their parent element's position.
     let documents = context.documents();
     let documents = documents.borrow();
     let annotations = documents.document_order_access(interpreter.xot());
-    result.sort_by_key(|n| annotations.get(*n));
+    result.sort_by_key(|n| {
+        if interpreter.xot().is_namespace_node(*n) {
+            if let Some(&parent) = interpreter.state.namespace_parents.get(n) {
+                return annotations.get(parent);
+            }
+        }
+        annotations.get(*n)
+    });
     result.dedup();
     Ok(result)
 }

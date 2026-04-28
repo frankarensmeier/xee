@@ -11,6 +11,8 @@ mod fn_;
 mod hidden_xslt;
 mod hof;
 mod id;
+
+pub(crate) use hidden_xslt::strip_whitespace_only_text_children;
 mod json;
 mod map;
 mod math;
