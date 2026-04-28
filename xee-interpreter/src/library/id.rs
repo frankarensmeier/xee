@@ -184,11 +184,13 @@ fn key_helper(
         return Err(Error::XTDE1260);
     }
 
-    // Collect the search values as strings for comparison
-    let search_values: Vec<String> = key_value
+    // Collect the search values as atomic values for type-aware comparison
+    let search_values: Vec<atomic::Atomic> = key_value
         .atomized(interpreter.xot())
-        .map(|a| a.map(|a| a.into_canonical()))
         .collect::<Result<Vec<_>, _>>()?;
+
+    let collation = context.static_context().default_collation()?;
+    let default_offset = context.implicit_timezone();
 
     // Collect all nodes in the document tree (search from root).
     // Include attribute nodes since key patterns can match them.
@@ -227,10 +229,13 @@ fn key_helper(
             let key_values = interpreter.call_function_with_arguments(&use_function, &arguments)?;
 
             // Compare each produced key value against the search values
+            // using XPath eq semantics (type-aware, per XSLT spec section 20.1)
             for atom in key_values.atomized(interpreter.xot()) {
                 let atom = atom?;
-                let canonical = atom.into_canonical();
-                if search_values.contains(&canonical) {
+                let matched = search_values
+                    .iter()
+                    .any(|sv| atom.equal(sv, &collation, default_offset));
+                if matched {
                     result.push(node);
                     break;
                 }

@@ -4,6 +4,33 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-28 18:56 CEST
+
+### Status snapshot
+
+- Checkpoint focus: fn:key() type-aware comparison.
+- Vendor test results (key): 73 passed, 7 failed, 19 errors, 0 filtered (99 total).
+- Overall vendor tests: 5657 passed, 0 failed, 0 errors, 3921 filtered (3880 filter lines).
+- Delta: +4 key tests passing (key-069, key-070, key-081, key-088), +4 overall, −4 filter lines.
+
+### Fix: key() type-aware comparison
+
+One change in `xee-interpreter/src/library/id.rs`:
+
+- Key comparison used `into_canonical()` (string-based), which failed for typed values (dateTime, numeric, NaN).
+- Fix: use `Atomic::equal()` with default collation and implicit timezone — matches XPath `eq` semantics per XSLT spec section 20.1.
+- Search values collected as `Vec<atomic::Atomic>` instead of `Vec<String>`.
+- Each key value compared via `atom.equal(sv, &collation, default_offset)`.
+
+**Tests fixed:** key-069 (dateTime keys), key-070 (NaN key values), key-081 (typed numeric keys), key-088 (mixed numeric/string keys).
+
+**Remaining non-XTSE0340 failures (9):**
+- key-047: whitespace stripping (`xsl:strip-space` issue, not key-specific)
+- key-077: `xml:id` in temporary trees (xot `id_nodes_map` not populated for programmatic trees)
+- key-087, key-090: namespace nodes in key patterns
+- key-093, key-096: composite keys (`composite="yes"`) not implemented
+- key-094, key-095: XTSE1222 validation (inconsistent `composite` attribute)
+
 ## 2026-04-28 18:04 CEST
 
 ### Status snapshot
