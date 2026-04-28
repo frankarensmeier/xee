@@ -1698,7 +1698,12 @@ impl<'a> Interpreter<'a> {
     }
 
     pub(crate) fn regex_group(&self, n: usize) -> String {
-        self.state.regex_group(n)
+        // regex-group() is empty inside stylesheet functions.
+        if self.current_inline_function().declared_name.is_some() {
+            String::new()
+        } else {
+            self.state.regex_group(n)
+        }
     }
 
     pub(crate) fn push_current_group(

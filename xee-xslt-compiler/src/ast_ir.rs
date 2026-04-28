@@ -3231,6 +3231,13 @@ impl<'a> IrConverter<'a> {
         &mut self,
         analyze_string: &ast::AnalyzeString,
     ) -> error::SpannedResult<Bindings> {
+        if analyze_string.matching_substring.is_none()
+            && analyze_string.non_matching_substring.is_none()
+        {
+            return Err(error::Error::XTSE1130
+                .with_ast_span(adjusted_span(analyze_string.span, self.current_span_offset)));
+        }
+
         // Compile select expression
         let (select_atom, select_bindings) =
             self.expression(&analyze_string.select)?.atom_bindings();
@@ -3305,50 +3312,53 @@ impl<'a> IrConverter<'a> {
     fn analyze_string_closure(
         &mut self,
         sequence_constructor: &[ast::SequenceConstructorItem],
-        span: ast::Span,
+        _span: ast::Span,
     ) -> error::SpannedResult<(ir::AtomS, Bindings)> {
-        let ir_span = adjusted_span(span, self.current_span_offset);
-        let param_name = self.variables.new_name();
         let context_names = self.variables.push_context();
         let body_bindings = self.with_template_continuation_availability(false, |this| {
             this.sequence_constructor(sequence_constructor)
         })?;
         self.variables.pop_context();
-
-        let body = ir::Expr::Map(ir::Map {
-            context_names,
-            var_atom: Spanned::new(ir::Atom::Variable(param_name.clone()), ir_span),
-            return_expr: Box::new(body_bindings.expr()),
-        });
-
-        let body_bindings = Bindings::empty().bind_expr_no_span(&mut self.variables, body);
         Ok(self.closure(
-            vec![ir::Param {
-                name: param_name,
-                type_: None,
-                default: None,
-                required: false,
-                original_name: None,
-                tunnel: false,
-            }],
+            Self::context_params(&context_names),
             body_bindings,
         ))
     }
 
     /// Create an empty closure that returns the empty sequence.
     fn empty_closure(&mut self) -> error::SpannedResult<(ir::AtomS, Bindings)> {
-        let param_name = self.variables.new_name();
+        let item_param = self.variables.new_name();
+        let position_param = self.variables.new_name();
+        let last_param = self.variables.new_name();
         let empty = self.empty_sequence();
         let body = Bindings::new(self.variables.new_binding_no_span(empty.value));
         Ok(self.closure(
-            vec![ir::Param {
-                name: param_name,
-                type_: None,
-                default: None,
-                required: false,
-                original_name: None,
-                tunnel: false,
-            }],
+            vec![
+                ir::Param {
+                    name: item_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: position_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+                ir::Param {
+                    name: last_param,
+                    type_: None,
+                    default: None,
+                    required: false,
+                    original_name: None,
+                    tunnel: false,
+                },
+            ],
             body,
         ))
     }

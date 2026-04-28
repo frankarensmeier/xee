@@ -570,6 +570,11 @@ pub enum Error {
     XTSE0010,
     /// Variable-binding element has both a select attribute and non-empty content.
     XTSE0620,
+    /// xsl:analyze-string without both matching and non-matching handlers.
+    ///
+    /// It is a static error if an xsl:analyze-string instruction has neither
+    /// xsl:matching-substring nor xsl:non-matching-substring as children.
+    XTSE1130,
     /// Missing XTSE0710 XSLT static error code needed by attribute-set validation.
     XTSE0710,
     /// Invalid value for an XSLT-defined attribute.

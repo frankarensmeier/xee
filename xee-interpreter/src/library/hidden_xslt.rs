@@ -2260,13 +2260,14 @@ fn xslt_analyze_string(
     use regexml::AnalyzeEntry;
 
     let compiled_regex = interpreter.regex(regex, flags)?;
-    let analyze_results = compiled_regex.analyze(input)?;
+    let analyze_results: Vec<AnalyzeEntry> = compiled_regex.analyze(input)?.collect();
 
     let match_function = match_fn.to_function()?;
     let non_match_function = non_match_fn.to_function()?;
 
     let mut result = Vec::new();
-    for entry in analyze_results {
+    let total_parts: IBig = analyze_results.len().into();
+    for (index, entry) in analyze_results.into_iter().enumerate() {
         let (substring, function, is_match) = match &entry {
             AnalyzeEntry::Match(match_entries) => {
                 let mut s = String::new();
@@ -2277,13 +2278,21 @@ fn xslt_analyze_string(
         };
         let arg: sequence::Sequence =
             sequence::Item::Atomic(atomic::Atomic::from(substring)).into();
+        let position = IBig::from(index + 1);
         if is_match {
             if let AnalyzeEntry::Match(match_entries) = &entry {
                 let groups = extract_regex_groups(match_entries);
                 interpreter.push_regex_groups(groups);
             }
         }
-        let items = interpreter.call_function_with_arguments(function, &[arg])?;
+        let items = interpreter.call_function_with_arguments(
+            function,
+            &[
+                arg,
+                atomic::Atomic::from(position).into(),
+                atomic::Atomic::from(total_parts.clone()).into(),
+            ],
+        )?;
         if is_match {
             interpreter.pop_regex_groups();
         }

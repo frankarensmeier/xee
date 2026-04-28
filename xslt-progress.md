@@ -4,6 +4,50 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-28 11:27 CEST
+
+### Status snapshot
+
+- Checkpoint focus: xsl:analyze-string focus semantics, regex-group scoping, XTSE1130 validation.
+- Vendor test results (analyze-string): 43 passed, 3 failed, 5 errors, 5 unsupported.
+- Overall vendor tests: 5626 passed, 0 failed, 0 errors, 3952 filtered (unchanged).
+- Delta: +3 analyze-string tests passing (033, 042, 083). No regressions.
+
+### Feat: xsl:analyze-string focus semantics, regex-group scoping, and XTSE1130 validation
+
+Implemented complete xsl:analyze-string support across compiler and runtime:
+
+**Compiler changes (ast_ir.rs):**
+- Added XTSE1130 static error: validate that xsl:analyze-string has at least one of matching-substring or non-matching-substring handlers. Raised at compile time before IR generation.
+- Updated `analyze_string_closure()` signature to generate 3-parameter closures (item, position, last) instead of 1-parameter (item only).
+- Modified `empty_closure()` to generate 3-parameter signatures for consistency.
+
+**Runtime changes (hidden_xslt.rs):**
+- Modified `xslt_analyze_string()` to collect regex analyzer iterator into Vec before processing (handles iterator borrow limitation).
+- Calculate position and total_parts for each matched/non-matched entry.
+- Pass position and last_position as additional parameters to match/non-match handler closures.
+- Result: position() and last() now return correct values inside analyze-string branches.
+
+**Interpreter changes (interpret.rs):**
+- Added stylesheet-function context check in `regex_group()` method.
+- When inside a declared (named) xsl:function, regex_group() returns empty string (per XSLT spec).
+- Preserves regex-group context for templates, next-match, and attribute-set contexts.
+
+**Error definitions (error.rs):**
+- Added XTSE1130 error code with documentation.
+
+**Test outcomes:**
+- analyze-string-033 (position/last in matching-substring): now passing ✅
+- analyze-string-042 (XTSE1130 raised for missing handlers): now passing ✅
+- analyze-string-083 (position/last/item in non-matching-substring): now passing ✅
+- 3 failures remain (034, 077 — stylesheet function scope boundary; 076 — pattern subsystem limitation outside scope)
+- 5 errors remain (090b, 091b, 092 — XSLT 3.0 zero-length match behavior; 095, 100 — regexml library panic on optional groups)
+
+**Known limitations:**
+- Stylesheet function calls to regex_group (cases 034, 077): boundary case in spec interpretation that may need further investigation.
+- XSLT 3.0 zero-length matches (cases 090b, 091b, 092): regexml library behavior difference vs W3C spec requirements.
+- regexml library panics on optional groups (cases 095, 100): upstream issue in regex engine.
+
 ## 2026-04-22 19:49 CEST
 
 ### Status snapshot
