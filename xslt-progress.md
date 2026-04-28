@@ -4,6 +4,33 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-28 19:08 CEST
+
+### Status snapshot
+
+- Checkpoint focus: composite keys (`composite="yes"`) and XTSE1222 validation.
+- Vendor test results (key): 77 passed, 4 failed, 18 errors, 0 filtered (99 total).
+- Overall vendor tests: 5661 passed, 0 failed, 0 errors, 3917 filtered (3876 filter lines).
+- Delta: +4 key tests passing (key-093, key-094, key-095, key-096), +4 overall, −4 filter lines.
+
+### What was done
+
+1. **Composite key support** (`composite="yes"` on `xsl:key`):
+   - Threaded `composite: bool` through the full pipeline: AST → IR `KeyDefinition` → declaration compiler → runtime `KeyDeclaration`.
+   - Runtime: when `composite=true`, the entire atomized sequence from the `use` expression forms a single composite key (tuple). Matches iff sequences have equal length and each pair matches via `Atomic::equal()`.
+   - Non-composite (default) behavior unchanged: each atom compared independently.
+
+2. **XTSE1222 validation**:
+   - Added compile-time check in `compile_keys()`: all `xsl:key` declarations with the same name must have the same effective value for the `composite` attribute.
+   - Added `XTSE1222` error variant to `xee-interpreter/src/error.rs`.
+
+**Tests fixed:** key-093 (composite key deduplication), key-094/key-095 (XTSE1222 inconsistent composite), key-096 (composite key with variable-length components).
+
+**Remaining non-XTSE0340 failures (4):**
+- key-047: whitespace stripping (`xsl:strip-space` issue, not key-specific)
+- key-077: `xml:id` in temporary trees (xot `id_nodes_map` not populated for programmatic trees)
+- key-087, key-090: namespace nodes in key patterns (requires namespace node iteration in key helper)
+
 ## 2026-04-28 18:56 CEST
 
 ### Status snapshot

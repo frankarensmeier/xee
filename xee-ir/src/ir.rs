@@ -521,6 +521,7 @@ pub struct KeyDefinition {
     pub name: xmlname::OwnedName,
     pub pattern: Pattern<FunctionDefinition>,
     pub use_function: FunctionDefinition,
+    pub composite: bool,
 }
 
 /// A compiled xsl:number count or from pattern at the IR level.

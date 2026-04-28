@@ -387,6 +387,20 @@ impl<'a> DeclarationCompiler<'a> {
     }
 
     fn compile_keys(&mut self, declarations: &ir::Declarations) -> error::SpannedResult<()> {
+        // XTSE1222: All xsl:key declarations with the same name must have the same
+        // effective value for the composite attribute.
+        let mut composite_by_name: HashMap<&xot::xmlname::OwnedName, bool> =
+            HashMap::new();
+        for key in &declarations.keys {
+            if let Some(&existing) = composite_by_name.get(&key.name) {
+                if existing != key.composite {
+                    return Err(error::Error::XTSE1222.into());
+                }
+            } else {
+                composite_by_name.insert(&key.name, key.composite);
+            }
+        }
+
         for key in &declarations.keys {
             self.compile_key(key)?;
         }
@@ -458,6 +472,7 @@ impl<'a> DeclarationCompiler<'a> {
                 name: key.name.clone(),
                 pattern,
                 use_function_id,
+                composite: key.composite,
             });
         Ok(())
     }

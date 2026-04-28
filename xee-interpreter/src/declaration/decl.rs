@@ -34,6 +34,7 @@ pub struct KeyDeclaration {
     pub name: OwnedName,
     pub pattern: Pattern<function::InlineFunctionId>,
     pub use_function_id: function::InlineFunctionId,
+    pub composite: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -610,6 +610,12 @@ pub enum Error {
     /// key() function does not match the name of any xsl:key declaration
     /// in the stylesheet.
     XTDE1260,
+    /// Inconsistent composite attribute on xsl:key declarations.
+    ///
+    /// It is a static error if there are several xsl:key declarations with
+    /// the same key name and they do not all have the same effective value
+    /// for the composite attribute.
+    XTSE1222,
     /// Result-document evaluated while temporary output state is active.
     ///
     /// It is a dynamic error if xsl:result-document is evaluated in temporary

@@ -2247,6 +2247,7 @@ impl<'a> IrConverter<'a> {
             name,
             pattern,
             use_function,
+            composite: key.composite,
         });
 
         Ok(())

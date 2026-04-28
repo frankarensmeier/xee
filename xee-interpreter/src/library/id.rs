@@ -184,6 +184,9 @@ fn key_helper(
         return Err(Error::XTDE1260);
     }
 
+    // Check if this is a composite key (all decls with same name must agree per XTSE1222)
+    let composite = key_decls[0].composite;
+
     // Collect the search values as atomic values for type-aware comparison
     let search_values: Vec<atomic::Atomic> = key_value
         .atomized(interpreter.xot())
@@ -228,16 +231,32 @@ fn key_helper(
             ];
             let key_values = interpreter.call_function_with_arguments(&use_function, &arguments)?;
 
-            // Compare each produced key value against the search values
-            // using XPath eq semantics (type-aware, per XSLT spec section 20.1)
-            for atom in key_values.atomized(interpreter.xot()) {
-                let atom = atom?;
-                let matched = search_values
-                    .iter()
-                    .any(|sv| atom.equal(sv, &collation, default_offset));
-                if matched {
+            if composite {
+                // Composite key: the entire atomized sequence forms a single key.
+                // Match iff sequences have equal length and each pair matches.
+                let key_atoms: Vec<atomic::Atomic> = key_values
+                    .atomized(interpreter.xot())
+                    .collect::<Result<Vec<_>, _>>()?;
+                if key_atoms.len() == search_values.len()
+                    && key_atoms
+                        .iter()
+                        .zip(search_values.iter())
+                        .all(|(ka, sv)| ka.equal(sv, &collation, default_offset))
+                {
                     result.push(node);
-                    break;
+                }
+            } else {
+                // Non-composite: each produced key value is compared independently
+                // using XPath eq semantics (type-aware, per XSLT spec section 20.1)
+                for atom in key_values.atomized(interpreter.xot()) {
+                    let atom = atom?;
+                    let matched = search_values
+                        .iter()
+                        .any(|sv| atom.equal(sv, &collation, default_offset));
+                    if matched {
+                        result.push(node);
+                        break;
+                    }
                 }
             }
         }
