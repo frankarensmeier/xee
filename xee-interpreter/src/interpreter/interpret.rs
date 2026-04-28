@@ -443,6 +443,10 @@ impl<'a> Interpreter<'a> {
                     self.state.push(value);
                 }
                 EncodedInstruction::Return => {
+                    // Pop empty regex groups pushed when entering a stylesheet function
+                    if self.current_inline_function().declared_name.is_some() {
+                        self.state.pop_regex_groups();
+                    }
                     self.runnable.dynamic_context.pop_static_base_uri();
                     if self.state.inline_return(start_base) {
                         break;
@@ -1229,6 +1233,13 @@ impl<'a> Interpreter<'a> {
             self.state.push_value(arg);
         }
 
+        // Stylesheet functions (xsl:function) isolate the regex-group context.
+        // Push an empty set so regex-group() returns empty inside the function,
+        // while any inner xsl:analyze-string can push its own groups on top.
+        if inline_function.declared_name.is_some() {
+            self.state.push_regex_groups(vec![]);
+        }
+
         self.state
             .push_frame(function.id, arity as usize, function.program.clone())
     }
@@ -1698,12 +1709,7 @@ impl<'a> Interpreter<'a> {
     }
 
     pub(crate) fn regex_group(&self, n: usize) -> String {
-        // regex-group() is empty inside stylesheet functions.
-        if self.current_inline_function().declared_name.is_some() {
-            String::new()
-        } else {
-            self.state.regex_group(n)
-        }
+        self.state.regex_group(n)
     }
 
     pub(crate) fn push_current_group(
