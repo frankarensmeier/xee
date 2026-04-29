@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+#
+# Quick XSLT performance benchmark.
+# Transforms xslt/input-small.xml with print.xsl and compares against a
+# stored baseline. Flags regressions above a configurable threshold.
+#
+# Usage:
+#   ./bench-xslt              # run benchmark, compare to baseline
+#   ./bench-xslt --save       # run and save result as the new baseline
+#   ./bench-xslt --threshold 30  # set regression threshold to 30%
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BASELINE_FILE="$SCRIPT_DIR/xslt/.bench-baseline"
+THRESHOLD="${THRESHOLD:-20}"  # percent
+SAVE=false
+RUNS=3
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Quick XSLT performance benchmark. Transforms xslt/input-small.xml with
+print.xsl, averages multiple runs, and compares against a stored baseline.
+
+Options:
+  --save             Save current timing as the new baseline
+  --threshold PCT    Regression threshold in percent (default: 20)
+  --runs N           Number of iterations to average (default: 3)
+  --help             Show this help message
+EOF
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --save) SAVE=true; shift ;;
+        --threshold) THRESHOLD="$2"; shift 2 ;;
+        --runs) RUNS="$2"; shift 2 ;;
+        --help|-h) usage ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+BIN="$SCRIPT_DIR/target/release/xee"
+if [[ ! -x "$BIN" ]]; then
+    echo "Release binary not found. Building..."
+    cargo build --release -p xee
+fi
+
+STYLESHEET="$SCRIPT_DIR/xslt/print.xsl"
+INPUT="$SCRIPT_DIR/xslt/input-small.xml"
+
+echo "Running $RUNS iterations..."
+TOTAL=0
+for i in $(seq 1 "$RUNS"); do
+    # Use bash TIMEFORMAT to capture wall-clock seconds
+    T=$( { time "$BIN" xslt "$STYLESHEET" "$INPUT" > /dev/null 2>&1; } 2>&1 )
+    # Extract the "real" / "total" wall-clock time in seconds
+    SECS=$(echo "$T" | grep -oE '[0-9]+\.[0-9]+\s+total' | grep -oE '[0-9]+\.[0-9]+' || true)
+    if [[ -z "$SECS" ]]; then
+        # Fallback: try bash-style "real 0m3.456s"
+        SECS=$(echo "$T" | grep real | sed -E 's/.*real[[:space:]]+([0-9]+)m([0-9.]+)s/\1 \2/' | awk '{print $1*60+$2}')
+    fi
+    printf "  Run %d: %.2fs\n" "$i" "$SECS"
+    TOTAL=$(echo "$TOTAL + $SECS" | bc)
+done
+
+AVG=$(echo "scale=2; $TOTAL / $RUNS" | bc)
+echo ""
+echo "Average: ${AVG}s ($RUNS runs)"
+
+if $SAVE; then
+    echo "$AVG" > "$BASELINE_FILE"
+    echo "Baseline saved: ${AVG}s"
+    exit 0
+fi
+
+if [[ -f "$BASELINE_FILE" ]]; then
+    BASELINE=$(cat "$BASELINE_FILE")
+    PCT=$(echo "scale=1; ($AVG - $BASELINE) * 100 / $BASELINE" | bc)
+    echo "Baseline: ${BASELINE}s"
+    echo "Change:   ${PCT}%"
+
+    # Check if regression exceeds threshold (compare as integers to avoid bc issues)
+    ABS_PCT=$(echo "$PCT" | tr -d '-')
+    IS_REGRESSION=$(echo "$PCT > $THRESHOLD" | bc)
+    if [[ "$IS_REGRESSION" -eq 1 ]]; then
+        echo ""
+        echo "⚠️  REGRESSION: ${PCT}% exceeds ${THRESHOLD}% threshold!"
+        exit 1
+    else
+        echo "✓ Within ${THRESHOLD}% threshold"
+    fi
+else
+    echo ""
+    echo "No baseline found. Run with --save to establish one."
+fi
