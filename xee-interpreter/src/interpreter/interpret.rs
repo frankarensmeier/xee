@@ -1791,7 +1791,15 @@ impl<'a> Interpreter<'a> {
                     };
                     // TODO: error out if namespace or attribute node
                     // is added once a normal child already exists
+                    let needs_ns_fixup = self.state.xot.is_element(parent_node)
+                        && self.state.xot.is_attribute_node(node);
                     self.state.xot.any_append(parent_node, node).unwrap();
+                    // Ensure namespace declarations exist for namespaced
+                    // attributes appended to the result tree
+                    // (XSLT 3.0 §5.7.3: namespace fixup)
+                    if needs_ns_fixup {
+                        self.ensure_namespace_for_node(parent_node, node)?;
+                    }
                     self.state.record_output_mutation();
                 }
                 sequence::Item::Atomic(atomic) => string_values.push(atomic.string_value()),
@@ -1834,6 +1842,55 @@ impl<'a> Interpreter<'a> {
             // operation as shallow copy
             _ => xot.clone_node(node),
         }
+    }
+
+    /// Ensure that a namespace declaration exists on `parent` for the
+    /// namespace used by `node` (attribute or element).  This implements the
+    /// XSLT 3.0 §5.7.3 namespace fixup rule: when an attribute whose name is
+    /// in a namespace is added to an element, a namespace binding must be
+    /// present.
+    fn ensure_namespace_for_node(
+        &mut self,
+        parent: xot::Node,
+        node: xot::Node,
+    ) -> error::Result<()> {
+        let Some(name_id) = self.state.xot.node_name(node) else {
+            return Ok(());
+        };
+        let namespace_id = self.state.xot.namespace_for_name(name_id);
+        let no_namespace = self.state.xot.no_namespace();
+        if namespace_id == no_namespace {
+            return Ok(());
+        }
+        // Check if the parent already has a prefix for this namespace
+        if self
+            .state
+            .xot
+            .prefix_for_namespace(parent, namespace_id)
+            .is_some()
+        {
+            return Ok(());
+        }
+        // No prefix found — generate one.  create_missing_prefixes uses "n0",
+        // "n1" etc. but we can do the same thing scoped to just this element.
+        let mut i = 0u32;
+        let prefix_id = loop {
+            let candidate = format!("ns{i}");
+            let candidate_id = self.state.xot.add_prefix(&candidate);
+            // Make sure this prefix isn't already bound to a different namespace
+            if self
+                .state
+                .xot
+                .namespace_for_prefix(parent, candidate_id)
+                .is_none()
+            {
+                break candidate_id;
+            }
+            i += 1;
+        };
+        let ns_node = self.state.xot.new_namespace_node(prefix_id, namespace_id);
+        self.state.xot.any_append(parent, ns_node)?;
+        Ok(())
     }
 
     fn apply_templates_sequence(

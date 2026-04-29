@@ -182,6 +182,9 @@ pub enum Error {
     /// namespace prefix that cannot be expanded into a namespace URI by using
     /// the statically known namespaces.
     XPST0081,
+    /// Same as XPST0081 but with the prefix that could not be resolved.
+    #[strum(to_string = "XPST0081")]
+    XPST0081Detail(String),
     /// Type error: namespace-sensitive type expected.
     ///
     /// When applying the function conversion rules, if an item is of type
@@ -993,6 +996,7 @@ impl Error {
         match self {
             Error::XPTY0004(Some(context)) => Some(context.as_str()),
             Error::XTTE0590(Some(context)) => Some(context.as_str()),
+            Error::XPST0081Detail(prefix) => Some(prefix.as_str()),
             _ => None,
         }
     }
@@ -1085,7 +1089,7 @@ impl From<regexml::Error> for Error {
 impl From<xot::Error> for Error {
     fn from(e: xot::Error) -> Self {
         match e {
-            xot::Error::MissingPrefix(_) => Error::XPST0081,
+            xot::Error::MissingPrefix(prefix) => Error::XPST0081Detail(prefix),
             // TODO: are there other xot errors that need to be translated?
             _ => Error::XPST0003,
         }

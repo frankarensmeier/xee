@@ -4,6 +4,34 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-29 10:37 CEST
+
+### Fix XPST0081: namespace fixup for copied attributes (XSLT 3.0 §5.7.3)
+
+**Problem:** When `xsl:copy-of select="@*"` copies attributes with namespace
+prefixes (e.g. `xinfo:resource`), the attribute node is cloned individually
+without its namespace declaration. During HTML serialization, xot's serializer
+cannot find a prefix for the namespace URI, producing `Error: XPST0081`.
+
+**Root cause:** `xot.clone_node()` on an attribute preserves the `NameId`
+(which includes the namespace URI) but creates a standalone node. When appended
+to a result element via `any_append`, the namespace declaration is not
+automatically created. Saxon handles this via namespace fixup.
+
+**Fix:** Added `ensure_namespace_for_node()` method to the interpreter. After
+appending an attribute node to an element via `any_append`, it checks whether
+the parent element has a prefix declaration for the attribute's namespace. If
+not, it generates a synthetic prefix (`ns0`, `ns1`, ...) and adds a namespace
+declaration. Only runs for attribute nodes (not text/element/etc.) to avoid
+accessing nodes freed by text consolidation.
+
+Also added `XPST0081Detail(String)` error variant for better error messages
+when namespace prefix issues surface from xot.
+
+**Result:** DocBook NG stylesheets now process documents with custom namespace
+attributes without error. 5667 conformance tests still pass, 0 failures.
+Benchmark within threshold (3.64s vs 3.37s baseline).
+
 ## 2026-04-29 09:46 CEST
 
 ### Fix xsl:number level="single" with from attribute
