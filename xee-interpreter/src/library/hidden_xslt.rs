@@ -1110,16 +1110,12 @@ fn count_single_level_pattern(
         .collect();
 
     // Walk ancestor-or-self to find the first node matching the count pattern.
-    // If from is specified, stop at the first ancestor matching from.
+    // If from is specified, stop at the first ancestor matching from (but only
+    // if it doesn't also match the count pattern — a node can match both).
     let count_node = {
         let mut found = None;
         for n in ancestor_or_self {
-            // If we hit a from-boundary ancestor, stop searching
-            if let Some(ref from_pattern) = from_pattern {
-                if node_matches_pattern(interpreter, n, from_pattern) {
-                    break;
-                }
-            }
+            // Check count pattern first: if this node matches count, use it
             if use_default_count {
                 if node_matches_default_count_for(interpreter.xot(), node, n) {
                     found = Some(n);
@@ -1128,6 +1124,12 @@ fn count_single_level_pattern(
             } else if let Some(ref count_pattern) = count_pattern {
                 if node_matches_pattern(interpreter, n, count_pattern) {
                     found = Some(n);
+                    break;
+                }
+            }
+            // Then check from: if this ancestor matches from, stop searching
+            if let Some(ref from_pattern) = from_pattern {
+                if node_matches_pattern(interpreter, n, from_pattern) {
                     break;
                 }
             }

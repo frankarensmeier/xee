@@ -4,6 +4,26 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-29 09:46 CEST
+
+### Fix xsl:number level="single" with from attribute
+
+**Problem:** `xsl:number level="single" from="db:section"` always returned 0
+for nested sections. The DocBook NG stylesheets use this pattern to compute
+section numbers, producing "2.0.0.0.0" instead of correct hierarchical numbers.
+
+**Root cause:** In `count_single_level_pattern()` in `hidden_xslt.rs`, the
+`from` pattern was checked *before* the `count` pattern. When a section is
+inside another section and `from="db:section"`, the current node itself matches
+`from`, causing an immediate break before checking if it also matches `count`.
+
+**Fix:** Reorder the checks: test the `count` pattern first, then `from`. A
+node can match both patterns — in that case it should be counted, not used as
+a boundary.
+
+**Result:** Section numbering now produces correct values (e.g. "2.8.2.2.2"
+instead of "2.0.0.0.0"). 5667 conformance tests still pass, 0 failures.
+
 ## 2026-04-29 07:47 CEST
 
 ### Performance fix: gate namespace node collection in key()
