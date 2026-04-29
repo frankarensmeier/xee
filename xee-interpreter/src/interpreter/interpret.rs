@@ -429,9 +429,17 @@ impl<'a> Interpreter<'a> {
                 EncodedInstruction::Step => {
                     let step_id = self.read_u16();
                     let node: xot::Node = self.state.pop()?.try_into()?;
-                    let step = self.current_inline_function().steps[step_id as usize].clone();
+                    // Get step data before mutably borrowing self.state.xot.
+                    // Clone the Rc<Program> (cheap ref-count bump) or use
+                    // self.runnable.program() to avoid borrow conflict.
+                    let function_id = self.state.frame().function();
+                    let owned_program = self.state.frame().owned_program().cloned();
+                    let program = owned_program
+                        .as_deref()
+                        .unwrap_or_else(|| self.runnable.program());
+                    let step = &program.inline_function(function_id).steps[step_id as usize];
                     let value = xml::resolve_step(
-                        &step,
+                        step,
                         node,
                         self.state.xot,
                         &mut self.state.namespace_parents,
@@ -951,8 +959,8 @@ impl<'a> Interpreter<'a> {
         &mut self,
         index: usize,
     ) -> error::Result<sequence::Sequence> {
-        match self.global_variables[index].clone() {
-            GlobalValueState::Resolved(value) => Ok(value),
+        match &self.global_variables[index] {
+            GlobalValueState::Resolved(value) => Ok(value.clone()),
             GlobalValueState::Resolving => Err(error::Error::XTDE0640),
             GlobalValueState::Uninitialized => {
                 let global = self.current_program().declarations.global_variable(index).clone();
