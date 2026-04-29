@@ -4,6 +4,24 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-29 07:47 CEST
+
+### Performance fix: gate namespace node collection in key()
+
+**Problem:** Commit 8aa41975 introduced a 3.2x performance regression (62s → 175s)
+on the DocBook benchmark. The `key_helper` function was unconditionally creating
+namespace nodes for every element in the document on every `key()` call, causing
+massive memory allocation pressure (system time went from 0.4s to 49s).
+
+**Fix:** Gate the namespace node collection behind a check that inspects the key
+declaration's match pattern AST for `ForwardAxis::Namespace`. If no key pattern
+uses the namespace axis, the second pass is skipped entirely. Added helper
+functions `pattern_uses_namespace_axis`, `expr_uses_namespace_axis`, and
+`step_uses_namespace_axis` in `id.rs`.
+
+**Result:** Performance restored to baseline (65s, 0.6s system time). All 5667
+tests still pass with 0 failures.
+
 ## 2026-04-28 23:46 CEST
 
 ### Status snapshot

@@ -1,4 +1,5 @@
 use ahash::{HashSet, HashSetExt};
+use xee_xpath_ast::pattern;
 use xee_xpath_macros::xpath_fn;
 use xot::xmlname::OwnedName;
 use xot::{Node, Xot};
@@ -208,19 +209,21 @@ fn key_helper(
             }
         }
     }
-    // Second pass: collect namespace nodes (requires &mut Xot for new_namespace_node)
-    let elements: Vec<Node> = nodes
-        .iter()
-        .copied()
-        .filter(|n| interpreter.xot().is_element(*n))
-        .collect();
-    for element in elements {
-        let ns_bindings: Vec<_> = interpreter.xot().namespaces_in_scope(element).collect();
-        for (prefix_id, namespace_id) in ns_bindings {
-            let ns_node = interpreter.xot_mut().new_namespace_node(prefix_id, namespace_id);
-            // Register parent so parent/ancestor axes work from namespace nodes
-            interpreter.state.namespace_parents.insert(ns_node, element);
-            nodes.push(ns_node);
+    // Second pass: collect namespace nodes only if any key pattern uses the namespace axis
+    if key_decls.iter().any(|k| pattern_uses_namespace_axis(&k.pattern)) {
+        let elements: Vec<Node> = nodes
+            .iter()
+            .copied()
+            .filter(|n| interpreter.xot().is_element(*n))
+            .collect();
+        for element in elements {
+            let ns_bindings: Vec<_> = interpreter.xot().namespaces_in_scope(element).collect();
+            for (prefix_id, namespace_id) in ns_bindings {
+                let ns_node = interpreter.xot_mut().new_namespace_node(prefix_id, namespace_id);
+                // Register parent so parent/ancestor axes work from namespace nodes
+                interpreter.state.namespace_parents.insert(ns_node, element);
+                nodes.push(ns_node);
+            }
         }
     }
 
@@ -298,6 +301,38 @@ fn key_helper(
     });
     result.dedup();
     Ok(result)
+}
+
+/// Check if a pattern references the namespace axis anywhere in its AST.
+fn pattern_uses_namespace_axis(
+    pat: &pattern::Pattern<function::InlineFunctionId>,
+) -> bool {
+    match pat {
+        pattern::Pattern::Predicate(_) => false,
+        pattern::Pattern::Expr(expr) => expr_uses_namespace_axis(expr),
+    }
+}
+
+fn expr_uses_namespace_axis(
+    expr: &pattern::ExprPattern<function::InlineFunctionId>,
+) -> bool {
+    match expr {
+        pattern::ExprPattern::Path(path) => path.steps.iter().any(step_uses_namespace_axis),
+        pattern::ExprPattern::BinaryExpr(bin) => {
+            expr_uses_namespace_axis(&bin.left) || expr_uses_namespace_axis(&bin.right)
+        }
+    }
+}
+
+fn step_uses_namespace_axis(
+    step: &pattern::StepExpr<function::InlineFunctionId>,
+) -> bool {
+    match step {
+        pattern::StepExpr::AxisStep(axis_step) => {
+            axis_step.forward == pattern::ForwardAxis::Namespace
+        }
+        pattern::StepExpr::PostfixExpr(postfix) => expr_uses_namespace_axis(&postfix.expr),
+    }
 }
 
 /// Check if `node` is `ancestor` or a descendant of `ancestor`.
