@@ -1,5 +1,6 @@
 use std::cell::OnceCell;
 use std::fs;
+use std::rc::Rc;
 
 use ahash::HashMap;
 use iri_string::types::{IriReferenceStr, IriString};
@@ -11,6 +12,14 @@ use crate::function;
 use crate::interpreter::Interpreter;
 use crate::pattern::pattern_core::PredicateMatcher;
 use crate::sequence::{Item, Sequence};
+
+/// Cache mapping pointer-as-integer of `OwnedName` instances in pattern ASTs
+/// to their resolved `NameId`. Keyed by raw pointer cast to `usize` for
+/// O(1) integer-key lookup — avoids string hashing.
+/// Only successfully resolved names are cached; unresolvable names (e.g.
+/// from documents not yet loaded via `doc()`) are omitted so they fall
+/// back to direct resolution at match time.
+pub(crate) type NameCache = HashMap<usize, xot::NameId>;
 
 #[derive(Debug, Clone, Default)]
 pub struct PatternLookup<V: Clone> {
@@ -30,6 +39,11 @@ struct NameIndex {
     /// Patterns that can match any name (wildcard, kind-test, predicate-only,
     /// union, etc.) — these must always be checked.
     wildcards: Vec<usize>,
+    /// Pre-resolved OwnedName → NameId cache for ALL name tests across ALL
+    /// patterns, keyed by pointer-as-integer. Built once during
+    /// `build_index`; used during pattern matching to skip repeated
+    /// OwnedName::maybe_to_ref lookups (which do 3 hash probes each).
+    name_cache: Rc<NameCache>,
 }
 
 pub(crate) struct InterpreterPredicateMatcher<'a> {
@@ -71,6 +85,20 @@ impl PredicateMatcher for Interpreter<'_> {
 
     fn xot(&self) -> &Xot {
         self.xot()
+    }
+
+    fn resolve_name(&self, name: &xot::xmlname::OwnedName) -> Option<xot::NameId> {
+        if let Some(cache) = &self.name_cache {
+            let key = name as *const _ as usize;
+            if let Some(&name_id) = cache.get(&key) {
+                return Some(name_id);
+            }
+        }
+        // Fallback: resolve directly (for patterns not in the cache,
+        // e.g. xsl:number count patterns or names from documents loaded
+        // after the cache was built).
+        let namespace_id = self.xot().namespace(name.namespace())?;
+        self.xot().name_ns(name.local_name(), namespace_id)
     }
 
     fn rooted_pattern_sequence(&mut self, root: &pattern::RootExpr) -> Option<Sequence> {
@@ -226,7 +254,19 @@ impl<V: Clone> PatternLookup<V> {
             }
         }
 
-        NameIndex { by_name, wildcards }
+        // Build the name cache: resolve ALL NameTest::Name OwnedNames across
+        // ALL patterns to NameId. This cache is used during pattern matching
+        // to skip the expensive OwnedName::maybe_to_ref (3 hash probes per call).
+        let mut name_cache: NameCache = NameCache::default();
+        for (pattern, _) in &self.patterns {
+            collect_pattern_names(pattern, xot, &mut name_cache);
+        }
+
+        NameIndex {
+            by_name,
+            wildcards,
+            name_cache: Rc::new(name_cache),
+        }
     }
 
     /// Ensure the name index is built. Call this while `xot` is available
@@ -234,6 +274,12 @@ impl<V: Clone> PatternLookup<V> {
     /// don't need an `&Xot` reference.
     pub(crate) fn ensure_index(&self, xot: &Xot) {
         self.name_index.get_or_init(|| self.build_index(xot));
+    }
+
+    /// Get the pre-resolved name cache as an Rc (cheap clone).
+    /// Returns None if the index hasn't been built yet.
+    pub(crate) fn name_cache_rc(&self) -> Option<Rc<NameCache>> {
+        self.name_index.get().map(|idx| Rc::clone(&idx.name_cache))
     }
 
     /// Iterate pattern indices relevant for a node with the given optional
@@ -472,6 +518,70 @@ fn extract_anchor_from_binary<E>(binary: &pattern::BinaryExpr<E>) -> AnchorName<
         // Intersect/except: use the left branch for indexing
         pattern::Operator::Intersect | pattern::Operator::Except => {
             extract_anchor_from_expr(&binary.left)
+        }
+    }
+}
+
+/// Walk a pattern and resolve all NameTest::Name OwnedNames to NameId,
+/// storing them in `cache` keyed by pointer-as-integer.
+fn collect_pattern_names<E>(
+    pattern: &Pattern<E>,
+    xot: &Xot,
+    cache: &mut NameCache,
+) {
+    match pattern {
+        Pattern::Predicate(_) => {}
+        Pattern::Expr(expr) => collect_expr_names(expr, xot, cache),
+    }
+}
+
+fn collect_expr_names<E>(
+    expr: &pattern::ExprPattern<E>,
+    xot: &Xot,
+    cache: &mut NameCache,
+) {
+    match expr {
+        pattern::ExprPattern::Path(path) => {
+            for step in &path.steps {
+                collect_step_names(step, xot, cache);
+            }
+        }
+        pattern::ExprPattern::BinaryExpr(binary) => {
+            collect_expr_names(&binary.left, xot, cache);
+            collect_expr_names(&binary.right, xot, cache);
+        }
+    }
+}
+
+fn collect_step_names<E>(
+    step: &pattern::StepExpr<E>,
+    xot: &Xot,
+    cache: &mut NameCache,
+) {
+    match step {
+        pattern::StepExpr::AxisStep(axis_step) => {
+            collect_node_test_names(&axis_step.node_test, xot, cache);
+        }
+        pattern::StepExpr::PostfixExpr(postfix) => {
+            collect_expr_names(&postfix.expr, xot, cache);
+        }
+    }
+}
+
+fn collect_node_test_names(
+    node_test: &ast::NodeTest,
+    xot: &Xot,
+    cache: &mut NameCache,
+) {
+    if let ast::NodeTest::NameTest(ast::NameTest::Name(name_s)) = node_test {
+        let key = &name_s.value as *const _ as usize;
+        if !cache.contains_key(&key) {
+            if let Some(name_id) = resolve_owned_name(&name_s.value, xot) {
+                cache.insert(key, name_id);
+            }
+            // Names that can't be resolved now (e.g. from documents not yet
+            // loaded via doc()) are NOT cached — they fall back to direct
+            // resolution at match time.
         }
     }
 }

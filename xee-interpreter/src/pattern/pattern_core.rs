@@ -1,4 +1,5 @@
 use xee_xpath_type::ast::KindTest;
+use xot::xmlname::NameStrInfo;
 use xot::Xot;
 
 use xee_xpath_ast::pattern;
@@ -38,6 +39,13 @@ pub(crate) trait PredicateMatcher {
 
     fn xot(&self) -> &Xot;
 
+    /// Resolve an OwnedName to a NameId. Default implementation does 3 hash
+    /// lookups via xot. Override with a cached version for performance.
+    fn resolve_name(&self, name: &xot::xmlname::OwnedName) -> Option<xot::NameId> {
+        let namespace_id = self.xot().namespace(name.namespace())?;
+        self.xot().name_ns(name.local_name(), namespace_id)
+    }
+
     fn rooted_pattern_sequence(
         &mut self,
         _root: &pattern::RootExpr,
@@ -46,6 +54,69 @@ pub(crate) trait PredicateMatcher {
     }
 
     fn matches(&mut self, pattern: &pattern::Pattern<InlineFunctionId>, item: &Item) -> bool {
+        // Fast path: single-step name test with no predicates and no root
+        // constraint. This is the most common pattern shape (e.g. `child::foo`,
+        // `attribute::bar`). Skip the full 10-deep recursive call chain and
+        // just verify node type + name.
+        if let Item::Node(node) = item {
+            if let pattern::Pattern::Expr(pattern::ExprPattern::Path(path)) = pattern {
+                if path.steps.len() == 1 && matches!(path.root, pattern::PathRoot::Relative) {
+                    if let pattern::StepExpr::AxisStep(step) = &path.steps[0] {
+                        if step.predicates.is_empty() {
+                            match (&step.node_test, step.forward) {
+                                (
+                                    pattern::NodeTest::NameTest(pattern::NameTest::Name(name_s)),
+                                    pattern::ForwardAxis::Child,
+                                ) => {
+                                    if !self.xot().is_element(*node) {
+                                        return false;
+                                    }
+                                    return self
+                                        .resolve_name(&name_s.value)
+                                        .is_some_and(|nid| {
+                                            self.xot().node_name(*node) == Some(nid)
+                                        });
+                                }
+                                (
+                                    pattern::NodeTest::NameTest(pattern::NameTest::Name(name_s)),
+                                    pattern::ForwardAxis::Attribute,
+                                ) => {
+                                    if !self.xot().is_attribute_node(*node) {
+                                        return false;
+                                    }
+                                    return self
+                                        .resolve_name(&name_s.value)
+                                        .is_some_and(|nid| {
+                                            self.xot().node_name(*node) == Some(nid)
+                                        });
+                                }
+                                (
+                                    pattern::NodeTest::NameTest(pattern::NameTest::Star),
+                                    pattern::ForwardAxis::Child,
+                                ) => {
+                                    return self.xot().is_element(*node);
+                                }
+                                (
+                                    pattern::NodeTest::NameTest(pattern::NameTest::Star),
+                                    pattern::ForwardAxis::Attribute,
+                                ) => {
+                                    return self.xot().is_attribute_node(*node);
+                                }
+                                (
+                                    pattern::NodeTest::KindTest(KindTest::Any),
+                                    pattern::ForwardAxis::Child,
+                                ) => {
+                                    return !self.xot().is_document(*node)
+                                        && !self.xot().is_attribute_node(*node)
+                                        && !self.xot().is_namespace_node(*node);
+                                }
+                                _ => {} // Fall through to full matcher
+                            }
+                        }
+                    }
+                }
+            }
+        }
         match pattern {
             pattern::Pattern::Expr(expr_pattern) => self.matches_expr_pattern(expr_pattern, item),
             pattern::Pattern::Predicate(predicate_pattern) => {
@@ -612,7 +683,7 @@ pub(crate) trait PredicateMatcher {
         } else if step.forward == pattern::ForwardAxis::Namespace {
             return false;
         }
-        Self::matches_node_test(&step.node_test, node, self.xot())
+        self.matches_node_test(&step.node_test, node)
     }
 
     fn axis_predicate_context(
@@ -683,40 +754,39 @@ pub(crate) trait PredicateMatcher {
         true
     }
 
-    fn matches_node_test(node_test: &pattern::NodeTest, node: xot::Node, xot: &Xot) -> bool {
+    fn matches_node_test(&self, node_test: &pattern::NodeTest, node: xot::Node) -> bool {
         match node_test {
-            pattern::NodeTest::NameTest(name_test) => Self::matches_name_test(name_test, node, xot),
-            pattern::NodeTest::KindTest(kind_test) => Self::matches_kind_test(kind_test, node, xot),
+            pattern::NodeTest::NameTest(name_test) => self.matches_name_test(name_test, node),
+            pattern::NodeTest::KindTest(kind_test) => {
+                Self::matches_kind_test(kind_test, node, self.xot())
+            }
         }
     }
 
-    fn matches_name_test(name_test: &pattern::NameTest, node: xot::Node, xot: &Xot) -> bool {
+    fn matches_name_test(&self, name_test: &pattern::NameTest, node: xot::Node) -> bool {
         match name_test {
             pattern::NameTest::Name(expected_name) => {
-                // Compare NameId directly — avoids node_name_ref() which walks
-                // ancestors to resolve prefixes (O(depth) per comparison).
-                // NameId encodes local-name + namespace, which is all that
-                // matters for pattern matching. This also correctly matches
-                // elements created by xsl:element with dynamic namespaces
-                // that lack in-scope prefix declarations.
-                if let Some(expected_ref) = expected_name.value.maybe_to_ref(xot) {
-                    let expected_name_id = expected_ref.name_id();
-                    xot.node_name(node) == Some(expected_name_id)
+                // Use pre-resolved NameId from cache when available,
+                // falling back to direct resolution. This avoids
+                // OwnedName::maybe_to_ref (3 hash probes) on every
+                // match attempt.
+                if let Some(name_id) = self.resolve_name(&expected_name.value) {
+                    self.xot().node_name(node) == Some(name_id)
                 } else {
                     false
                 }
             }
             pattern::NameTest::Star => true,
             pattern::NameTest::LocalName(expected_local_name) => {
-                if let Some(name) = xot.node_name(node) {
-                    xot.local_name_str(name) == expected_local_name
+                if let Some(name) = self.xot().node_name(node) {
+                    self.xot().local_name_str(name) == expected_local_name
                 } else {
                     false
                 }
             }
             pattern::NameTest::Namespace(ns) => {
-                if let Some(name) = xot.node_name(node) {
-                    let namespace_uri = xot.uri_str(name);
+                if let Some(name) = self.xot().node_name(node) {
+                    let namespace_uri = self.xot().uri_str(name);
                     namespace_uri == ns
                 } else {
                     false

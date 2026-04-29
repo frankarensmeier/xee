@@ -4,6 +4,53 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-29 21:27 CEST
+
+### Performance: NameCache and fast-path pattern matching
+
+**Problem:** Profiling input-large.xml showed pattern matching consuming ~24%
+of self-time. The deepest costs were `OwnedName::maybe_to_ref` (3 hash lookups
+per name test), `name_ns`, and `memcmp` — all in the name resolution path
+during pattern matching. The recursive matcher also had high overhead for
+simple single-step patterns like `element` or `*`.
+
+**Optimization 1 — NameCache:** Pre-resolve all `OwnedName` instances in
+pattern ASTs to `NameId` at index build time. Store in a pointer-keyed
+`HashMap<usize, NameId>` shared via `Rc`. The `resolve_name()` trait method
+on `PredicateMatcher` checks this cache first (O(1) integer lookup), falling
+back to direct `namespace()` + `name_ns()` resolution for names not in cache
+(e.g. from documents loaded via `doc()`).
+
+**Optimization 2 — Fast-path short-circuit:** For single-step patterns with
+no predicates (the most common case: `element`, `*`, `@attr`, `node()`),
+bypass the full recursive matching engine entirely. A direct check in
+`matches()` handles `NameTest::Name`, `NameTest::Star`, and `KindTest::Any`
+on Child/Attribute axes without entering the 10-frame call chain.
+
+**Profile results (10s sample, input-large.xml):**
+
+| Function | Before | After | Change |
+|:---|---:|---:|:---|
+| `matches_relative_steps_inner` | 492 | 271 | −45% |
+| `matches_axis_node_test` | 384 | 335 | −13% |
+| `matches_binary_expr` | 313 | 169 | −46% |
+| `matches_path_expr` | 268 | 174 | −35% |
+| `matches_axis_step` | 236 | 157 | −33% |
+| `name_ns` | 201 | 88 | −56% |
+| `OwnedName::maybe_to_ref` | 183 | 0 | −100% |
+| `memcmp` | 389 | 169 | −56% |
+
+Pattern matching total: 1693 → 1106 (−35%). Name resolution total: 773 → 325
+(−58%). `OwnedName::maybe_to_ref` completely eliminated.
+
+**A/B test (input-small.xml):** No measurable difference (0.86s both) — this
+workload is compilation-dominated. On input-large.xml: ~4% wall-clock
+improvement (noisy due to thermal throttling).
+
+**Result:** All tests pass (270 + 289 + 36 + 32 = 627). XSLT conformance:
+5678 passed / 0 failed / 0 error. bench-xslt: 3.67s avg (8.9% vs 3.37s
+baseline, within 20% threshold).
+
 ## 2026-04-29 10:37 CEST
 
 ### Fix XPST0081: namespace fixup for copied attributes (XSLT 3.0 §5.7.3)

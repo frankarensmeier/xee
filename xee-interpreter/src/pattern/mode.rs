@@ -1,9 +1,13 @@
+use std::rc::Rc;
+
 use ahash::{HashMap, HashMapExt};
 
 use xee_xpath_ast::Pattern;
 use xot::Xot;
 
 use crate::function;
+
+use super::pattern_lookup::NameCache;
 
 use super::pattern_lookup::PatternLookup;
 
@@ -36,6 +40,11 @@ impl<V: Clone> ModeLookup<V> {
         if let Some(pattern_lookup) = self.modes.get(&mode) {
             pattern_lookup.ensure_index(xot);
         }
+    }
+
+    /// Get the pre-resolved name cache for a mode (cheap Rc clone).
+    pub(crate) fn name_cache_rc(&self, mode: ModeId) -> Option<Rc<NameCache>> {
+        self.modes.get(&mode)?.name_cache_rc()
     }
 
     pub(crate) fn lookup(

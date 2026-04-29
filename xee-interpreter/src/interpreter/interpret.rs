@@ -16,6 +16,7 @@ use crate::atomic::{
 use crate::context::DynamicContext;
 use crate::declaration;
 use crate::function;
+use crate::pattern::pattern_lookup::NameCache;
 use crate::pattern::PredicateMatcher;
 use crate::sequence;
 use crate::span::SourceSpan;
@@ -39,6 +40,10 @@ pub struct Interpreter<'a> {
     template_rule_context_stack: Vec<TemplateRuleContext>,
     focus_absent_stack: Vec<bool>,
     error_contexts: Vec<error::ErrorContext>,
+    /// Pre-resolved OwnedName → NameId cache for the current mode's patterns.
+    /// Set before template lookups, cleared after. Avoids repeated
+    /// OwnedName::maybe_to_ref (3 hash probes each) during pattern matching.
+    pub(crate) name_cache: Option<Rc<NameCache>>,
 }
 
 #[derive(Clone)]
@@ -92,6 +97,7 @@ impl<'a> Interpreter<'a> {
             template_rule_context_stack: Vec::new(),
             focus_absent_stack: Vec::new(),
             error_contexts: Vec::new(),
+            name_cache: None,
         }
     }
 
@@ -2431,7 +2437,14 @@ impl<'a> Interpreter<'a> {
             .declarations
             .mode_lookup
             .ensure_index(mode, self.xot());
-        self.runnable
+        self.name_cache = self
+            .runnable
+            .program()
+            .declarations
+            .mode_lookup
+            .name_cache_rc(mode);
+        let result = self
+            .runnable
             .program()
             .declarations
             .mode_lookup
@@ -2445,7 +2458,9 @@ impl<'a> Interpreter<'a> {
                         && a.priority == b.priority
                 },
             )
-            .map(|(rule, ambiguous)| (rule.clone(), ambiguous))
+            .map(|(rule, ambiguous)| (rule.clone(), ambiguous));
+        self.name_cache = None;
+        result
     }
 
     fn lookup_pattern_after(
@@ -2460,7 +2475,14 @@ impl<'a> Interpreter<'a> {
             .declarations
             .mode_lookup
             .ensure_index(mode, self.xot());
-        self.runnable
+        self.name_cache = self
+            .runnable
+            .program()
+            .declarations
+            .mode_lookup
+            .name_cache_rc(mode);
+        let result = self
+            .runnable
             .program()
             .declarations
             .mode_lookup
@@ -2470,7 +2492,9 @@ impl<'a> Interpreter<'a> {
                 |pattern| self.matches(pattern, item),
                 |rule| rule.function_id == current,
             )
-            .map(|rule| rule.function_id)
+            .map(|rule| rule.function_id);
+        self.name_cache = None;
+        result
     }
 
     fn lookup_pattern_after_lower_import_precedence(
@@ -2499,7 +2523,14 @@ impl<'a> Interpreter<'a> {
             .declarations
             .mode_lookup
             .ensure_index(mode, self.xot());
-        self.runnable
+        self.name_cache = self
+            .runnable
+            .program()
+            .declarations
+            .mode_lookup
+            .name_cache_rc(mode);
+        let result = self
+            .runnable
             .program()
             .declarations
             .mode_lookup
@@ -2524,7 +2555,9 @@ impl<'a> Interpreter<'a> {
                         })
                 },
             )
-            .map(|rule| rule.function_id)
+            .map(|rule| rule.function_id);
+        self.name_cache = None;
+        result
     }
 
     fn current_mode_or_fallback(&self, fallback: pattern::ModeId) -> pattern::ModeId {
