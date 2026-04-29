@@ -163,8 +163,6 @@ assert-008
 assert-009
 assert-010
 = attribute
-attribute-0002
-attribute-0004
 attribute-0301
 attribute-0601
 attribute-0701
@@ -173,7 +171,6 @@ attribute-0804
 attribute-0805
 attribute-0806
 attribute-1101
-attribute-1302
 = attribute-set
 = available-system-properties
 available-system-properties-001
@@ -249,8 +246,6 @@ bug-0304
 bug-0701
 bug-1402
 bug-1405
-bug-1501
-bug-1601
 bug-2201
 bug-2401
 bug-2502
@@ -1442,7 +1437,6 @@ namespace-2621
 namespace-2622
 namespace-2623
 namespace-2624
-namespace-2901
 namespace-3101
 namespace-3102
 namespace-3103
@@ -1463,16 +1457,11 @@ namespace-3201
 namespace-3203
 namespace-3301
 namespace-3304
-namespace-3308
 namespace-3309
 namespace-3310
 namespace-3311
 namespace-3313
-namespace-3314
-namespace-3315
 namespace-4401
-namespace-5901
-namespace-5902
 namespace-6003
 namespace-6202
 = namespace-alias
