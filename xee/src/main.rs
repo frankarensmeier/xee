@@ -7,6 +7,9 @@ mod repl_cmd;
 mod xpath;
 mod xslt;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use clap::{Parser, Subcommand};
 
 pub(crate) const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("GIT_COMMIT"));

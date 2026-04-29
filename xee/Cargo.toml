@@ -23,5 +23,6 @@ anyhow.workspace = true
 regex = { workspace = true }
 rustyline = "15.0.0"
 ahash = { workspace = true }
+mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
