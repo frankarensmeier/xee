@@ -3889,4 +3889,31 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 - DocBook NG hits `FODC0002` for `templates.xml` — a missing resource file (in `modules/` but referenced as `templates.xml` relative to stylesheet base). This is a legitimate DocBook configuration / path issue rather than an xee bug.
 - Continue iterating on DocBook NG blockers.
 
+## 2026-04-29 16:17 CEST — Interpreter optimizations and name-indexed template dispatch
+
+### Outcome
+
+- **XSLT conformance**: 5678 passed / 0 failed / 0 error / 3900 filtered / 5017 unsupported (14595 total)
+- **bench-xslt**: 3.49s avg (baseline 3.37s, +3.5%, within 20% threshold)
+- **No measurable performance change** on input-small.xml or input-large.xml — optimizations are structurally sound but the real bottleneck lies elsewhere (likely in tree traversal / serialization).
+
+### What was done
+
+1. **Name-indexed template dispatch**: Template pattern lookup now builds a name-based index (OnceCell, lazily initialized) that maps element/attribute NameIds to relevant pattern indices. Uses `MergedIndices` iterator to merge name-specific and wildcard patterns in priority order. Eliminates linear scan through all patterns when matching named nodes. Fixed union pattern dedup bug where `a|b|a` patterns could add duplicate indices causing infinite recursion via `lookup_after`.
+
+2. **Move semantics for function arguments**: `call_function_with_arguments` and `call_function_with_optional_arguments` now take `Vec<Sequence>` / `Vec<Option<Sequence>>` instead of `&[Sequence]` / `&[Option<Sequence>]`, avoiding clones when pushing arguments onto the interpreter stack.
+
+3. **Rc-shared DynamicContext collections**: Five immutable fields (default_collection, collections, default_uri_collection, uri_collections, environment_variables) wrapped in `Rc<SharedCollections>`. `clone_for_program()` now does O(1) Rc bump instead of O(n) HashMap clones.
+
+4. **usize for template position/size**: `TemplateRuleContext` uses `usize` instead of `IBig` for position and size, eliminating heap allocations for every apply-templates item.
+
+5. **Tunnel params fast-path**: When `tunnel_params` is empty (the common case), skip the merge loop entirely.
+
+### Validation used
+
+- `cargo check` — clean build, no warnings
+- `cargo run --release -p xee-testrunner -- check vendor/xslt-tests/` — 5678 passed / 0 failed / 0 error
+- `cargo run --release -p xee-testrunner -- check vendor/xpath-tests/` — no regressions vs baseline
+- `./bench-xslt` — 3.49s avg (3.37s baseline, within 20% threshold)
+
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

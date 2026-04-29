@@ -1,6 +1,8 @@
 use ahash::{AHashMap, HashMap, HashMapExt, HashSet};
 use iri_string::types::{IriAbsoluteString, IriStr, IriString};
-use std::{cell::RefCell, fmt::Debug};
+use std::cell::RefCell;
+use std::fmt::Debug;
+use std::rc::Rc;
 
 use crate::declaration::OnMultipleMatch;
 use crate::function::{self, Function};
@@ -15,6 +17,17 @@ use super::{DocumentsRef, StaticContext};
 ///
 /// The key is the name of a variable, and the value is an item.
 pub type Variables = AHashMap<xot::xmlname::OwnedName, sequence::Sequence>;
+
+/// Immutable collection fields shared across DynamicContext clones.
+/// Wrapped in Rc to avoid expensive HashMap cloning in clone_for_program.
+#[derive(Debug, Clone)]
+struct SharedCollections {
+    default_collection: Option<sequence::Sequence>,
+    collections: HashMap<IriString, sequence::Sequence>,
+    default_uri_collection: Option<sequence::Sequence>,
+    uri_collections: HashMap<IriString, sequence::Sequence>,
+    environment_variables: HashMap<String, String>,
+}
 
 // a dynamic context is created for each xpath evaluation
 #[derive(Debug)]
@@ -32,16 +45,8 @@ pub struct DynamicContext<'a> {
     // TODO: we want to be able to control the creation of this outside,
     // as it needs to be the same for all evalutions of XSLT I believe
     current_datetime: chrono::DateTime<chrono::offset::FixedOffset>,
-    // default collection
-    default_collection: Option<sequence::Sequence>,
-    // collections
-    collections: HashMap<IriString, sequence::Sequence>,
-    // default uri collection
-    default_uri_collection: Option<sequence::Sequence>,
-    // uri collections
-    uri_collections: HashMap<IriString, sequence::Sequence>,
-    // environment variables
-    environment_variables: HashMap<String, String>,
+    // Immutable collections shared via Rc (cheap to clone)
+    shared: Rc<SharedCollections>,
     secondary_result_documents: RefCell<HashMap<String, sequence::Sequence>>,
     secondary_result_document_parameters:
         RefCell<HashMap<String, sequence::SerializationParameters>>,
@@ -81,11 +86,13 @@ impl<'a> DynamicContext<'a> {
             documents,
             variables,
             current_datetime,
-            default_collection,
-            collections,
-            default_uri_collection,
-            uri_collections,
-            environment_variables,
+            shared: Rc::new(SharedCollections {
+                default_collection,
+                collections,
+                default_uri_collection,
+                uri_collections,
+                environment_variables,
+            }),
             secondary_result_documents: RefCell::new(secondary_result_documents),
             secondary_result_document_parameters: RefCell::new(
                 secondary_result_document_parameters,
@@ -128,17 +135,17 @@ impl<'a> DynamicContext<'a> {
 
     /// Access the default collection
     pub fn default_collection(&self) -> Option<&sequence::Sequence> {
-        self.default_collection.as_ref()
+        self.shared.default_collection.as_ref()
     }
 
     /// Access a collection by URI
     pub fn collection(&self, uri: &IriStr) -> Option<&sequence::Sequence> {
-        self.collections.get(uri)
+        self.shared.collections.get(uri)
     }
 
     /// Access the default URI collection
     pub fn default_uri_collection(&self) -> Option<&sequence::Sequence> {
-        self.default_uri_collection.as_ref()
+        self.shared.default_uri_collection.as_ref()
     }
 
     /// Access a URI collection by URI
@@ -146,17 +153,17 @@ impl<'a> DynamicContext<'a> {
     /// Note that the URI does not have to be a proper URI as the specification
     /// defines it as an xs:string
     pub fn uri_collection(&self, uri: &IriStr) -> Option<&sequence::Sequence> {
-        self.uri_collections.get(uri)
+        self.shared.uri_collections.get(uri)
     }
 
     /// Access an environment variable by name
     pub fn environment_variable(&self, name: &str) -> Option<&str> {
-        self.environment_variables.get(name).map(String::as_str)
+        self.shared.environment_variables.get(name).map(String::as_str)
     }
 
     /// Access all environment variable names
     pub fn environment_variable_names(&self) -> impl Iterator<Item = &str> {
-        self.environment_variables.keys().map(String::as_str)
+        self.shared.environment_variables.keys().map(String::as_str)
     }
 
     pub fn store_secondary_result_document(
@@ -293,24 +300,23 @@ impl<'a> DynamicContext<'a> {
         context_item: Option<sequence::Item>,
         variables: Variables,
     ) -> DynamicContext<'b> {
-        DynamicContext::new(
+        DynamicContext {
             program,
             context_item,
-            self.documents.clone(),
+            documents: self.documents.clone(),
             variables,
-            self.current_datetime,
-            self.default_collection.clone(),
-            self.collections.clone(),
-            self.default_uri_collection.clone(),
-            self.uri_collections.clone(),
-            self.environment_variables.clone(),
-            HashMap::new(),
-            HashMap::new(),
-            Vec::new(),
-            Vec::new(),
-            self.temporary_tree_roots.borrow().clone(),
-            self.on_multiple_match,
-        )
+            current_datetime: self.current_datetime,
+            shared: self.shared.clone(), // Rc clone — O(1)
+            secondary_result_documents: RefCell::new(HashMap::new()),
+            secondary_result_document_parameters: RefCell::new(HashMap::new()),
+            principal_result_documents: RefCell::new(Vec::new()),
+            principal_result_document_parameters: RefCell::new(Vec::new()),
+            assertion_serialization_parameters: RefCell::new(None),
+            temporary_tree_roots: RefCell::new(self.temporary_tree_roots.borrow().clone()),
+            temporary_output_state_depth: RefCell::new(0),
+            on_multiple_match: self.on_multiple_match,
+            static_base_uri_stack: RefCell::new(Vec::new()),
+        }
     }
 
     pub fn dynamic_xpath_evaluator(&self) -> Option<&dyn interpreter::DynamicXPathEvaluator> {

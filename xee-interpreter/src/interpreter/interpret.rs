@@ -44,8 +44,8 @@ pub struct Interpreter<'a> {
 #[derive(Clone)]
 struct TemplateRuleContext {
     item: sequence::Item,
-    position: IBig,
-    size: IBig,
+    position: usize,
+    size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -984,7 +984,7 @@ impl<'a> Interpreter<'a> {
                         [None, None, None]
                     };
                 let value =
-                    self.call_function_with_optional_arguments(&function, &context_arguments)?;
+                    self.call_function_with_optional_arguments(&function, context_arguments.into())?;
                 self.global_variables[index] = GlobalValueState::Resolved(value.clone());
                 Ok(value)
             }
@@ -1020,16 +1020,16 @@ impl<'a> Interpreter<'a> {
     pub(crate) fn call_function_with_arguments(
         &mut self,
         function: &function::Function,
-        arguments: &[sequence::Sequence],
+        arguments: Vec<sequence::Sequence>,
     ) -> error::Result<sequence::Sequence> {
-        let arguments = arguments.iter().cloned().map(Some).collect::<Vec<_>>();
-        self.call_function_with_optional_arguments(function, &arguments)
+        let arguments = arguments.into_iter().map(Some).collect::<Vec<_>>();
+        self.call_function_with_optional_arguments(function, arguments)
     }
 
     pub(crate) fn call_function_with_arguments_catching(
         &mut self,
         function: &function::Function,
-        arguments: &[sequence::Sequence],
+        arguments: Vec<sequence::Sequence>,
     ) -> error::Result<sequence::Sequence> {
         let checkpoint = self.state.checkpoint();
         let tunnel_params_len = self.tunnel_params.len();
@@ -1051,7 +1051,7 @@ impl<'a> Interpreter<'a> {
     pub(crate) fn call_function_with_arguments_catching_spanned(
         &mut self,
         function: &function::Function,
-        arguments: &[sequence::Sequence],
+        arguments: Vec<sequence::Sequence>,
     ) -> error::SpannedResult<sequence::Sequence> {
         let checkpoint = self.state.checkpoint();
         let tunnel_params_len = self.tunnel_params.len();
@@ -1073,7 +1073,7 @@ impl<'a> Interpreter<'a> {
     pub(crate) fn call_function_with_arguments_catching_spanned_with_rollback(
         &mut self,
         function: &function::Function,
-        arguments: &[sequence::Sequence],
+        arguments: Vec<sequence::Sequence>,
         rollback_output: bool,
     ) -> error::SpannedResult<sequence::Sequence> {
         let checkpoint = self.state.checkpoint();
@@ -1106,25 +1106,25 @@ impl<'a> Interpreter<'a> {
     pub(crate) fn call_function_with_arguments_spanned(
         &mut self,
         function: &function::Function,
-        arguments: &[sequence::Sequence],
+        arguments: Vec<sequence::Sequence>,
     ) -> error::SpannedResult<sequence::Sequence> {
-        let arguments = arguments.iter().cloned().map(Some).collect::<Vec<_>>();
-        self.call_function_with_optional_arguments_spanned(function, &arguments)
+        let arguments = arguments.into_iter().map(Some).collect::<Vec<_>>();
+        self.call_function_with_optional_arguments_spanned(function, arguments)
     }
 
     pub(crate) fn call_function_with_optional_arguments(
         &mut self,
         function: &function::Function,
-        arguments: &[Option<sequence::Sequence>],
+        arguments: Vec<Option<sequence::Sequence>>,
     ) -> error::Result<sequence::Sequence> {
         // put function onto the stack
         let item: sequence::Item = function.clone().into();
         self.state.push(item);
-        // then arguments
+        // then arguments — move into stack, no cloning
         let arity = arguments.len() as u8;
-        for arg in arguments.iter() {
+        for arg in arguments {
             if let Some(arg) = arg {
-                self.state.push(arg.clone());
+                self.state.push(arg);
             } else {
                 self.state.push_value(stack::Value::Absent);
             }
@@ -1141,14 +1141,14 @@ impl<'a> Interpreter<'a> {
     pub(crate) fn call_function_with_optional_arguments_spanned(
         &mut self,
         function: &function::Function,
-        arguments: &[Option<sequence::Sequence>],
+        arguments: Vec<Option<sequence::Sequence>>,
     ) -> error::SpannedResult<sequence::Sequence> {
         let item: sequence::Item = function.clone().into();
         self.state.push(item);
         let arity = arguments.len() as u8;
-        for arg in arguments.iter() {
+        for arg in arguments {
             if let Some(arg) = arg {
-                self.state.push(arg.clone());
+                self.state.push(arg);
             } else {
                 self.state.push_value(stack::Value::Absent);
             }
@@ -1258,7 +1258,7 @@ impl<'a> Interpreter<'a> {
         }
 
         let arguments = self.coerce_arguments(function.signature.parameter_types(), arity)?;
-        let result = self.call_function_with_arguments_catching(&function.function, &arguments)?;
+        let result = self.call_function_with_arguments_catching(&function.function, arguments)?;
         let result = if let Some(return_type) = function.signature.return_type() {
             result.sequence_type_matching_function_conversion(
                 return_type,
@@ -1902,7 +1902,7 @@ impl<'a> Interpreter<'a> {
         builtin_template_params_passthrough: bool,
     ) -> error::Result<sequence::Sequence> {
         let mut r: Vec<sequence::Item> = Vec::new();
-        let size: IBig = sequence.len().into();
+        let size = sequence.len();
         let options = ApplyTemplatesOptions {
             params,
             tunnel_params,
@@ -1911,7 +1911,7 @@ impl<'a> Interpreter<'a> {
 
         for (i, item) in sequence.iter().enumerate() {
             let sequence =
-                self.apply_templates_item(mode, item.clone(), i, size.clone(), &options)?;
+                self.apply_templates_item(mode, item.clone(), i, size, &options)?;
             if let Some(sequence) = sequence {
                 for item in sequence.iter() {
                     r.push(item.clone());
@@ -1926,7 +1926,7 @@ impl<'a> Interpreter<'a> {
         mode: pattern::ModeId,
         item: sequence::Item,
         position: usize,
-        size: IBig,
+        size: usize,
         options: &ApplyTemplatesOptions<'_>,
     ) -> error::Result<Option<sequence::Sequence>> {
         let mode_declaration = self.current_program().declarations.mode(mode);
@@ -1948,21 +1948,21 @@ impl<'a> Interpreter<'a> {
         let function_id = matched_rule.map(|(rule, _)| rule.function_id);
 
         if let Some(function_id) = function_id {
-            let position: IBig = (position + 1).into();
+            let position = position + 1;
             let function = self.inline_function_value(function_id, Vec::new());
             self.mode_stack.push(mode);
             self.template_rule_stack.push(function_id);
             self.template_rule_context_stack.push(TemplateRuleContext {
                 item: item.clone(),
-                position: position.clone(),
-                size: size.clone(),
+                position,
+                size,
             });
             let result = self.call_template_with_params(
                 &function,
                 [
                     Some(item.into()),
-                    Some(atomic::Atomic::from(position).into()),
-                    Some(atomic::Atomic::from(size.clone()).into()),
+                    Some(atomic::Atomic::from(position as i64).into()),
+                    Some(atomic::Atomic::from(size as i64).into()),
                 ],
                 options.params,
                 options.tunnel_params,
@@ -2315,10 +2315,17 @@ impl<'a> Interpreter<'a> {
             _ => return Err(error::Error::type_error("expected a template function")),
         };
 
-        let mut effective_tunnel_params = self.current_tunnel_params().clone();
-        for (key, value) in tunnel_params.entries() {
-            effective_tunnel_params = effective_tunnel_params.put(key.clone(), value)?;
-        }
+        // Fast path: if no new tunnel params are being added, avoid cloning
+        // the current tunnel params map entirely.
+        let effective_tunnel_params = if tunnel_params.is_empty() {
+            self.current_tunnel_params().clone()
+        } else {
+            let mut effective = self.current_tunnel_params().clone();
+            for (key, value) in tunnel_params.entries() {
+                effective = effective.put(key.clone(), value)?;
+            }
+            effective
+        };
 
         let mut arguments = context_arguments.into_iter().collect::<Vec<_>>();
         let parameter_types = function.signature(self.runnable.program()).parameter_types().to_vec();
@@ -2343,7 +2350,7 @@ impl<'a> Interpreter<'a> {
         let focus_absent = arguments.iter().take(3).all(|a| a.is_none());
         self.focus_absent_stack.push(focus_absent);
         self.tunnel_params.push(effective_tunnel_params);
-        let result = self.call_function_with_optional_arguments(function, &arguments);
+        let result = self.call_function_with_optional_arguments(function, arguments);
         self.tunnel_params.pop();
         self.focus_absent_stack.pop();
         result
@@ -2415,12 +2422,22 @@ impl<'a> Interpreter<'a> {
         mode: pattern::ModeId,
         item: &sequence::Item,
     ) -> Option<(crate::declaration::TemplateRule, bool)> {
+        // Pre-compute name_id and ensure the name index is built while we can
+        // safely borrow xot immutably — before the `matches` closure captures
+        // &mut self.
+        let name_id = pattern::pattern_lookup::item_name_id(item, self.xot());
+        self.runnable
+            .program()
+            .declarations
+            .mode_lookup
+            .ensure_index(mode, self.xot());
         self.runnable
             .program()
             .declarations
             .mode_lookup
             .lookup_with_ambiguity(
                 mode,
+                name_id,
                 |pattern| self.matches(pattern, item),
                 |a, b| {
                     a.function_id != b.function_id
@@ -2437,12 +2454,19 @@ impl<'a> Interpreter<'a> {
         current: function::InlineFunctionId,
         item: &sequence::Item,
     ) -> Option<function::InlineFunctionId> {
+        let name_id = pattern::pattern_lookup::item_name_id(item, self.xot());
+        self.runnable
+            .program()
+            .declarations
+            .mode_lookup
+            .ensure_index(mode, self.xot());
         self.runnable
             .program()
             .declarations
             .mode_lookup
             .lookup_after(
                 mode,
+                name_id,
                 |pattern| self.matches(pattern, item),
                 |rule| rule.function_id == current,
             )
@@ -2469,12 +2493,19 @@ impl<'a> Interpreter<'a> {
             .declarations
             .template_module_paths()
             .clone();
+        let name_id = pattern::pattern_lookup::item_name_id(item, self.xot());
+        self.runnable
+            .program()
+            .declarations
+            .mode_lookup
+            .ensure_index(mode, self.xot());
         self.runnable
             .program()
             .declarations
             .mode_lookup
             .lookup_after_lower_import_precedence(
                 mode,
+                name_id,
                 current_import_precedence,
                 |pattern| self.matches(pattern, item),
                 |rule| rule.function_id == current,
@@ -2561,15 +2592,15 @@ impl<'a> Interpreter<'a> {
             self.template_rule_stack.push(function_id);
             self.template_rule_context_stack.push(TemplateRuleContext {
                 item: item.clone(),
-                position: position.clone(),
-                size: size.clone(),
+                position,
+                size,
             });
             let result = self.call_template_with_params(
                 &function,
                 [
                     Some(item.clone().into()),
-                    Some(atomic::Atomic::from(position).into()),
-                    Some(atomic::Atomic::from(size).into()),
+                    Some(atomic::Atomic::from(position as i64).into()),
+                    Some(atomic::Atomic::from(size as i64).into()),
                 ],
                 params,
                 tunnel_params,

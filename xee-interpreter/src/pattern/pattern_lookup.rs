@@ -1,7 +1,10 @@
+use std::cell::OnceCell;
 use std::fs;
 
+use ahash::HashMap;
 use iri_string::types::{IriReferenceStr, IriString};
 use xee_xpath_ast::{ast, pattern, Pattern};
+use xot::xmlname::NameStrInfo;
 use xot::Xot;
 
 use crate::function;
@@ -12,6 +15,21 @@ use crate::sequence::{Item, Sequence};
 #[derive(Debug, Clone, Default)]
 pub struct PatternLookup<V: Clone> {
     pub(crate) patterns: Vec<(Pattern<function::InlineFunctionId>, V)>,
+    /// Lazily built index mapping NameId -> indices into `patterns`.
+    name_index: OnceCell<NameIndex>,
+}
+
+/// Index that partitions patterns into name-specific buckets and a wildcard
+/// list.  Built once (lazily) from the flat patterns Vec by resolving
+/// OwnedName → NameId via &Xot.  Indices refer into the patterns Vec which
+/// is already sorted by priority (highest first).
+#[derive(Debug, Clone, Default)]
+struct NameIndex {
+    /// Patterns whose anchor step is a specific element/attribute name test.
+    by_name: HashMap<xot::NameId, Vec<usize>>,
+    /// Patterns that can match any name (wildcard, kind-test, predicate-only,
+    /// union, etc.) — these must always be checked.
+    wildcards: Vec<usize>,
 }
 
 pub(crate) struct InterpreterPredicateMatcher<'a> {
@@ -33,7 +51,7 @@ impl PredicateMatcher for Interpreter<'_> {
         size: usize,
     ) -> bool {
         let function = function::InlineFunctionData::new(inline_function_id, Vec::new()).into();
-        let arguments = [
+        let arguments = vec![
             item.clone().into(),
             (position as u64).into(),
             (size as u64).into(),
@@ -42,7 +60,7 @@ impl PredicateMatcher for Interpreter<'_> {
 
         // the specification says to swallow any errors
         // TODO: log errors somehow here?
-        let value = self.call_function_with_arguments(&function, &arguments);
+        let value = self.call_function_with_arguments(&function, arguments);
         if let Ok(value) = value {
             value.effective_boolean_value().unwrap_or(false)
         } else {
@@ -156,30 +174,104 @@ impl<V: Clone> PatternLookup<V> {
     pub(crate) fn new() -> Self {
         Self {
             patterns: Vec::new(),
+            name_index: OnceCell::new(),
         }
     }
 
     pub(crate) fn add_rules(&mut self, rules: Vec<(Pattern<function::InlineFunctionId>, V)>) {
         self.patterns.extend(rules);
+        // OnceCell doesn't need explicit invalidation since add_rules is only
+        // called during compilation, before any lookups occur.
+    }
+
+    /// Build the name index from the current patterns using `xot` to resolve
+    /// OwnedName → NameId.  Called lazily on first lookup via OnceCell.
+    fn build_index(&self, xot: &Xot) -> NameIndex {
+        let mut by_name: HashMap<xot::NameId, Vec<usize>> = HashMap::default();
+        let mut wildcards: Vec<usize> = Vec::new();
+
+        for (i, (pattern, _)) in self.patterns.iter().enumerate() {
+            match extract_anchor_name(pattern) {
+                AnchorName::Name(owned_name) => {
+                    if let Some(name_id) = resolve_owned_name(owned_name, xot) {
+                        by_name.entry(name_id).or_default().push(i);
+                    } else {
+                        // Name not found in xot — can never match, but keep
+                        // in wildcards for correctness
+                        wildcards.push(i);
+                    }
+                }
+                AnchorName::Wildcard => {
+                    wildcards.push(i);
+                }
+                AnchorName::Multiple(names) => {
+                    // Union pattern with multiple specific names — add to each
+                    // bucket, but only once per NameId to avoid duplicate
+                    // indices that break lookup_after
+                    let mut added_any = false;
+                    let mut seen_name_ids: Vec<xot::NameId> = Vec::new();
+                    for name in names {
+                        if let Some(name_id) = resolve_owned_name(&name, xot) {
+                            if !seen_name_ids.contains(&name_id) {
+                                seen_name_ids.push(name_id);
+                                by_name.entry(name_id).or_default().push(i);
+                            }
+                            added_any = true;
+                        }
+                    }
+                    if !added_any {
+                        wildcards.push(i);
+                    }
+                }
+            }
+        }
+
+        NameIndex { by_name, wildcards }
+    }
+
+    /// Ensure the name index is built. Call this while `xot` is available
+    /// (before any mutable borrow of `xot` begins) so that later lookups
+    /// don't need an `&Xot` reference.
+    pub(crate) fn ensure_index(&self, xot: &Xot) {
+        self.name_index.get_or_init(|| self.build_index(xot));
+    }
+
+    /// Iterate pattern indices relevant for a node with the given optional
+    /// NameId, yielding them in priority order (= original Vec order).
+    fn relevant_indices(&self, name_id: Option<xot::NameId>) -> MergedIndices<'_> {
+        let index = self.name_index.get().expect("ensure_index must be called before relevant_indices");
+        let named = name_id.and_then(|nid| index.by_name.get(&nid));
+        MergedIndices {
+            named: named.map(|v| v.as_slice()).unwrap_or(&[]),
+            wildcards: &index.wildcards,
+            named_pos: 0,
+            wildcard_pos: 0,
+        }
     }
 
     pub(crate) fn lookup(
         &self,
+        name_id: Option<xot::NameId>,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
     ) -> Option<&V> {
-        self.patterns
-            .iter()
-            .find(|(pattern, _)| matches(pattern))
-            .map(|(_, value)| value)
+        for idx in self.relevant_indices(name_id) {
+            let (pattern, value) = &self.patterns[idx];
+            if matches(pattern) {
+                return Some(value);
+            }
+        }
+        None
     }
 
     pub(crate) fn lookup_with_ambiguity(
         &self,
+        name_id: Option<xot::NameId>,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         same_rank: impl Fn(&V, &V) -> bool,
     ) -> Option<(&V, bool)> {
         let mut first = None;
-        for (pattern, value) in &self.patterns {
+        for idx in self.relevant_indices(name_id) {
+            let (pattern, value) = &self.patterns[idx];
             if !matches(pattern) {
                 continue;
             }
@@ -193,11 +285,13 @@ impl<V: Clone> PatternLookup<V> {
 
     pub(crate) fn lookup_after(
         &self,
+        name_id: Option<xot::NameId>,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
     ) -> Option<&V> {
         let mut seen_current = false;
-        for (pattern, value) in &self.patterns {
+        for idx in self.relevant_indices(name_id) {
+            let (pattern, value) = &self.patterns[idx];
             if !matches(pattern) {
                 continue;
             }
@@ -214,6 +308,7 @@ impl<V: Clone> PatternLookup<V> {
 
     pub(crate) fn lookup_after_lower_import_precedence(
         &self,
+        name_id: Option<xot::NameId>,
         current_import_precedence: i64,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
@@ -221,7 +316,8 @@ impl<V: Clone> PatternLookup<V> {
         is_eligible: impl Fn(&V) -> bool,
     ) -> Option<&V> {
         let mut seen_current = false;
-        for (pattern, value) in &self.patterns {
+        for idx in self.relevant_indices(name_id) {
+            let (pattern, value) = &self.patterns[idx];
             if !matches(pattern) {
                 continue;
             }
@@ -236,5 +332,146 @@ impl<V: Clone> PatternLookup<V> {
             }
         }
         None
+    }
+}
+
+/// Iterator that merges two sorted index slices, yielding indices in
+/// ascending order (which corresponds to priority order in the patterns Vec).
+struct MergedIndices<'a> {
+    named: &'a [usize],
+    wildcards: &'a [usize],
+    named_pos: usize,
+    wildcard_pos: usize,
+}
+
+impl Iterator for MergedIndices<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let n = self.named.get(self.named_pos);
+        let w = self.wildcards.get(self.wildcard_pos);
+        match (n, w) {
+            (Some(&ni), Some(&wi)) => {
+                if ni <= wi {
+                    self.named_pos += 1;
+                    // Skip duplicate if wildcard has the same index (union
+                    // patterns can appear in both lists)
+                    if ni == wi {
+                        self.wildcard_pos += 1;
+                    }
+                    Some(ni)
+                } else {
+                    self.wildcard_pos += 1;
+                    Some(wi)
+                }
+            }
+            (Some(&ni), None) => {
+                self.named_pos += 1;
+                Some(ni)
+            }
+            (None, Some(&wi)) => {
+                self.wildcard_pos += 1;
+                Some(wi)
+            }
+            (None, None) => None,
+        }
+    }
+}
+
+/// Get the NameId of an item if it's a named node (element or attribute).
+pub(crate) fn item_name_id(item: &Item, xot: &Xot) -> Option<xot::NameId> {
+    if let Item::Node(node) = item {
+        xot.node_name(*node)
+    } else {
+        None
+    }
+}
+
+/// Resolve an OwnedName to a NameId via xot.
+fn resolve_owned_name(name: &xot::xmlname::OwnedName, xot: &Xot) -> Option<xot::NameId> {
+    let namespace_id = xot.namespace(name.namespace())?;
+    let name_id = xot.name_ns(name.local_name(), namespace_id)?;
+    Some(name_id)
+}
+
+/// The anchor name extracted from a pattern — used to classify patterns
+/// for name-based indexing.
+enum AnchorName<'a> {
+    /// Pattern's final step tests a specific element/attribute name.
+    Name(&'a xot::xmlname::OwnedName),
+    /// Pattern can match any name (wildcard, kind-test, predicate-only, etc.).
+    Wildcard,
+    /// Union pattern with multiple specific names.
+    Multiple(Vec<&'a xot::xmlname::OwnedName>),
+}
+
+/// Extract the anchor name from a pattern — the name test of the final step,
+/// which is the step that must match the current node.
+fn extract_anchor_name<E>(pattern: &Pattern<E>) -> AnchorName<'_> {
+    match pattern {
+        Pattern::Predicate(_) => AnchorName::Wildcard,
+        Pattern::Expr(expr) => extract_anchor_from_expr(expr),
+    }
+}
+
+fn extract_anchor_from_expr<E>(expr: &pattern::ExprPattern<E>) -> AnchorName<'_> {
+    match expr {
+        pattern::ExprPattern::Path(path) => extract_anchor_from_path(path),
+        pattern::ExprPattern::BinaryExpr(binary) => extract_anchor_from_binary(binary),
+    }
+}
+
+fn extract_anchor_from_path<E>(path: &pattern::PathExpr<E>) -> AnchorName<'_> {
+    // The last step matches the current node
+    if let Some(last_step) = path.steps.last() {
+        match last_step {
+            pattern::StepExpr::AxisStep(axis_step) => {
+                extract_anchor_from_node_test(&axis_step.node_test)
+            }
+            pattern::StepExpr::PostfixExpr(postfix) => extract_anchor_from_expr(&postfix.expr),
+        }
+    } else {
+        // No steps — matches document node (e.g., pattern "/")
+        AnchorName::Wildcard
+    }
+}
+
+fn extract_anchor_from_node_test(node_test: &ast::NodeTest) -> AnchorName<'_> {
+    match node_test {
+        ast::NodeTest::NameTest(name_test) => match name_test {
+            ast::NameTest::Name(name_s) => AnchorName::Name(&name_s.value),
+            _ => AnchorName::Wildcard, // Star, LocalName, Namespace
+        },
+        ast::NodeTest::KindTest(_) => AnchorName::Wildcard,
+    }
+}
+
+fn extract_anchor_from_binary<E>(binary: &pattern::BinaryExpr<E>) -> AnchorName<'_> {
+    match binary.operator {
+        pattern::Operator::Union => {
+            // Collect anchor names from both branches
+            let left = extract_anchor_from_expr(&binary.left);
+            let right = extract_anchor_from_expr(&binary.right);
+            match (left, right) {
+                (AnchorName::Name(a), AnchorName::Name(b)) => {
+                    AnchorName::Multiple(vec![a, b])
+                }
+                (AnchorName::Name(a), AnchorName::Multiple(mut v))
+                | (AnchorName::Multiple(mut v), AnchorName::Name(a)) => {
+                    v.push(a);
+                    AnchorName::Multiple(v)
+                }
+                (AnchorName::Multiple(mut a), AnchorName::Multiple(b)) => {
+                    a.extend(b);
+                    AnchorName::Multiple(a)
+                }
+                // If either branch is a wildcard, the whole union is a wildcard
+                _ => AnchorName::Wildcard,
+            }
+        }
+        // Intersect/except: use the left branch for indexing
+        pattern::Operator::Intersect | pattern::Operator::Except => {
+            extract_anchor_from_expr(&binary.left)
+        }
     }
 }

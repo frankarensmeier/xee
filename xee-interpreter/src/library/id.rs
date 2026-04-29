@@ -243,12 +243,12 @@ fn key_helper(
             // Evaluate the use expression with this node as context
             let use_function =
                 function::InlineFunctionData::new(key_decl.use_function_id, Vec::new()).into();
-            let arguments = [
+            let arguments = vec![
                 item.clone().into(),
                 sequence::Sequence::from(atomic::Atomic::from(1u64)),
                 sequence::Sequence::from(atomic::Atomic::from(1u64)),
             ];
-            let key_values = interpreter.call_function_with_arguments(&use_function, &arguments)?;
+            let key_values = interpreter.call_function_with_arguments(&use_function, arguments)?;
 
             if composite {
                 // Composite key: the entire atomized sequence forms a single key.

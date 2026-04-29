@@ -1,6 +1,7 @@
 use ahash::{HashMap, HashMapExt};
 
 use xee_xpath_ast::Pattern;
+use xot::Xot;
 
 use crate::function;
 
@@ -31,48 +32,59 @@ impl<V: Clone> ModeLookup<V> {
         }
     }
 
+    pub(crate) fn ensure_index(&self, mode: ModeId, xot: &Xot) {
+        if let Some(pattern_lookup) = self.modes.get(&mode) {
+            pattern_lookup.ensure_index(xot);
+        }
+    }
+
     pub(crate) fn lookup(
         &self,
         mode: ModeId,
-        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        name_id: Option<xot::NameId>,
+        matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
     ) -> Option<&V> {
         let pattern_lookup = self.modes.get(&mode)?;
-        pattern_lookup.lookup(&mut matches)
+        pattern_lookup.lookup(name_id, matches)
     }
 
     pub(crate) fn lookup_with_ambiguity(
         &self,
         mode: ModeId,
-        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        name_id: Option<xot::NameId>,
+        matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         same_rank: impl Fn(&V, &V) -> bool,
     ) -> Option<(&V, bool)> {
         let pattern_lookup = self.modes.get(&mode)?;
-        pattern_lookup.lookup_with_ambiguity(&mut matches, same_rank)
+        pattern_lookup.lookup_with_ambiguity(name_id, matches, same_rank)
     }
 
     pub(crate) fn lookup_after(
         &self,
         mode: ModeId,
-        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        name_id: Option<xot::NameId>,
+        matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
     ) -> Option<&V> {
         let pattern_lookup = self.modes.get(&mode)?;
-        pattern_lookup.lookup_after(&mut matches, is_current)
+        pattern_lookup.lookup_after(name_id, matches, is_current)
     }
 
     pub(crate) fn lookup_after_lower_import_precedence(
         &self,
         mode: ModeId,
+        name_id: Option<xot::NameId>,
         current_import_precedence: i64,
-        mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
+        matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
         import_precedence_of: impl Fn(&V) -> i64,
         is_eligible: impl Fn(&V) -> bool,
     ) -> Option<&V> {
         let pattern_lookup = self.modes.get(&mode)?;
         pattern_lookup.lookup_after_lower_import_precedence(
+            name_id,
             current_import_precedence,
-            &mut matches,
+            matches,
             is_current,
             import_precedence_of,
             is_eligible,

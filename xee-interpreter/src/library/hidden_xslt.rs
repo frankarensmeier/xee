@@ -70,7 +70,7 @@ fn xslt_for_each_group_by(
         let position: IBig = (index + 1).into();
         let value = interpreter.call_function_with_arguments(
             &key_function,
-            &[
+            vec![
                 item.clone().into(),
                 atomic::Atomic::from(position).into(),
                 atomic::Atomic::from(total_items.clone()).into(),
@@ -101,7 +101,7 @@ fn xslt_for_each_group_by(
             let pos: IBig = (idx + 1).into();
             let sort_val = interpreter.call_function_with_arguments(
                 &sort_key_fn,
-                &[first_item, pos.into(), total_groups.clone().into()],
+                vec![first_item, pos.into(), total_groups.clone().into()],
             )?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
@@ -157,7 +157,7 @@ fn xslt_for_each_group_by(
         interpreter.push_current_group(group_items, Some(group_key.clone()));
         let body_result = interpreter.call_function_with_arguments(
             &body_function,
-            &[
+            vec![
                 first_item,
                 atomic::Atomic::from(position).into(),
                 atomic::Atomic::from(total_groups.clone()).into(),
@@ -195,7 +195,7 @@ fn xslt_for_each_group_adjacent(
         let position: IBig = (index + 1).into();
         let value = interpreter.call_function_with_arguments(
             &key_function,
-            &[
+            vec![
                 item.clone().into(),
                 atomic::Atomic::from(position).into(),
                 atomic::Atomic::from(total_items.clone()).into(),
@@ -233,7 +233,7 @@ fn xslt_for_each_group_adjacent(
             let pos: IBig = (i + 1).into();
             let sort_val = interpreter.call_function_with_arguments(
                 &sort_key_fn,
-                &[first_item, pos.into(), total_groups.clone().into()],
+                vec![first_item, pos.into(), total_groups.clone().into()],
             )?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
@@ -289,7 +289,7 @@ fn xslt_for_each_group_adjacent(
         interpreter.push_current_group(group_seq, Some(group_key));
         let body_result = interpreter.call_function_with_arguments(
             &body_function,
-            &[
+            vec![
                 first_item,
                 atomic::Atomic::from(position).into(),
                 atomic::Atomic::from(total_groups.clone()).into(),
@@ -464,7 +464,7 @@ fn evaluate_pattern_groups(
         interpreter.push_current_group(group_seq, None);
         let body_result = interpreter.call_function_with_arguments(
             body_function,
-            &[
+            vec![
                 first_item,
                 atomic::Atomic::from(position).into(),
                 atomic::Atomic::from(total_groups.clone()).into(),
@@ -500,7 +500,7 @@ fn sort_group_indices(
         let pos: IBig = (i + 1).into();
         let sort_val = interpreter.call_function_with_arguments(
             &sort_key_fn,
-            &[first_item, pos.into(), total_groups.clone().into()],
+            vec![first_item, pos.into(), total_groups.clone().into()],
         )?;
         let sort_atomic = sort_val
             .atomized(interpreter.xot())
@@ -546,7 +546,7 @@ fn matcher_matches_item(
 ) -> error::Result<bool> {
     let result = interpreter.call_function_with_arguments(
         matcher,
-        &[
+        vec![
             item.clone().into(),
             atomic::Atomic::from(position as u64).into(),
             atomic::Atomic::from(size as u64).into(),
@@ -630,7 +630,7 @@ fn xslt_try(
     let resolving_before = interpreter.resolving_global_variable_count();
     match interpreter.call_function_with_arguments_catching_spanned_with_rollback(
         &body,
-        &[],
+        vec![],
         rollback_output,
     ) {
         Ok(result) => Ok(result),
@@ -673,7 +673,7 @@ fn xslt_try(
 
                 let handler = handler_sequence.clone().one()?.to_function()?;
                 return interpreter
-                    .call_function_with_arguments_catching_spanned(&handler, &handler_arguments)
+                    .call_function_with_arguments_catching_spanned(&handler, handler_arguments)
                     .map_err(|error| error.error);
             }
 
@@ -693,7 +693,7 @@ fn xslt_with_temporary_output_state(
 ) -> error::Result<sequence::Sequence> {
     let body = body.to_function()?;
     context.push_temporary_output_state();
-    let result = interpreter.call_function_with_arguments(&body, &[]);
+    let result = interpreter.call_function_with_arguments(&body, vec![]);
     context.pop_temporary_output_state();
     result
 }
@@ -722,7 +722,7 @@ fn xslt_unsupported_merge(
     for (source, key_function) in sources.iter().zip(key_functions.iter()) {
         let key_function = key_function.clone().one()?.to_function()?;
         for item in source.iter() {
-            interpreter.call_function_with_arguments(&key_function, &[item.clone().into()])?;
+            interpreter.call_function_with_arguments(&key_function, vec![item.clone().into()])?;
         }
     }
 
@@ -2289,7 +2289,7 @@ fn xslt_analyze_string(
         }
         let items = interpreter.call_function_with_arguments(
             function,
-            &[
+            vec![
                 arg,
                 atomic::Atomic::from(position).into(),
                 atomic::Atomic::from(total_parts.clone()).into(),
@@ -2482,7 +2482,7 @@ fn xslt_sort3(
             let last_seq: sequence::Sequence = IBig::from(last).into();
             let value = interpreter.call_function_with_arguments(
                 &function,
-                &[item.clone().into(), pos_seq, last_seq],
+                vec![item.clone().into(), pos_seq, last_seq],
             )?;
             Ok(value)
         },
@@ -2523,7 +2523,7 @@ fn xslt_sort_descending3(
             let last_seq: sequence::Sequence = IBig::from(last).into();
             let value = interpreter.call_function_with_arguments(
                 &function,
-                &[item.clone().into(), pos_seq, last_seq],
+                vec![item.clone().into(), pos_seq, last_seq],
             )?;
             Ok(value)
         },

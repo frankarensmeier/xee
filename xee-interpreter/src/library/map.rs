@@ -213,7 +213,7 @@ fn for_each(
     let mut result: Vec<sequence::Item> = Vec::with_capacity(map.len());
     for (key, value) in map.entries() {
         let r = interpreter
-            .call_function_with_arguments(&function, &[key.clone().into(), value.clone()])?;
+            .call_function_with_arguments(&function, vec![key.clone().into(), value.clone()])?;
         for item in r.iter() {
             result.push(item.clone());
         }
