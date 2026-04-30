@@ -11,6 +11,7 @@ mod fn_;
 mod hidden_xslt;
 mod hof;
 mod id;
+pub(crate) mod key_cache;
 pub(crate) mod number_count_cache;
 
 pub(crate) use hidden_xslt::strip_whitespace_only_text_children;

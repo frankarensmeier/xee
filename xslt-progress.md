@@ -4,6 +4,36 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-30 22:42 CEST
+
+### Performance: key() index cache (O(n) → O(1) per lookup)
+
+Added a per-document, per-key-name index cache for `fn:key()`. Previously,
+every `key()` call walked the entire document tree, tested every node against
+the match pattern, and evaluated the use-expression — O(n) per call. Now the
+first call builds a hash index and subsequent calls are O(1) for string/untyped
+keys, falling back to O(m) typed comparison for numeric/date values.
+
+**Key design decisions:**
+- String fast path: string and xs:untypedAtomic key values are indexed by their
+  string content for O(1) hash lookup (the overwhelmingly common case).
+- Typed comparison fallback: non-string search values (integer, double, dateTime)
+  use `Atomic::equal()` with correct collation and timezone, scanning only the
+  cached entries rather than the full document.
+- Composite keys: element-wise sequence comparison via linear scan of entries.
+- Cache key: `(doc_root, key_name)` — one index per document per key name.
+
+**Files changed:**
+- New: `xee-interpreter/src/library/key_cache.rs` — KeyIndex, KeyCache structs
+- Modified: `xee-interpreter/src/library/id.rs` — key_helper uses cache,
+  build_key_index extracted
+- Modified: `xee-interpreter/src/interpreter/interpret.rs` — KeyCache field
+- Modified: `xee-interpreter/src/library/mod.rs` — module declaration
+
+**Conformance:** 5678 passed / 0 failed / 0 error (XSLT), no regressions.
+**Benchmark:** Performance-neutral on input-small.xml (2.42s baseline).
+Real benefit is on workloads with repeated key() calls on the same document.
+
 ## 2026-04-30 21:12 CEST
 
 ### Performance: prefix-sum cache for xsl:number level="any" (2× speedup on large inputs)

@@ -10,6 +10,7 @@ use crate::error::Error;
 use crate::function;
 use crate::function::StaticFunctionDescription;
 use crate::interpreter::Interpreter;
+use crate::library::key_cache::{KeyCacheKey, KeyIndex};
 use crate::pattern::PredicateMatcher;
 use crate::sequence;
 use crate::{wrap_xpath_fn, xml};
@@ -171,12 +172,72 @@ fn key_helper(
     // Resolve the key name as a QName using the static context's namespace bindings
     let key_owned_name = resolve_key_name(context, key_name)?;
 
+    let collation = context.static_context().default_collation()?;
+    let default_offset = context.implicit_timezone();
+
+    // Collect the search values as atomic values for type-aware comparison
+    let search_values: Vec<atomic::Atomic> = key_value
+        .atomized(interpreter.xot())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Build the key index if not already cached
+    let cache_key = KeyCacheKey {
+        doc_root: root,
+        key_name: key_owned_name.clone(),
+    };
+
+    if interpreter.key_cache.get(&cache_key).is_none() {
+        let index = build_key_index(context, interpreter, &key_owned_name, root)?;
+        interpreter.key_cache.insert(cache_key.clone(), index);
+    }
+
+    // Safety: we just ensured the entry exists above.
+    let index = interpreter
+        .key_cache
+        .get(&cache_key)
+        .expect("key cache entry was just inserted");
+
+    // Look up matching nodes from the cached index
+    let mut result = index.lookup(&search_values, &collation, default_offset);
+
+    // Filter results to only include nodes within the subtree of $top
+    if top != root {
+        result.retain(|node| is_descendant_or_self(interpreter.xot(), *node, top));
+    }
+
+    // Sort by document order and deduplicate.
+    let documents = context.documents();
+    let documents = documents.borrow();
+    let annotations = documents.document_order_access(interpreter.xot());
+    result.sort_by_key(|n| {
+        if interpreter.xot().is_namespace_node(*n) {
+            if let Some(&parent) = interpreter.state.namespace_parents.get(n) {
+                return annotations.get(parent);
+            }
+        }
+        annotations.get(*n)
+    });
+    result.dedup();
+    Ok(result)
+}
+
+/// Build the key index for a given (document, key-name) pair.
+///
+/// Walks all nodes in the document, tests each against the key's match pattern,
+/// evaluates the use-expression for matches, and stores the results in a
+/// `KeyIndex` for fast lookup.
+fn build_key_index(
+    _context: &DynamicContext,
+    interpreter: &mut Interpreter,
+    key_owned_name: &OwnedName,
+    root: Node,
+) -> Result<KeyIndex, Error> {
     // Find all key declarations with this name
     let key_decls: Vec<_> = interpreter
         .runnable()
         .program()
         .declarations
-        .keys_by_name(&key_owned_name)
+        .keys_by_name(key_owned_name)
         .into_iter()
         .cloned()
         .collect();
@@ -187,14 +248,7 @@ fn key_helper(
 
     // Check if this is a composite key (all decls with same name must agree per XTSE1222)
     let composite = key_decls[0].composite;
-
-    // Collect the search values as atomic values for type-aware comparison
-    let search_values: Vec<atomic::Atomic> = key_value
-        .atomized(interpreter.xot())
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let collation = context.static_context().default_collation()?;
-    let default_offset = context.implicit_timezone();
+    let mut index = KeyIndex::new(composite);
 
     // Collect all nodes in the document tree (search from root).
     // Include attribute and namespace nodes since key patterns can match them.
@@ -210,7 +264,10 @@ fn key_helper(
         }
     }
     // Second pass: collect namespace nodes only if any key pattern uses the namespace axis
-    if key_decls.iter().any(|k| pattern_uses_namespace_axis(&k.pattern)) {
+    if key_decls
+        .iter()
+        .any(|k| pattern_uses_namespace_axis(&k.pattern))
+    {
         let elements: Vec<Node> = nodes
             .iter()
             .copied()
@@ -219,7 +276,9 @@ fn key_helper(
         for element in elements {
             let ns_bindings: Vec<_> = interpreter.xot().namespaces_in_scope(element).collect();
             for (prefix_id, namespace_id) in ns_bindings {
-                let ns_node = interpreter.xot_mut().new_namespace_node(prefix_id, namespace_id);
+                let ns_node = interpreter
+                    .xot_mut()
+                    .new_namespace_node(prefix_id, namespace_id);
                 // Register parent so parent/ancestor axes work from namespace nodes
                 interpreter.state.namespace_parents.insert(ns_node, element);
                 nodes.push(ns_node);
@@ -228,9 +287,7 @@ fn key_helper(
     }
 
     // Walk nodes, check each against the key's match pattern, evaluate the use
-    // expression for matches, and collect nodes whose key value matches.
-    let mut result: Vec<Node> = Vec::new();
-
+    // expression for matches, and store in the index.
     for node in nodes {
         let item = sequence::Item::from(node);
 
@@ -250,57 +307,15 @@ fn key_helper(
             ];
             let key_values = interpreter.call_function_with_arguments(&use_function, arguments)?;
 
-            if composite {
-                // Composite key: the entire atomized sequence forms a single key.
-                // Match iff sequences have equal length and each pair matches.
-                let key_atoms: Vec<atomic::Atomic> = key_values
-                    .atomized(interpreter.xot())
-                    .collect::<Result<Vec<_>, _>>()?;
-                if key_atoms.len() == search_values.len()
-                    && key_atoms
-                        .iter()
-                        .zip(search_values.iter())
-                        .all(|(ka, sv)| ka.equal(sv, &collation, default_offset))
-                {
-                    result.push(node);
-                }
-            } else {
-                // Non-composite: each produced key value is compared independently
-                // using XPath eq semantics (type-aware, per XSLT spec section 20.1)
-                for atom in key_values.atomized(interpreter.xot()) {
-                    let atom = atom?;
-                    let matched = search_values
-                        .iter()
-                        .any(|sv| atom.equal(sv, &collation, default_offset));
-                    if matched {
-                        result.push(node);
-                        break;
-                    }
-                }
-            }
+            let key_atoms: Vec<atomic::Atomic> = key_values
+                .atomized(interpreter.xot())
+                .collect::<Result<Vec<_>, _>>()?;
+
+            index.add(node, key_atoms);
         }
     }
 
-    // Filter results to only include nodes within the subtree of $top
-    if top != root {
-        result.retain(|node| is_descendant_or_self(interpreter.xot(), *node, top));
-    }
-
-    // Sort by document order and deduplicate.
-    // Namespace nodes are orphans, so use their parent element's position.
-    let documents = context.documents();
-    let documents = documents.borrow();
-    let annotations = documents.document_order_access(interpreter.xot());
-    result.sort_by_key(|n| {
-        if interpreter.xot().is_namespace_node(*n) {
-            if let Some(&parent) = interpreter.state.namespace_parents.get(n) {
-                return annotations.get(parent);
-            }
-        }
-        annotations.get(*n)
-    });
-    result.dedup();
-    Ok(result)
+    Ok(index)
 }
 
 /// Check if a pattern references the namespace axis anywhere in its AST.

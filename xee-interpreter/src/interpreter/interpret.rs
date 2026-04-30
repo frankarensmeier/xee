@@ -16,6 +16,7 @@ use crate::atomic::{
 use crate::context::DynamicContext;
 use crate::declaration;
 use crate::function;
+use crate::library::key_cache::KeyCache;
 use crate::library::number_count_cache::NumberCountCache;
 use crate::pattern::pattern_lookup::NameCache;
 use crate::pattern::PredicateMatcher;
@@ -47,6 +48,8 @@ pub struct Interpreter<'a> {
     pub(crate) name_cache: Option<Rc<NameCache>>,
     /// Prefix-sum cache for xsl:number level="any" — avoids O(n²) counting.
     pub(crate) number_count_cache: NumberCountCache,
+    /// Index cache for xsl:key / fn:key() — avoids O(n) doc walk per call.
+    pub(crate) key_cache: KeyCache,
 }
 
 #[derive(Clone)]
@@ -102,6 +105,7 @@ impl<'a> Interpreter<'a> {
             error_contexts: Vec::new(),
             name_cache: None,
             number_count_cache: NumberCountCache::new(),
+            key_cache: KeyCache::new(),
         }
     }
 
