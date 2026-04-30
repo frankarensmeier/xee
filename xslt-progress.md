@@ -4,6 +4,69 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-30 21:12 CEST
+
+### Performance: prefix-sum cache for xsl:number level="any" (2× speedup on large inputs)
+
+**Problem:** Profiling the DocBook NG stylesheet on input-large.xml revealed
+that `xsl:number level="any"` was the dominant bottleneck — 90.6% of inclusive
+time in hierarchical profiles. The stylesheet uses ~20 `xsl:number level="any"`
+calls in `modules/numbers.xsl` for numbering books, chapters, sections,
+figures, etc. The old implementation walked backward through ALL preceding
+nodes in document order for every numbered element, giving O(n²) total cost
+across all calls for the same count/from pattern pair.
+
+Flat profiles had been misleading: pattern matching appeared as the top
+self-time consumer, but it was being *called from* xsl:number, not from
+template dispatch. A template-match-cache prototype was built and discarded
+after confirming it had no measurable effect.
+
+**Validation:** Disabling xsl:number entirely dropped input-large.xml from
+~40s to ~20s, confirming it as the true bottleneck.
+
+**Solution — NumberCountCache:** On the first `xsl:number level="any"` call
+for a given (count_pattern, from_pattern) pair within a document, walk the
+entire document forward once in document order and build:
+
+- `node_to_pos: HashMap<Node, usize>` — maps each node to its traversal index
+- `prefix_sum: Vec<i64>` — `prefix_sum[i]` = cumulative count of nodes
+  matching the count pattern from position 0 through i (inclusive)
+- `from_positions: Vec<usize>` — sorted positions where the from pattern
+  matched
+
+All subsequent lookups for the same pattern pair are O(1): hash lookup for
+position, array index into prefix_sum, and O(log k) binary search on
+from_positions to find the nearest from-boundary. The cache is keyed by
+`(doc_root, count_key, from_index)` where `count_key` is either a compiled
+pattern index or a `(ValueType, Option<NameId>)` pair for default count.
+
+**Files changed:**
+
+- New `number_count_cache.rs`: `NumberCountEntry`, `CountPatternKey`,
+  `CacheKey`, and `NumberCountCache` types.
+- `interpret.rs`: Added `number_count_cache: NumberCountCache` field to
+  `Interpreter`.
+- `hidden_xslt.rs`: Replaced `count_any_level` and `count_any_level_pattern`
+  with cache-based versions. Added `count_any_level_attribute` and
+  `count_any_level_pattern_attribute` fallbacks for attribute context nodes
+  (which are excluded from `xot.descendants()`).
+
+**Bug discovered during implementation:** `xot.descendants(root)` already
+includes the root node, so an initial `iter::once(root).chain(descendants(root))`
+was double-counting. Also, attribute nodes are not included in `descendants()`
+(they use a separate `ValueCategory`), so attribute context nodes must fall
+back to the original reverse-document-order algorithm.
+
+**Benchmark results:**
+
+| Input | Before | After | Change |
+|:---|---:|---:|:---|
+| input-small.xml | 2.38s | 2.25s | −5% |
+| input-large.xml | ~40s | 19.35s | **−52%** |
+
+Conformance: 5678 passed / 0 failed / 0 error. bench-xslt: 2.25s avg (−5.4%
+vs 2.38s baseline).
+
 ## 2026-04-29 22:13 CEST
 
 ### Performance: Remove unnecessary clones in Step and resolve_global_variable

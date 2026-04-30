@@ -16,6 +16,7 @@ use crate::atomic::{
 use crate::context::DynamicContext;
 use crate::declaration;
 use crate::function;
+use crate::library::number_count_cache::NumberCountCache;
 use crate::pattern::pattern_lookup::NameCache;
 use crate::pattern::PredicateMatcher;
 use crate::sequence;
@@ -44,6 +45,8 @@ pub struct Interpreter<'a> {
     /// Set before template lookups, cleared after. Avoids repeated
     /// OwnedName::maybe_to_ref (3 hash probes each) during pattern matching.
     pub(crate) name_cache: Option<Rc<NameCache>>,
+    /// Prefix-sum cache for xsl:number level="any" — avoids O(n²) counting.
+    pub(crate) number_count_cache: NumberCountCache,
 }
 
 #[derive(Clone)]
@@ -98,6 +101,7 @@ impl<'a> Interpreter<'a> {
             focus_absent_stack: Vec::new(),
             error_contexts: Vec::new(),
             name_cache: None,
+            number_count_cache: NumberCountCache::new(),
         }
     }
 

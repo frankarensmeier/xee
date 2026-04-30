@@ -15,6 +15,9 @@ use crate::error;
 use crate::function;
 use crate::function::StaticFunctionDescription;
 use crate::interpreter::Interpreter;
+use crate::library::number_count_cache::{
+    CacheKey, CountPatternKey, NumberCountEntry,
+};
 use crate::library::numeric;
 use crate::pattern::PredicateMatcher;
 use crate::sequence;
@@ -1034,19 +1037,69 @@ fn node_matches_default_count(
 // and expanded-QName as the current node, including the current node itself.
 #[xpath_fn("fn:xslt-number-count-any($node as node(), $format as xs:string?) as xs:string")]
 fn xslt_number_count_any(
-    interpreter: &Interpreter,
+    interpreter: &mut Interpreter,
     node: xot::Node,
     format: Option<&str>,
 ) -> error::Result<String> {
-    let xot = interpreter.xot();
-    let count = count_any_level(xot, node);
+    let count = count_any_level(interpreter, node);
     format_xslt_number_value(count, format.unwrap_or("1"))
 }
 
 /// For level="any" with default count pattern: count all nodes preceding
 /// (or equal to) the current node in document order that match the same
-/// node kind and expanded-QName.
-fn count_any_level(xot: &Xot, node: xot::Node) -> i64 {
+/// node kind and expanded-QName. Uses prefix-sum cache for O(1) lookups.
+fn count_any_level(interpreter: &mut Interpreter, node: xot::Node) -> i64 {
+    // Attribute nodes are not included in descendants(), so fall back to the
+    // old reverse_document_order algorithm for them.
+    if interpreter.xot().value_type(node) == xot::ValueType::Attribute {
+        return count_any_level_attribute(interpreter.xot(), node);
+    }
+
+    let xot = interpreter.xot();
+    let target_value_type = xot.value_type(node);
+    let target_name = match xot.value(node) {
+        xot::Value::Element(el) => Some(el.name()),
+        xot::Value::Attribute(attr) => Some(attr.name()),
+        _ => None,
+    };
+    let doc_root = xot.root(node);
+
+    let count_key = CountPatternKey::Default(target_value_type, target_name);
+    let cache_key = CacheKey {
+        doc_root,
+        count_key: count_key.clone(),
+        from_index: -1,
+    };
+
+    // Check cache first
+    if let Some(entry) = interpreter.number_count_cache.get(&cache_key) {
+        return entry.lookup(node);
+    }
+
+    // Build cache: walk entire document forward
+    // Note: descendants() includes the root node itself.
+    let all_nodes: Vec<_> = interpreter.xot().descendants(doc_root).collect();
+
+    let mut node_to_pos = ahash::HashMap::with_capacity(all_nodes.len());
+    let mut prefix_sum = Vec::with_capacity(all_nodes.len());
+    let mut running_count: i64 = 0;
+
+    for (pos, &n) in all_nodes.iter().enumerate() {
+        node_to_pos.insert(n, pos);
+        if node_matches_default_count(interpreter.xot(), n, target_value_type, target_name) {
+            running_count += 1;
+        }
+        prefix_sum.push(running_count);
+    }
+
+    let entry = NumberCountEntry::new(node_to_pos, prefix_sum, Vec::new());
+    interpreter.number_count_cache.insert(cache_key.clone(), entry);
+    interpreter.number_count_cache.get(&cache_key).unwrap().lookup(node)
+}
+
+/// Fallback for attribute context nodes: walk backward via reverse_document_order.
+/// Attribute nodes are not included in descendants() so we can't use the cache.
+fn count_any_level_attribute(xot: &Xot, node: xot::Node) -> i64 {
     let target_value_type = xot.value_type(node);
     let target_name = match xot.value(node) {
         xot::Value::Element(el) => Some(el.name()),
@@ -1054,14 +1107,12 @@ fn count_any_level(xot: &Xot, node: xot::Node) -> i64 {
         _ => None,
     };
 
-    // Count the current node if it matches
     let mut count: i64 = if node_matches_default_count(xot, node, target_value_type, target_name) {
         1
     } else {
         0
     };
 
-    // Walk all preceding nodes in document order (via preceding axis + ancestors)
     for n in reverse_document_order(xot, node) {
         if node_matches_default_count(xot, n, target_value_type, target_name) {
             count += 1;
@@ -1188,11 +1239,94 @@ fn count_any_level_pattern(
     count_index: i64,
     from_index: i64,
 ) -> i64 {
+    // Attribute nodes are not included in descendants(), so fall back to the
+    // old reverse_document_order algorithm for them.
+    if interpreter.xot().value_type(node) == xot::ValueType::Attribute {
+        return count_any_level_pattern_attribute(interpreter, node, count_index, from_index);
+    }
+
+    let use_default_count = count_index < 0;
+    let doc_root = interpreter.xot().root(node);
+
+    // Build the cache key
+    let count_key = if use_default_count {
+        let xot = interpreter.xot();
+        let target_value_type = xot.value_type(node);
+        let target_name = match xot.value(node) {
+            xot::Value::Element(el) => Some(el.name()),
+            xot::Value::Attribute(attr) => Some(attr.name()),
+            _ => None,
+        };
+        CountPatternKey::Default(target_value_type, target_name)
+    } else {
+        CountPatternKey::PatternIndex(count_index)
+    };
+
+    let cache_key = CacheKey {
+        doc_root,
+        count_key: count_key.clone(),
+        from_index,
+    };
+
+    // Check cache first
+    if let Some(entry) = interpreter.number_count_cache.get(&cache_key) {
+        return entry.lookup(node);
+    }
+
+    // Build cache: walk entire document forward, evaluate patterns once per node
+    let count_pattern = clone_number_pattern(interpreter, count_index);
+    let from_pattern = clone_number_pattern(interpreter, from_index);
+
+    // Note: descendants() includes the root node itself.
+    let all_nodes: Vec<_> = interpreter.xot().descendants(doc_root).collect();
+
+    let mut node_to_pos = ahash::HashMap::with_capacity(all_nodes.len());
+    let mut prefix_sum = Vec::with_capacity(all_nodes.len());
+    let mut from_positions = Vec::new();
+    let mut running_count: i64 = 0;
+
+    for (pos, &n) in all_nodes.iter().enumerate() {
+        node_to_pos.insert(n, pos);
+
+        // Check from pattern
+        if let Some(ref from_pattern) = from_pattern {
+            if node_matches_pattern(interpreter, n, from_pattern) {
+                from_positions.push(pos);
+            }
+        }
+
+        // Check count pattern
+        let matches_count = if use_default_count {
+            node_matches_default_count_for(interpreter.xot(), node, n)
+        } else if let Some(ref count_pattern) = count_pattern {
+            node_matches_pattern(interpreter, n, count_pattern)
+        } else {
+            false
+        };
+
+        if matches_count {
+            running_count += 1;
+        }
+        prefix_sum.push(running_count);
+    }
+
+    let entry = NumberCountEntry::new(node_to_pos, prefix_sum, from_positions);
+    interpreter.number_count_cache.insert(cache_key.clone(), entry);
+    interpreter.number_count_cache.get(&cache_key).unwrap().lookup(node)
+}
+
+/// Fallback for attribute context nodes: walk backward via reverse_document_order.
+/// Attribute nodes are not included in descendants() so we can't use the cache.
+fn count_any_level_pattern_attribute(
+    interpreter: &mut Interpreter,
+    node: xot::Node,
+    count_index: i64,
+    from_index: i64,
+) -> i64 {
     let use_default_count = count_index < 0;
     let count_pattern = clone_number_pattern(interpreter, count_index);
     let from_pattern = clone_number_pattern(interpreter, from_index);
 
-    // Count the current node if it matches count
     let mut count: i64 = if use_default_count {
         if node_matches_default_count_for(interpreter.xot(), node, node) {
             1
@@ -1209,11 +1343,9 @@ fn count_any_level_pattern(
         0
     };
 
-    // Collect all preceding nodes first (can't borrow xot mutably while iterating)
     let preceding: Vec<_> = reverse_document_order(interpreter.xot(), node).collect();
 
     for n in preceding {
-        // If we hit a from-boundary, stop counting
         if let Some(ref from_pattern) = from_pattern {
             if node_matches_pattern(interpreter, n, from_pattern) {
                 break;
