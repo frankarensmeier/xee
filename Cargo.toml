@@ -60,3 +60,5 @@ opt-level = 1
 
 [profile.release]
 debug = true
+lto = "thin"
+codegen-units = 1
