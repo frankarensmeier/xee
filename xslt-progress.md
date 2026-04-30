@@ -4,6 +4,25 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-04-29 22:13 CEST
+
+### Performance: Remove unnecessary clones in Step and resolve_global_variable
+
+Eliminated two hot-path clones in the bytecode interpreter:
+
+- **Step instruction** (`EncodedInstruction::Step`): Stopped cloning the `Step`
+  struct (which heap-allocated 1-3 Strings via `OwnedName` fields) on every
+  XPath axis step. Instead, extract the `function_id` and `Rc<Program>` (cheap
+  ref-count bump) to break the borrow conflict with `&mut self.state.xot`, then
+  borrow the `Step` directly.
+
+- **resolve_global_variable**: Changed from cloning the entire
+  `GlobalValueState` enum to matching on a reference. Only clones the `Sequence`
+  value in the `Resolved` arm; `Uninitialized` and `Resolving` arms avoid
+  allocation entirely.
+
+Conformance: 5678 passed / 0 failed / 0 error. Bench: 3.60s avg (6.8% vs baseline).
+
 ## 2026-04-29 21:27 CEST
 
 ### Performance: NameCache and fast-path pattern matching
