@@ -8104,3 +8104,158 @@ fn test_exclude_result_prefixes_all_prefers_default_namespace() {
         result
     );
 }
+
+// Tests for the two-level dynamic XPath cache (FastCacheKey).
+// These exercise the fast-path cache in XsltDynamicXPathEvaluator to verify
+// that it correctly distinguishes programs compiled with different contexts.
+
+#[test]
+fn test_xsl_evaluate_repeated_same_expression_uses_cache() {
+    // Evaluating the same XPath expression multiple times with the same context
+    // should hit the fast cache and return correct results each time.
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc><item>a</item><item>b</item><item>c</item></doc>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:for-each select="/doc/item">
+        <r><xsl:evaluate xpath="'string(.)'" context-item="."/></r>
+      </xsl:for-each>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><r>a</r><r>b</r><r>c</r></out>");
+}
+
+#[test]
+fn test_xsl_evaluate_different_namespace_contexts_same_xpath() {
+    // Same XPath expression evaluated with different namespace-context nodes
+    // must compile different programs (different prefix → URI mappings).
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<doc xmlns:a="http://example.com/a" xmlns:b="http://example.com/b">
+          <a:item>from-a</a:item>
+          <b:item>from-b</b:item>
+        </doc>"#,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:variable name="ns-a" as="element()">
+        <ns xmlns:p="http://example.com/a"/>
+      </xsl:variable>
+      <xsl:variable name="ns-b" as="element()">
+        <ns xmlns:p="http://example.com/b"/>
+      </xsl:variable>
+      <a><xsl:evaluate xpath="'string(/doc/p:item)'" namespace-context="$ns-a" context-item="/"/></a>
+      <b><xsl:evaluate xpath="'string(/doc/p:item)'" namespace-context="$ns-b" context-item="/"/></b>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    // Both use "p:item" but p maps to different URIs
+    assert_eq!(
+        xml(&xot, output),
+        "<out><a>from-a</a><b>from-b</b></out>"
+    );
+}
+
+#[test]
+fn test_xsl_evaluate_different_xpath_default_namespace_same_xpath() {
+    // Same XPath expression evaluated with different xpath-default-namespace
+    // must produce different results.
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        r#"<doc>
+          <item xmlns="http://example.com/ns1">ns1</item>
+          <item xmlns="http://example.com/ns2">ns2</item>
+        </doc>"#,
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="3.0">
+  <xsl:template match="/">
+    <out>
+      <xsl:call-template name="eval-ns1"/>
+      <xsl:call-template name="eval-ns2"/>
+    </out>
+  </xsl:template>
+
+  <xsl:template name="eval-ns1" xpath-default-namespace="http://example.com/ns1">
+    <a><xsl:evaluate xpath="'string(/*/item)'" context-item="/"/></a>
+  </xsl:template>
+
+  <xsl:template name="eval-ns2" xpath-default-namespace="http://example.com/ns2">
+    <b><xsl:evaluate xpath="'string(/*/item)'" context-item="/"/></b>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(xml(&xot, output), "<out><a>ns1</a><b>ns2</b></out>");
+}
+
+#[test]
+fn test_xsl_evaluate_different_with_params_same_xpath() {
+    // Same XPath expression with same variable name but different values.
+    // The compiled program should be reused (cache hit) and the runtime
+    // values should be correctly bound each time.
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                version="3.0">
+  <xsl:template match="/">
+    <out>
+      <a><xsl:evaluate xpath="'$x'" with-params="map{xs:QName('x'): 'alpha'}"/></a>
+      <b><xsl:evaluate xpath="'$x'" with-params="map{xs:QName('x'): 'beta'}"/></b>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><a>alpha</a><b>beta</b></out>"
+    );
+}
+
+#[test]
+fn test_xsl_evaluate_same_xpath_different_variable_names() {
+    // Same XPath string but different variable names in with-params
+    // must not confuse the cache (different FastCacheKey.variable_names).
+    let mut xot = Xot::new();
+    let output = evaluate(
+        &mut xot,
+        "<doc/>",
+        r#"
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                version="3.0">
+  <xsl:template match="/">
+    <out>
+      <a><xsl:evaluate xpath="'$x'" with-params="map{xs:QName('x'): 'hello'}"/></a>
+      <b><xsl:evaluate xpath="'$y'" with-params="map{xs:QName('y'): 'world'}"/></b>
+    </out>
+  </xsl:template>
+</xsl:stylesheet>"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        xml(&xot, output),
+        "<out xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><a>hello</a><b>world</b></out>"
+    );
+}
