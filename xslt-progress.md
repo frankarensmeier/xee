@@ -4,6 +4,32 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-02 13:13 CEST
+
+### Performance: two-level cache for dynamic XPath evaluation (~11% overall)
+
+Added a fast-path cache to `XsltDynamicXPathEvaluator` that avoids the
+expensive `namespaces_for_request()` tree walk and sorted namespace-binding
+allocation on cache hits. The `xslt_evaluate` function is called 441K+ times
+in a typical DocBook transform with only 178 unique compilations (99.96% cache
+hit rate), but the old code extracted and sorted namespace bindings on every
+call just to construct the full cache key.
+
+**Design:** Two-level cache with a `FastCacheKey` that uses the namespace
+context node identity (`xot::Node`, a cheap `usize`) instead of extracting
+all in-scope namespaces. The fast key also includes xpath_default_namespace,
+default_function_namespace, default_collation, base_uri, and sorted variable
+names — all fields that affect XPath compilation. An ambiguity detection
+mechanism marks fast cache entries as `None` when the same fast key maps to
+different compiled programs, falling back to the full `DynamicXPathCacheKey`.
+
+**Files changed:**
+- `xee-xslt-compiler/src/dynamic_xpath.rs` — FastCacheKey struct, two-level
+  cache logic in evaluate(), build_fast_cache_key() function
+
+**Conformance:** 5678 passed / 0 failed / 0 error (XSLT), no regressions.
+**Benchmark:** input-small.xml 2.42s → 2.10s (-13%), input-large.xml 8.89s → 7.93s (-11%).
+
 ## 2026-04-30 22:42 CEST
 
 ### Performance: key() index cache (O(n) → O(1) per lookup)
