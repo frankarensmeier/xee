@@ -39,6 +39,44 @@ template dispatch, or interpreter core. It transforms `xslt/input-small.xml`
 ./bench-xslt --help       # full usage
 ```
 
+## Performance Optimization Discipline
+
+**Never jump from profiling data straight to implementation.** Caching and
+algorithmic changes are expensive to build and review. Validate the hypothesis
+first.
+
+### Required steps before building any optimization
+
+1. **Use a real profiler.** Use `xctrace record --template 'Time Profiler'`
+   (Instruments) or `samply` with the Firefox Profiler UI. Do NOT use macOS
+   `sample` — it only gives time percentages, not call counts or call-graph
+   context, which leads to wrong conclusions.
+
+2. **Verify the hypothesis cheaply first.** Before building anything,
+   confirm the suspected hot path actually matters: bypass it (comment it
+   out, short-circuit with a dummy return, or stub it) and re-run the
+   benchmark. If skipping the code path doesn't improve performance,
+   optimizing it won't either — move on. This takes minutes, not hours.
+
+3. **Measure call frequency before caching.** A function at 6% self-time
+   could be 3 expensive calls (cache won't help) or 10,000 cheap calls
+   (cache will help enormously). Add a temporary counter (`eprintln!` or
+   `AtomicUsize`) and run the benchmark once to find out. Remove the counter
+   before committing.
+
+4. **Distinguish "few expensive calls" from "many repeated calls."**
+   Caching only helps the latter. For "few expensive calls," look for
+   algorithmic improvements within the function itself.
+
+5. **State the hypothesis explicitly** before writing code. Example:
+   "key() is called N times with the same (doc, name) pair; caching the
+   index will eliminate N−1 full document walks." If you can't state the
+   hypothesis with concrete numbers, go back to step 2.
+
+6. **Benchmark immediately after implementing.** If the optimization shows
+   no measurable improvement on the target workload, consider reverting
+   rather than keeping dead complexity.
+
 ## Code Style
 
 - Prefer `bail!`/`anyhow` over `.unwrap()` — panics are bugs.
