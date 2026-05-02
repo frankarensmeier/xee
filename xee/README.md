@@ -95,6 +95,56 @@ Or read from stdin:
 cat input.xml | xee xslt stylesheet.xsl
 ```
 
+#### Stylesheet parameters
+
+Pass parameters to the stylesheet using `--param`:
+
+```
+xee xslt stylesheet.xsl input.xml --param name=value --param count=42
+```
+
+All values are supplied as `xs:untypedAtomic`. The stylesheet's `as=`
+declarations handle casting automatically (e.g. `as="xs:integer"` will cast
+the string "42" to an integer).
+
+You can also load parameters from a JSON file:
+
+```
+xee xslt stylesheet.xsl input.xml --params-file params.json
+```
+
+The JSON file must contain a flat object with string, number, boolean, or null
+values:
+
+```json
+{
+  "name": "world",
+  "count": 42,
+  "enabled": true
+}
+```
+
+#### Precompiled stylesheets
+
+For repeated transformations with the same stylesheet (e.g. in a microservice),
+you can precompile the stylesheet to skip the expensive preprocessing step:
+
+```
+xee xslt stylesheet.xsl --compile
+```
+
+This creates a `stylesheet.xeec` file. You can specify a custom output path
+with `--output`. Then use the precompiled stylesheet:
+
+```
+xee xslt stylesheet.xeec input.xml --precompiled --param name=value
+```
+
+Precompilation serializes the intermediate representation (IR) after all XML
+parsing, import resolution, and AST building is complete. Loading a `.xeec` file
+skips ~94% of compilation time (e.g. from ~900ms to ~60ms for a large DocBook
+stylesheet).
+
 ## More Xee
 
 This is built using [`xee-xpath`](https://docs.rs/xee-xpath/latest/xee_xpath/),

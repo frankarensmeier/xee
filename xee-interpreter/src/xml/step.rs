@@ -9,6 +9,7 @@ use crate::sequence;
 use super::kind_test::kind_test;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Step {
     pub axis: ast::Axis,
     pub node_test: ast::NodeTest,

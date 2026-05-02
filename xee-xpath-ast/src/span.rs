@@ -27,6 +27,17 @@ impl<T: serde::Serialize> serde::Serialize for Spanned<T> {
     }
 }
 
+#[cfg(feature = "serde")]
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Spanned<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = T::deserialize(deserializer)?;
+        Ok(Self {
+            value,
+            span: (0..0).into(),
+        })
+    }
+}
+
 impl<T> Spanned<T> {
     pub fn new(value: T, span: SourceSpan) -> Self {
         Self { value, span }

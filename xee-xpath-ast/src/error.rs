@@ -6,7 +6,7 @@ use xee_xpath_lexer::Token;
 use crate::ast;
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ParserError {
     ExpectedFound { span: Span },
     UnknownPrefix { span: Span, prefix: String },

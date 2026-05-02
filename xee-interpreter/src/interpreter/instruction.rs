@@ -1,6 +1,7 @@
 use num::{FromPrimitive, ToPrimitive};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RaisedError {
     XTDE0560,
     XTDE0700,

@@ -16,6 +16,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SerializationParameters {
     pub allow_duplicate_names: bool,
     pub byte_order_mark: bool,

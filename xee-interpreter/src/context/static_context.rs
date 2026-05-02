@@ -28,6 +28,7 @@ static DEFAULT_COLLATION: LazyLock<IriAbsoluteString> = LazyLock::new(|| {
 });
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DecimalFormatSymbols {
     pub decimal_separator: char,
     pub grouping_separator: char,
@@ -283,6 +284,10 @@ impl StaticContext {
         self.static_base_uri.as_deref()
     }
 
+    pub fn set_static_base_uri(&mut self, static_base_uri: Option<IriAbsoluteString>) {
+        self.static_base_uri = static_base_uri;
+    }
+
     pub(crate) fn collation(&self, uri: &IriReferenceStr) -> error::Result<Rc<Collation>> {
         self.collations
             .borrow_mut()
@@ -339,6 +344,14 @@ impl StaticContext {
 
     pub fn is_function_disabled(&self, name: &xot::xmlname::OwnedName) -> bool {
         self.disabled_functions.contains(name)
+    }
+
+    pub fn disabled_functions(&self) -> &HashSet<xot::xmlname::OwnedName> {
+        &self.disabled_functions
+    }
+
+    pub fn decimal_formats(&self) -> &HashMap<OwnedName, DecimalFormatSymbols> {
+        &self.decimal_formats
     }
 
     /// Get an internal static function by name and arity

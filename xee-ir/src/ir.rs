@@ -22,6 +22,7 @@ pub type AtomS = Spanned<Atom>;
 pub type ExprS = Spanned<Expr>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Expr {
     Atom(AtomS),
     Let(Let),
@@ -67,12 +68,14 @@ pub enum Expr {
 
 // not to be confused with an XPath atom; this is a variable or a constant
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Atom {
     Const(Const),
     Variable(Name),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Const {
     Integer(IBig),
     String(String),
@@ -87,6 +90,7 @@ pub enum Const {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ContextNames {
     pub item: Name,
     pub position: Name,
@@ -94,6 +98,7 @@ pub struct ContextNames {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Let {
     pub name: Name,
     pub var_expr: Box<ExprS>,
@@ -101,6 +106,7 @@ pub struct Let {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct If {
     pub condition: AtomS,
     pub then: Box<ExprS>,
@@ -108,6 +114,7 @@ pub struct If {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Binary {
     pub left: AtomS,
     pub op: BinaryOperator,
@@ -115,12 +122,14 @@ pub struct Binary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Unary {
     pub op: UnaryOperator,
     pub atom: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FunctionDefinition {
     pub declared_name: Option<xmlname::OwnedName>,
     pub params: Vec<Param>,
@@ -142,6 +151,7 @@ impl FunctionDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Param {
     pub name: Name,
     pub type_: Option<SequenceType>,
@@ -152,29 +162,34 @@ pub struct Param {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FunctionCall {
     pub atom: AtomS,
     pub args: Vec<AtomS>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Lookup {
     pub atom: AtomS,
     pub arg_atom: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WildcardLookup {
     pub atom: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Step {
     pub step: xml::Step,
     pub context: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Map {
     pub context_names: ContextNames,
     pub var_atom: AtomS,
@@ -182,6 +197,7 @@ pub struct Map {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Filter {
     pub context_names: ContextNames,
     pub var_atom: AtomS,
@@ -189,6 +205,7 @@ pub struct Filter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IterateParam {
     pub name: Name,
     pub value: Box<ExprS>,
@@ -196,6 +213,7 @@ pub struct IterateParam {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Iterate {
     pub context_names: ContextNames,
     pub loop_name: Name,
@@ -206,18 +224,21 @@ pub struct Iterate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IterateBreak {
     pub loop_name: Name,
     pub return_expr: Box<ExprS>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IterateLetNext {
     pub params: Vec<IterateParam>,
     pub return_expr: Box<ExprS>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PatternPredicate {
     pub context_names: ContextNames,
     pub var_atom: AtomS,
@@ -225,6 +246,7 @@ pub struct PatternPredicate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Quantified {
     pub quantifier: Quantifier,
     pub context_names: ContextNames,
@@ -233,12 +255,14 @@ pub struct Quantified {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Quantifier {
     Some,
     Every,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cast {
     pub atom: AtomS,
     pub xs: Xs,
@@ -255,6 +279,7 @@ impl Cast {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Castable {
     pub atom: AtomS,
     pub xs: Xs,
@@ -271,18 +296,21 @@ impl Castable {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InstanceOf {
     pub atom: AtomS,
     pub sequence_type: SequenceType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Treat {
     pub atom: AtomS,
     pub sequence_type: SequenceType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ConvertSequence {
     pub atom: AtomS,
     pub sequence_type: SequenceType,
@@ -290,11 +318,13 @@ pub struct ConvertSequence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MapConstructor {
     pub members: Vec<(AtomS, AtomS)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArrayConstructor {
     Square(Vec<AtomS>),
     Curly(AtomS),
@@ -303,54 +333,64 @@ pub enum ArrayConstructor {
 // These are extensions to the IR that are only used by XSLT
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlName {
     pub local_name: AtomS,
     pub namespace: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlRoot {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlElement {
     pub name: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlAttribute {
     pub name: AtomS,
     pub value: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlNamespace {
     pub prefix: AtomS,
     pub namespace: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlText {
     pub value: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlComment {
     pub value: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlProcessingInstruction {
     pub target: AtomS,
     pub content: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct XmlAppend {
     pub parent: AtomS,
     pub child: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ApplyTemplates {
     pub mode: ApplyTemplatesModeValue,
     pub select: AtomS,
@@ -359,18 +399,21 @@ pub struct ApplyTemplates {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ContinueTemplate {
     pub params: Vec<WithParam>,
     pub behavior: ContinueBehavior,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ContinueBehavior {
     NextMatch,
     ApplyImports,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ApplyTemplatesModeValue {
     Named(xmlname::OwnedName),
     Unnamed,
@@ -378,6 +421,7 @@ pub enum ApplyTemplatesModeValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTemplate {
     pub name: Name,
     pub context: Option<ContextNames>,
@@ -386,6 +430,7 @@ pub struct CallTemplate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WithParam {
     pub name: Name,
     pub select: Option<AtomS>,
@@ -394,16 +439,19 @@ pub struct WithParam {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CopyShallow {
     pub select: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CopyDeep {
     pub select: AtomS,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rule {
     pub import_precedence: i64,
     pub module_path: Vec<usize>,
@@ -414,6 +462,7 @@ pub struct Rule {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ModeValue {
     Named(xmlname::OwnedName),
     Unnamed,
@@ -421,6 +470,7 @@ pub enum ModeValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mode {
     pub on_no_match: ModeOnNoMatch,
     pub on_multiple_match: OnMultipleMatch,
@@ -429,6 +479,7 @@ pub struct Mode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ModeOnNoMatch {
     DeepCopy,
     ShallowCopy,
@@ -439,12 +490,14 @@ pub enum ModeOnNoMatch {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OnMultipleMatch {
     UseLast,
     Fail,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ModeTyped {
     Yes,
     No,
@@ -453,6 +506,7 @@ pub enum ModeTyped {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GlobalVariable {
     pub name: Name,
     pub original_name: Option<xmlname::OwnedName>,
@@ -466,6 +520,7 @@ pub struct GlobalVariable {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Declarations {
     pub rules: Vec<Rule>,
     pub modes: HashMap<Option<xmlname::OwnedName>, Mode>,
@@ -497,12 +552,14 @@ impl Declarations {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AccumulatorDefinition {
     pub name: xmlname::OwnedName,
     pub rules: Vec<AccumulatorRuleDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AccumulatorRuleDefinition {
     pub pattern: Pattern<FunctionDefinition>,
     pub phase: AccumulatorPhase,
@@ -511,12 +568,14 @@ pub struct AccumulatorRuleDefinition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum AccumulatorPhase {
     Start,
     End,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct KeyDefinition {
     pub name: xmlname::OwnedName,
     pub pattern: Pattern<FunctionDefinition>,
@@ -526,11 +585,13 @@ pub struct KeyDefinition {
 
 /// A compiled xsl:number count or from pattern at the IR level.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NumberPatternDefinition {
     pub pattern: Pattern<FunctionDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FunctionBinding {
     pub name: Name,
     pub import_precedence: i64,

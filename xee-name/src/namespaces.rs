@@ -22,6 +22,7 @@ pub static DEFAULT_NAMESPACES: LazyLock<Namespaces> = LazyLock::new(Default::def
 
 /// Declared namespaces.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Namespaces {
     namespaces: HashMap<String, String>,
     /// The default namespace for elements in XPath expressions.

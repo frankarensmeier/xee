@@ -5,6 +5,7 @@ use super::static_function::FunctionKind;
 
 /// A function signature.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Signature {
     parameter_types: Vec<Option<ast::SequenceType>>,
     return_type: Option<ast::SequenceType>,

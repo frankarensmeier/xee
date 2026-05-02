@@ -463,11 +463,53 @@ pub fn parse_to_ir(
     base_dir: Option<std::path::PathBuf>,
     initial_mode: Option<String>,
 ) -> error::SpannedResult<ir::Declarations> {
+    let (declarations, static_context, _initial_mode) =
+        parse_to_ir_with_context(static_context, xslt, base_dir, initial_mode)?;
+    let _ = static_context;
+    Ok(declarations)
+}
+
+/// Parse an XSLT stylesheet to IR and also return the enriched StaticContext
+/// and initial mode. This is used by the precompiled stylesheet feature to
+/// capture all metadata needed for later compilation.
+///
+/// Returns (ir_declarations, static_context_with_decimal_formats, initial_mode_string).
+/// The initial mode string is None for the unnamed mode, or Some("ns local")
+/// for a named mode.
+pub fn parse_to_ir_with_context(
+    static_context: StaticContext,
+    xslt: &str,
+    base_dir: Option<std::path::PathBuf>,
+    initial_mode: Option<String>,
+) -> error::SpannedResult<(ir::Declarations, StaticContext, Option<String>)> {
     let (declarations, mut static_context, initial_mode) =
         preprocess_stylesheet(static_context, xslt, base_dir, initial_mode)?;
     augment_static_context_with_decimal_formats(&declarations, &mut static_context)?;
-    let mut ir_converter = IrConverter::new(&static_context, initial_mode, HashMap::new());
-    ir_converter.transform(&declarations)
+    let mut ir_converter = IrConverter::new(&static_context, initial_mode.clone(), HashMap::new());
+    let ir_declarations = ir_converter.transform(&declarations)?;
+
+    let initial_mode_str = match &initial_mode {
+        ast::ApplyTemplatesModeValue::Unnamed => None,
+        ast::ApplyTemplatesModeValue::EqName(name) => {
+            Some(format_eqname(name))
+        }
+        ast::ApplyTemplatesModeValue::Current => {
+            Some("#current".to_string())
+        }
+    };
+
+    Ok((ir_declarations, static_context, initial_mode_str))
+}
+
+/// Format an OwnedName as a serializable string using Clark notation: {namespace}local-name
+fn format_eqname(name: &OwnedName) -> String {
+    let ns = name.namespace();
+    let local = name.local_name();
+    if ns.is_empty() {
+        local.to_string()
+    } else {
+        format!("{{{}}}{}", ns, local)
+    }
 }
 
 fn preprocess_stylesheet(

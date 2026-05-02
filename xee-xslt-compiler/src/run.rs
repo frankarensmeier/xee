@@ -2,7 +2,7 @@ use xot::{Node, Xot};
 
 use std::path::{Path, PathBuf};
 
-use xee_interpreter::context::StaticContextBuilder;
+use xee_interpreter::context::{StaticContextBuilder, Variables};
 use xee_interpreter::error;
 use xee_interpreter::interpreter::Program;
 use xee_interpreter::sequence;
@@ -14,12 +14,22 @@ pub fn evaluate_program(
     program: &Program,
     root: Node,
 ) -> error::SpannedResult<sequence::Sequence> {
+    evaluate_program_with_variables(xot, program, root, Variables::new())
+}
+
+pub fn evaluate_program_with_variables(
+    xot: &mut Xot,
+    program: &Program,
+    root: Node,
+    variables: Variables,
+) -> error::SpannedResult<sequence::Sequence> {
     let mut documents = xee_interpreter::xml::Documents::new();
     let handle = documents.add_root(None, root).unwrap();
     let root = documents.get_node_by_handle(handle).unwrap();
     let mut dynamic_context_builder = program.dynamic_context_builder();
     dynamic_context_builder.context_node(root);
     dynamic_context_builder.documents(documents);
+    dynamic_context_builder.variables(variables);
     let context = dynamic_context_builder.build();
     let runnable = program.runnable(&context);
     runnable.many(xot)

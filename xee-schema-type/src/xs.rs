@@ -1,7 +1,7 @@
 const XS_NAMESPACE: &str = "http://www.w3.org/2001/XMLSchema";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Xs {
     AnyType,
     AnySimpleType,

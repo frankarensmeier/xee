@@ -9,6 +9,7 @@ use xot::Xot;
 use crate::{atomic, context, error, function::Map};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum QNameOrString {
     QName(OwnedName),
     String(String),

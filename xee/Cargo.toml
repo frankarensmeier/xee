@@ -13,7 +13,7 @@ homepage = "https://github.com/Paligo/xee"
 
 [dependencies]
 xee-xpath = { path = "../xee-xpath", version = "0.1.5" }
-xee-xslt-compiler = { path = "../xee-xslt-compiler", version = "0.1.6" }
+xee-xslt-compiler = { path = "../xee-xslt-compiler", version = "0.1.6", features = ["serde"] }
 xee-interpreter = { path = "../xee-interpreter", version = "0.2.0" }
 xee-ir = { path = "../xee-ir", version = "0.1.5" }
 xot = { workspace = true }
@@ -24,5 +24,6 @@ regex = { workspace = true }
 rustyline = "15.0.0"
 ahash = { workspace = true }
 mimalloc = { version = "0.1", default-features = false }
+serde_json = "1"
 
 [dev-dependencies]

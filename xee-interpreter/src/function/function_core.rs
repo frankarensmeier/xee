@@ -29,6 +29,7 @@ impl InlineFunctionId {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StaticFunctionId(pub(crate) usize);
 
 impl StaticFunctionId {

@@ -12,10 +12,27 @@ readme = "README.md"
 documentation = "https://docs.rs/xee-ir"
 homepage = "https://github.com/Paligo/xee"
 
+[features]
+serde = [
+    "dep:serde",
+    "dep:rmp-serde",
+    "xee-xpath-ast/serde",
+    "xee-schema-type/serde",
+    "xee-interpreter/serde",
+    "ordered-float/serde",
+    "ibig/serde",
+    "rust_decimal/serde-with-str",
+    "iri-string/serde",
+    "xot/serde",
+    "ahash/serde",
+]
+
 [dependencies]
 xee-xpath-ast = { path = "../xee-xpath-ast", version = "0.1.4" }
 xee-schema-type = { path = "../xee-schema-type", version = "0.1.4" }
 xee-interpreter = { path = "../xee-interpreter", version = "0.2.0" }
+serde = { workspace = true, features = ["derive"], optional = true }
+rmp-serde = { version = "1", optional = true }
 ahash = { workspace = true }
 ordered-float = { workspace = true }
 iri-string = { workspace = true }

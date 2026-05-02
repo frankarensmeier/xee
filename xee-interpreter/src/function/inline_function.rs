@@ -9,12 +9,14 @@ use crate::xml;
 use super::signature::Signature;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CastType {
     pub xs: Xs,
     pub empty_sequence_allowed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Name(pub(crate) String);
 
 impl Name {

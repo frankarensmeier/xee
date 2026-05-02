@@ -12,7 +12,7 @@ documentation = "https://docs.rs/xee-ast-base"
 homepage = "https://github.com/Paligo/xee"
 
 [features]
-serde = ["dep:serde"]
+serde = ["dep:serde", "ahash/serde"]
 
 [dependencies]
 ahash = { workspace = true }

@@ -4,6 +4,58 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-02 16:02 CEST — CLI parameters and precompiled stylesheets
+
+### What changed
+
+1. **--param CLI support**: Added `--param NAME=VALUE` for passing stylesheet
+   parameters from the command line. Values are supplied as `xs:untypedAtomic`;
+   the stylesheet's `as=` declarations handle casting via XSLT 3.0 function
+   conversion rules.
+
+2. **--params-file JSON support**: Added `--params-file FILE` to load parameters
+   from a flat JSON object. Supports string, number, boolean, and null values.
+
+3. **Precompiled stylesheets**: Added `--compile` and `--precompiled` flags.
+   `--compile` serializes the IR + metadata to a `.xeec` file.
+   `--precompiled` loads a `.xeec` and skips the expensive preprocessing step.
+   - Compilation pipeline: XSLT source → AST → IR → bytecode
+   - Preprocessing (XML parsing, import resolution, AST building) is ~94% of
+     compilation time (~850ms for DocBook)
+   - Precompilation serializes at the IR level using MessagePack (rmp-serde)
+   - Loading a `.xeec` only runs the fast IR→bytecode step (~60ms)
+   - Result: **36% faster** end-to-end for DocBook (1.81s → 1.15s)
+   - `.xeec` file size: ~3.3MB for DocBook stylesheet
+
+4. **serde infrastructure**: Added conditional `serde` feature across
+   xee-schema-type, xee-xpath-type, xee-xpath-ast, xee-interpreter, xee-ir,
+   and xee-xslt-compiler. All IR types have `#[cfg_attr(feature = "serde", ...)]`
+   so serde adds zero overhead when the feature is not enabled.
+
+### Architecture
+
+- `xee-xslt-compiler::precompiled` module handles serialization/deserialization
+- `PrecompiledStylesheet` struct bundles IR `Declarations` + `PrecompiledMetadata`
+- `PrecompiledMetadata` captures namespaces, base URI, decimal formats, disabled
+  functions, version info — everything needed to reconstruct a `StaticContext`
+- Format version field enables forward compatibility
+
+### Validation
+
+- All focused tests pass: `cargo test -q -p xee-interpreter -p xee-ir -p xee-xslt-compiler -p xee-testrunner`
+- DocBook roundtrip: normal vs precompiled output is byte-identical (except timestamps)
+- Simple stylesheet roundtrip with params verified
+
+### Code review fixes (2026-05-02 17:18 CEST)
+
+- **Fixed stack overflow** in `load_from_file`: deeply nested IR (e.g. DocBook)
+  overflowed the default stack during `rmp_serde::from_slice`. Deserialization
+  now runs on a thread with a 16 MiB stack.
+- **Fixed error reporting regression**: `run_transform()` was passing `""` as
+  the fallback stylesheet source for all code paths, losing source context in
+  normal-mode error messages. Now threads the source through correctly.
+- **Added `conflicts_with`** for `--compile` / `--precompiled` CLI args.
+
 ## 2026-05-02 13:13 CEST
 
 ### Performance: two-level cache for dynamic XPath evaluation (~11% overall)
