@@ -251,7 +251,6 @@ bug-2401
 bug-2502
 bug-2801
 bug-3001
-bug-5101
 bug-5601
 = built-in-templates
 built-in-templates-0201
@@ -384,19 +383,16 @@ copy-1220
 copy-1221
 copy-3002
 copy-3003
-copy-3302
 copy-3702
 copy-3801
 copy-3803
 copy-4307
 copy-4308
 copy-4309
-copy-4401
 copy-4601
 copy-4701
 copy-4702
 copy-4901
-copy-5201
 = copy-of
 = core-function
 = current
@@ -483,7 +479,6 @@ doe-0177a
 = docbook
 docbook-004
 = document
-document-0302
 document-0308
 document-0309
 document-0401
@@ -491,10 +486,6 @@ document-0501
 document-0502
 document-0503
 document-0504
-document-1001
-document-1002
-document-1003
-document-1004
 document-1501
 document-1502
 document-2003
@@ -514,7 +505,6 @@ element-0106
 element-0107
 element-0108
 element-0302
-element-0308
 = embedded-stylesheet
 = error
 error-0010a
@@ -1461,8 +1451,6 @@ namespace-3309
 namespace-3310
 namespace-3311
 namespace-3313
-namespace-4401
-namespace-6003
 namespace-6202
 = namespace-alias
 namespace-alias-1901
@@ -1756,7 +1744,6 @@ output-0121
 output-0122
 output-0128
 output-0129
-output-0131
 output-0132
 output-0133
 output-0134
@@ -1817,7 +1804,6 @@ output-0209
 output-0210
 output-0211
 output-0221
-output-0224
 output-0225
 output-0226
 output-0229
