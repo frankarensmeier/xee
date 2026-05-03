@@ -1058,7 +1058,7 @@ impl From<xee_xpath_ast::ParserError> for SpannedError {
             // implementation limit exceeded (XPST00130) seems reasonable to me.
             ParserError::ArityOverflow { .. } => Error::FOAR0002,
             ParserError::Reserved { .. } => Error::XPST0003,
-            ParserError::UnknownPrefix { .. } => Error::XPST0081,
+            ParserError::UnknownPrefix { prefix, .. } => Error::XPST0081Detail(prefix),
             ParserError::UnknownType { .. } => Error::XPST0051,
             // TODO: this this the right error code?
             ParserError::IllegalFunctionInPattern { .. } => Error::XPST0003,

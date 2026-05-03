@@ -286,14 +286,14 @@ fn map_dynamic_xpath_static_error(error: error::SpannedError) -> error::SpannedE
         error::Error::XPST0003
         | error::Error::XPST0017
         | error::Error::XPST0051
-        | error::Error::XPST0081 => error::Error::XTDE3160,
+        | error::Error::XPST0081
+        | error::Error::XPST0081Detail(_) => error::Error::XTDE3160,
         other => other,
     };
     error::SpannedError {
         error: mapped_error,
         span: error.span,
-        detail: None,
-
+        detail: error.detail,
         contexts: Vec::new(),
     }
 }

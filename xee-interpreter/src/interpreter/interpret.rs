@@ -775,7 +775,7 @@ impl<'a> Interpreter<'a> {
                         let copy = match &item {
                             sequence::Item::Atomic(_) | sequence::Item::Function(_) => item.clone(),
                             sequence::Item::Node(node) => {
-                                let copied_node = self.state.xot.clone_node(*node);
+                                let copied_node = self.state.xot.clone_with_prefixes(*node);
                                 sequence::Item::Node(copied_node)
                             }
                         };
@@ -1813,14 +1813,18 @@ impl<'a> Interpreter<'a> {
                     };
                     // TODO: error out if namespace or attribute node
                     // is added once a normal child already exists
-                    let needs_ns_fixup = self.state.xot.is_element(parent_node)
+                    let needs_attr_ns_fixup = self.state.xot.is_element(parent_node)
                         && self.state.xot.is_attribute_node(node);
+                    let is_element = self.state.xot.is_element(node);
                     self.state.xot.any_append(parent_node, node).unwrap();
                     // Ensure namespace declarations exist for namespaced
-                    // attributes appended to the result tree
+                    // nodes appended to the result tree
                     // (XSLT 3.0 §5.7.3: namespace fixup)
-                    if needs_ns_fixup {
+                    if needs_attr_ns_fixup {
                         self.ensure_namespace_for_node(parent_node, node)?;
+                    }
+                    if is_element {
+                        self.ensure_namespace_for_element(node)?;
                     }
                     self.state.record_output_mutation();
                 }
@@ -1864,6 +1868,46 @@ impl<'a> Interpreter<'a> {
             // operation as shallow copy
             _ => xot.clone_node(node),
         }
+    }
+
+    /// Ensure that a namespaced element has a namespace declaration for its
+    /// own namespace.  Uses the empty prefix (default namespace) since
+    /// computed element names from `xsl:element` are typically unprefixed.
+    /// This implements XSLT 3.0 §5.7.3 namespace fixup for elements.
+    ///
+    /// Called when appending an element to the result tree.  At this point
+    /// any compiler-generated namespace declarations (e.g. for prefixed
+    /// names) have already been attached, so we only add a default-namespace
+    /// binding when no declaration for this namespace exists yet.
+    fn ensure_namespace_for_element(
+        &mut self,
+        element: xot::Node,
+    ) -> error::Result<()> {
+        let Some(name_id) = self.state.xot.node_name(element) else {
+            return Ok(());
+        };
+        let namespace_id = self.state.xot.namespace_for_name(name_id);
+        if namespace_id == self.state.xot.no_namespace() {
+            return Ok(());
+        }
+        // If the element already has a namespace binding (e.g. from a
+        // compiler-generated xmlns:prefix declaration), don't add another.
+        if self
+            .state
+            .xot
+            .prefix_for_namespace(element, namespace_id)
+            .is_some()
+        {
+            return Ok(());
+        }
+        // Use the empty prefix (default namespace) for the element's own
+        // namespace.  This produces clean output like:
+        //   <math xmlns="http://www.w3.org/1998/Math/MathML">
+        // rather than synthetic prefixes like n0:math.
+        let empty_prefix = self.state.xot.empty_prefix();
+        let ns_node = self.state.xot.new_namespace_node(empty_prefix, namespace_id);
+        self.state.xot.any_append(element, ns_node)?;
+        Ok(())
     }
 
     /// Ensure that a namespace declaration exists on `parent` for the

@@ -4,6 +4,39 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-03 11:12 CEST — Namespace fixup for xsl:element and xsl:copy-of
+
+### What changed
+
+1. **Element namespace fixup (XSLT 3.0 §5.7.3)**: Elements created by
+   `xsl:element` with a `namespace` attribute (e.g. MathML elements) now
+   get a default-namespace declaration (`xmlns="..."`) automatically when
+   no existing namespace binding covers their namespace. This prevents
+   `MissingPrefix` errors during XML/XHTML serialization.
+
+2. **CopyDeep preserves namespaces**: `xsl:copy-of` deep copy now uses
+   `clone_with_prefixes` instead of `clone_node`, preserving in-scope
+   namespace declarations from ancestors on the cloned subtree.
+
+3. **XPST0081 error reporting**: The `UnknownPrefix` parser error now
+   preserves the prefix name in the `XPST0081Detail` variant, and
+   `dynamic_xpath.rs` maps both `XPST0081` and `XPST0081Detail` to
+   `XTDE3160` while preserving the detail field.
+
+### Key implementation detail
+
+The `ensure_namespace_for_element` fixup runs at element-append time (not
+creation time) to avoid conflicting with compiler-generated namespace
+declarations for prefixed names. The `is_element` check is captured
+*before* `any_append` because xot's text-node consolidation can free the
+input node during append.
+
+### Test results
+
+- Unit tests: 633 passed, 0 failed
+- XSLT conformance: 5678 passed, 0 failed, 0 error
+- No filter additions
+
 ## 2026-05-02 16:02 CEST — CLI parameters and precompiled stylesheets
 
 ### What changed
