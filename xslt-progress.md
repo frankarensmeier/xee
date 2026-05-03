@@ -4186,4 +4186,27 @@ Next blocker is `xsl:number level="any"` with complex count/from patterns (predi
 - `cargo run --release -p xee-testrunner -- check vendor/xpath-tests/` — no regressions vs baseline
 - `./bench-xslt` — 3.49s avg (3.37s baseline, within 20% threshold)
 
+## 2026-05-03 12:33 CEST — Namespace declaration deduplication
+
+Replaced the broken `normalize_default_namespace_nodes` in serialization.rs
+with `normalize_namespace_declarations`.  The old function used
+`xot.children()` to find namespace nodes, but `children()` skips
+namespace/attribute nodes — so phase 1 (default namespace normalization)
+was silently a no-op.
+
+### Changes
+
+- Phase 1: rewritten using `xot.namespace_declarations()` and
+  `xot.namespace_for_prefix()` so it actually works.
+- Phase 2 (new): removes prefixed `xmlns:prefix="uri"` declarations
+  already inherited from an ancestor.
+- Removed the string-based `remove_redundant_default_namespace` hack
+  that did naive substring matching on serialized output.
+
+### Results (xlarge MathML test)
+
+- MathML declarations: 576 → 199 (one per `<math>` island, zero on children)
+- XHTML declarations: many → 1 (root `<html>` only)
+- 633 unit tests pass, 5678 XSLT conformance pass, 0 failed, 0 error
+
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.

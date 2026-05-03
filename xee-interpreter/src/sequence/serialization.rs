@@ -474,8 +474,6 @@ fn serialize_html(
         remove_html5_doctype(&mut serialized);
     }
 
-    remove_redundant_default_namespace(&mut serialized, " xmlns=\"http://www.w3.org/1999/xhtml\"");
-
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
@@ -550,8 +548,6 @@ fn serialize_xhtml(
     {
         ensure_html5_doctype(&mut serialized);
     }
-
-    remove_redundant_default_namespace(&mut serialized, " xmlns=\"http://www.w3.org/1999/xhtml\"");
 
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
@@ -650,18 +646,6 @@ fn head_content_type_meta(head: xot::Node, http_equiv_name: xot::NameId, xot: &X
             .get(http_equiv_name)
             .is_some_and(|value| value.eq_ignore_ascii_case("Content-Type"))
     })
-}
-
-fn remove_redundant_default_namespace(serialized: &mut String, namespace_attr: &str) {
-    let Some(first_position) = serialized.find(namespace_attr) else {
-        return;
-    };
-    let mut search_start = first_position + namespace_attr.len();
-    while let Some(relative_position) = serialized[search_start..].find(namespace_attr) {
-        let position = search_start + relative_position;
-        serialized.replace_range(position..position + namespace_attr.len(), "");
-        search_start = position;
-    }
 }
 
 fn ensure_html5_doctype(serialized: &mut String) {
@@ -822,7 +806,7 @@ fn map_serialization_node(
     xot: &mut Xot,
 ) -> xot::Node {
     let mapped_root = xot.clone_node(node);
-    normalize_default_namespace_nodes(mapped_root, xot);
+    normalize_namespace_declarations(mapped_root, xot);
 
     if character_maps.is_empty() {
         return mapped_root;
@@ -850,61 +834,79 @@ fn map_serialization_node(
     mapped_root
 }
 
-fn normalize_default_namespace_nodes(root: xot::Node, xot: &mut Xot) {
+/// Normalize namespace declarations in the result tree before serialization.
+///
+/// Phase 1 – default namespace:
+///   • Elements in no-namespace under a default namespace get an explicit
+///     undeclaration (`xmlns=""`).
+///   • Default namespace declarations that duplicate the parent's are removed.
+///
+/// Phase 2 – prefixed namespaces:
+///   • Any `xmlns:prefix="uri"` declaration already inherited from an ancestor
+///     is removed.  This eliminates the redundant declarations that arise when
+///     e.g. `xsl:element` children each repeat the parent's namespace binding.
+fn normalize_namespace_declarations(root: xot::Node, xot: &mut Xot) {
     let mut elements = Vec::new();
     if matches!(xot.value(root), xot::Value::Element(_)) {
         elements.push(root);
     }
     elements.extend(xot.descendants(root).filter(|node| xot.is_element(*node)));
 
+    let empty_prefix = xot.add_prefix("");
+
     for element in elements {
-        let parent_default_namespace = xot
-            .parent(element)
-            .filter(|parent| xot.is_element(*parent))
-            .and_then(|parent| {
-                xot.namespaces_in_scope(parent)
-                    .find(|(prefix, _)| xot.prefix_str(*prefix).is_empty())
-                    .map(|(_, namespace)| xot.namespace_str(namespace).to_string())
-            })
-            .unwrap_or_default();
+        let parent = xot.parent(element).filter(|p| xot.is_element(*p));
 
-        let element_namespace = xot
+        // What the parent's default namespace resolves to (walks ancestors).
+        // None means no default namespace in scope (or undeclared via xmlns="").
+        let parent_default_ns = parent.and_then(|p| xot.namespace_for_prefix(p, empty_prefix));
+
+        let element_ns = xot
             .node_name(element)
-            .map(|name| xot.namespace_str(xot.namespace_for_name(name)).to_string())
-            .unwrap_or_default();
+            .map(|name| xot.namespace_for_name(name))
+            .unwrap_or(xot.no_namespace());
 
-        let explicit_default_namespace =
-            xot.children(element)
-                .find_map(|child| match xot.value(child) {
-                    xot::Value::Namespace(namespace)
-                        if xot.prefix_str(namespace.prefix()).is_empty() =>
-                    {
-                        Some((child, xot.namespace_str(namespace.namespace()).to_string()))
-                    }
-                    _ => None,
-                });
+        // Does this element carry its own xmlns="..." declaration?
+        let explicit_default_ns = xot
+            .namespace_declarations(element)
+            .into_iter()
+            .find(|(prefix, _)| *prefix == empty_prefix)
+            .map(|(_, ns)| ns);
 
-        if element_namespace.is_empty() && !parent_default_namespace.is_empty() {
-            if explicit_default_namespace
-                .as_ref()
-                .map(|(_, uri)| uri.as_str())
-                != Some("")
-            {
-                if let Some((child, _)) = explicit_default_namespace {
-                    let _ = xot.remove(child);
-                }
-                let prefix = xot.add_prefix("");
-                let namespace = xot.add_namespace("");
-                let node = xot.new_namespace_node(prefix, namespace);
-                xot.any_append(element, node).unwrap();
+        // -- Phase 1: default namespace normalization --
+
+        if element_ns == xot.no_namespace() && parent_default_ns.is_some() {
+            // Element in no-namespace under a default namespace: must
+            // undeclare with xmlns="" so it doesn't inherit the parent's.
+            if explicit_default_ns != Some(xot.no_namespace()) {
+                // Replace any existing default declaration with xmlns=""
+                xot.set_namespace(element, empty_prefix, xot.no_namespace());
             }
-        } else if explicit_default_namespace
-            .as_ref()
-            .map(|(_, uri)| uri.as_str())
-            == Some(parent_default_namespace.as_str())
-        {
-            if let Some((child, _)) = explicit_default_namespace {
-                let _ = xot.remove(child);
+        } else if let Some(ns) = explicit_default_ns {
+            // Explicit default namespace identical to parent's: redundant.
+            if Some(ns) == parent_default_ns
+                || (ns == xot.no_namespace() && parent_default_ns.is_none())
+            {
+                xot.remove_namespace(element, empty_prefix);
+            }
+        }
+
+        // -- Phase 2: prefixed namespace deduplication --
+        // A declaration is redundant when an ancestor already binds the
+        // same prefix to the same namespace URI.
+        if let Some(parent) = parent {
+            let redundant: Vec<_> = xot
+                .namespace_declarations(element)
+                .into_iter()
+                .filter(|(prefix, ns)| {
+                    *prefix != empty_prefix
+                        && xot.namespace_for_prefix(parent, *prefix) == Some(*ns)
+                })
+                .map(|(prefix, _)| prefix)
+                .collect();
+
+            for prefix in redundant {
+                xot.remove_namespace(element, prefix);
             }
         }
     }
