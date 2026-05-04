@@ -477,7 +477,7 @@ XSLT elements:
 
 | Category | Filtered | Notes |
 |----------|----------|-------|
-| unicode-90 | 1460 | Unicode 9.0 character property tests for regex. Requires updated Unicode property tables in regexml. |
+| unicode-90 | 1460 | Unicode 9.0 character count assertions. Tests expect exact counts from Unicode 9.0 (2016), but regexml uses icu4x with Unicode 16.0 data, which has more characters. E.g. `\d` matches 680 digits now vs 370 expected. Not a bug — version mismatch. |
 | error | 340 | Error code validation tests (XTSE/XTDE/XPDY). Many edge cases in error detection/reporting. |
 | number | 202 | xsl:number format patterns: ordinal, language-specific, letter-value. |
 | output | 124 | Serialization edge cases: HTML5, encoding, indentation. |
