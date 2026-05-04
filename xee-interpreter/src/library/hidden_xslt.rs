@@ -935,12 +935,18 @@ fn format_number_lexical3(
     numeric::format_number_from_lexical(context, value, picture, Some(decimal_format_name))
 }
 
-#[xpath_fn("fn:xslt-number-value($value as item()*, $format as xs:string?) as xs:string")]
+#[xpath_fn("fn:xslt-number-value($value as item()*, $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?) as xs:string")]
 fn xslt_number_value(
     interpreter: &Interpreter,
     value: &sequence::Sequence,
     format: Option<&str>,
+    grouping_separator: Option<&str>,
+    grouping_size: Option<&str>,
+    start_at: Option<&str>,
 ) -> error::Result<String> {
+    let gs = parse_grouping_separator(grouping_separator);
+    let gsz = parse_grouping_size(grouping_size);
+    let sa = parse_start_at(start_at);
     let atomic = sequence::one(value.atomized(interpreter.xot()))??;
     // Per XSLT spec, the value is rounded to the nearest integer
     let number = match &atomic {
@@ -963,20 +969,32 @@ fn xslt_number_value(
         ));
     }
 
-    format_xslt_number_value(number, format.unwrap_or("1"))
+    // Apply start-at adjustment: displayed = number + start_at - 1
+    let adjusted = number + sa - 1;
+    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz)
 }
 
 // xsl:number level="single" with default count pattern (no explicit count/from).
 // Counts 1 + preceding siblings that match the same node kind and expanded-QName.
-#[xpath_fn("fn:xslt-number-count-single($node as node(), $format as xs:string?) as xs:string")]
+#[xpath_fn("fn:xslt-number-count-single($node as node(), $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?) as xs:string")]
 fn xslt_number_count_single(
     interpreter: &Interpreter,
     node: xot::Node,
     format: Option<&str>,
+    grouping_separator: Option<&str>,
+    grouping_size: Option<&str>,
+    start_at: Option<&str>,
 ) -> error::Result<String> {
+    let gs = parse_grouping_separator(grouping_separator);
+    let gsz = parse_grouping_size(grouping_size);
+    let sa = parse_start_at(start_at);
     let xot = interpreter.xot();
     let count = count_single_level(xot, node);
-    format_xslt_number_value(count, format.unwrap_or("1"))
+    if count == 0 {
+        return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz);
+    }
+    let adjusted = count + sa - 1;
+    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz)
 }
 
 /// For level="single" with default count pattern: find the first ancestor-or-self
@@ -1035,14 +1053,24 @@ fn node_matches_default_count(
 // xsl:number level="any" with default count pattern (no explicit count/from).
 // Counts all preceding nodes (in document order) that match the same node kind
 // and expanded-QName as the current node, including the current node itself.
-#[xpath_fn("fn:xslt-number-count-any($node as node(), $format as xs:string?) as xs:string")]
+#[xpath_fn("fn:xslt-number-count-any($node as node(), $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?) as xs:string")]
 fn xslt_number_count_any(
     interpreter: &mut Interpreter,
     node: xot::Node,
     format: Option<&str>,
+    grouping_separator: Option<&str>,
+    grouping_size: Option<&str>,
+    start_at: Option<&str>,
 ) -> error::Result<String> {
+    let gs = parse_grouping_separator(grouping_separator);
+    let gsz = parse_grouping_size(grouping_size);
+    let sa = parse_start_at(start_at);
     let count = count_any_level(interpreter, node);
-    format_xslt_number_value(count, format.unwrap_or("1"))
+    if count == 0 {
+        return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz);
+    }
+    let adjusted = count + sa - 1;
+    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz)
 }
 
 /// For level="any" with default count pattern: count all nodes preceding
@@ -1126,7 +1154,7 @@ fn count_any_level_attribute(xot: &Xot, node: xot::Node) -> i64 {
 // count_index: index into declarations.number_patterns for the count pattern (-1 = default).
 // from_index: index into declarations.number_patterns for the from pattern (-1 = none).
 #[xpath_fn(
-    "fn:xslt-number-count-single-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?) as xs:string"
+    "fn:xslt-number-count-single-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?) as xs:string"
 )]
 fn xslt_number_count_single_pattern(
     interpreter: &mut Interpreter,
@@ -1134,7 +1162,13 @@ fn xslt_number_count_single_pattern(
     count_index: IBig,
     from_index: IBig,
     format: Option<&str>,
+    grouping_separator: Option<&str>,
+    grouping_size: Option<&str>,
+    start_at: Option<&str>,
 ) -> error::Result<String> {
+    let gs = parse_grouping_separator(grouping_separator);
+    let gsz = parse_grouping_size(grouping_size);
+    let sa = parse_start_at(start_at);
     let count_index: i64 = (&count_index)
         .try_into()
         .map_err(|_| error::Error::XPTY0004(None))?;
@@ -1142,7 +1176,11 @@ fn xslt_number_count_single_pattern(
         .try_into()
         .map_err(|_| error::Error::XPTY0004(None))?;
     let count = count_single_level_pattern(interpreter, node, count_index, from_index);
-    format_xslt_number_value(count, format.unwrap_or("1"))
+    if count == 0 {
+        return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz);
+    }
+    let adjusted = count + sa - 1;
+    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz)
 }
 
 fn count_single_level_pattern(
@@ -1214,7 +1252,7 @@ fn count_single_level_pattern(
 
 // xsl:number level="any" with compiled count/from patterns.
 #[xpath_fn(
-    "fn:xslt-number-count-any-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?) as xs:string"
+    "fn:xslt-number-count-any-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?) as xs:string"
 )]
 fn xslt_number_count_any_pattern(
     interpreter: &mut Interpreter,
@@ -1222,7 +1260,13 @@ fn xslt_number_count_any_pattern(
     count_index: IBig,
     from_index: IBig,
     format: Option<&str>,
+    grouping_separator: Option<&str>,
+    grouping_size: Option<&str>,
+    start_at: Option<&str>,
 ) -> error::Result<String> {
+    let gs = parse_grouping_separator(grouping_separator);
+    let gsz = parse_grouping_size(grouping_size);
+    let sa = parse_start_at(start_at);
     let count_index: i64 = (&count_index)
         .try_into()
         .map_err(|_| error::Error::XPTY0004(None))?;
@@ -1230,7 +1274,11 @@ fn xslt_number_count_any_pattern(
         .try_into()
         .map_err(|_| error::Error::XPTY0004(None))?;
     let count = count_any_level_pattern(interpreter, node, count_index, from_index);
-    format_xslt_number_value(count, format.unwrap_or("1"))
+    if count == 0 {
+        return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz);
+    }
+    let adjusted = count + sa - 1;
+    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz)
 }
 
 fn count_any_level_pattern(
@@ -1368,15 +1416,22 @@ fn count_any_level_pattern_attribute(
 // xsl:number level="multiple" with default count pattern (no explicit count/from).
 // For each ancestor-or-self matching the default count, count 1 + preceding siblings matching.
 // Returns the formatted multi-value string.
-#[xpath_fn("fn:xslt-number-count-multiple($node as node(), $format as xs:string?) as xs:string")]
+#[xpath_fn("fn:xslt-number-count-multiple($node as node(), $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?) as xs:string")]
 fn xslt_number_count_multiple(
     interpreter: &Interpreter,
     node: xot::Node,
     format: Option<&str>,
+    grouping_separator: Option<&str>,
+    grouping_size: Option<&str>,
+    start_at: Option<&str>,
 ) -> error::Result<String> {
+    let gs = parse_grouping_separator(grouping_separator);
+    let gsz = parse_grouping_size(grouping_size);
+    let sa_values = parse_start_at_values(start_at);
     let xot = interpreter.xot();
-    let numbers = count_multiple_level(xot, node);
-    format_xslt_number_values(&numbers, format.unwrap_or("1"))
+    let mut numbers = count_multiple_level(xot, node);
+    apply_start_at_multiple(&mut numbers, &sa_values);
+    format_xslt_number_values(&numbers, format.unwrap_or("1"), gs, gsz)
 }
 
 /// For level="multiple" with default count pattern: walk ancestor-or-self,
@@ -1410,7 +1465,7 @@ fn count_multiple_level(xot: &Xot, node: xot::Node) -> Vec<i64> {
 
 // xsl:number level="multiple" with compiled count/from patterns.
 #[xpath_fn(
-    "fn:xslt-number-count-multiple-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?) as xs:string"
+    "fn:xslt-number-count-multiple-pattern($node as node(), $count_index as xs:integer, $from_index as xs:integer, $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?) as xs:string"
 )]
 fn xslt_number_count_multiple_pattern(
     interpreter: &mut Interpreter,
@@ -1418,15 +1473,22 @@ fn xslt_number_count_multiple_pattern(
     count_index: IBig,
     from_index: IBig,
     format: Option<&str>,
+    grouping_separator: Option<&str>,
+    grouping_size: Option<&str>,
+    start_at: Option<&str>,
 ) -> error::Result<String> {
+    let gs = parse_grouping_separator(grouping_separator);
+    let gsz = parse_grouping_size(grouping_size);
+    let sa_values = parse_start_at_values(start_at);
     let count_index: i64 = (&count_index)
         .try_into()
         .map_err(|_| error::Error::XPTY0004(None))?;
     let from_index: i64 = (&from_index)
         .try_into()
         .map_err(|_| error::Error::XPTY0004(None))?;
-    let numbers = count_multiple_level_pattern(interpreter, node, count_index, from_index);
-    format_xslt_number_values(&numbers, format.unwrap_or("1"))
+    let mut numbers = count_multiple_level_pattern(interpreter, node, count_index, from_index);
+    apply_start_at_multiple(&mut numbers, &sa_values);
+    format_xslt_number_values(&numbers, format.unwrap_or("1"), gs, gsz)
 }
 
 fn count_multiple_level_pattern(
@@ -1573,19 +1635,90 @@ impl<'a> ReverseDocOrderIter<'a> {
     }
 }
 
-fn format_xslt_number_value(number: i64, picture: &str) -> error::Result<String> {
-    format_xslt_number_values(&[number], picture)
+/// Parse grouping-separator attribute: must be a single character.
+fn parse_grouping_separator(s: Option<&str>) -> Option<char> {
+    s.and_then(|s| {
+        let mut chars = s.chars();
+        let c = chars.next()?;
+        if chars.next().is_none() {
+            Some(c)
+        } else {
+            None
+        }
+    })
+}
+
+/// Parse grouping-size attribute: must be a positive integer.
+fn parse_grouping_size(s: Option<&str>) -> Option<usize> {
+    s.and_then(|s| s.parse::<usize>().ok()).filter(|&n| n > 0)
+}
+
+/// Parse start-at attribute for single/any level: returns the first integer value (default 1).
+fn parse_start_at(s: Option<&str>) -> i64 {
+    s.and_then(|s| {
+        s.split_whitespace()
+            .next()
+            .and_then(|v| v.parse::<i64>().ok())
+    })
+    .unwrap_or(1)
+}
+
+/// Parse start-at attribute for multiple level: returns a Vec of integer values.
+fn parse_start_at_values(s: Option<&str>) -> Vec<i64> {
+    match s {
+        Some(s) => s
+            .split_whitespace()
+            .filter_map(|v| v.parse::<i64>().ok())
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Apply start-at adjustments to a vector of numbers for level="multiple".
+/// Each position gets its corresponding start-at value (default 1).
+fn apply_start_at_multiple(numbers: &mut [i64], start_at_values: &[i64]) {
+    for (i, num) in numbers.iter_mut().enumerate() {
+        let sa = start_at_values.get(i).copied().unwrap_or(1);
+        *num = *num + sa - 1;
+    }
+}
+
+fn format_xslt_number_value(
+    number: i64,
+    picture: &str,
+    grouping_separator: Option<char>,
+    grouping_size: Option<usize>,
+) -> error::Result<String> {
+    format_xslt_number_values(&[number], picture, grouping_separator, grouping_size)
 }
 
 /// Format a sequence of numbers according to the XSLT format picture.
 /// For level="single"/"any" this is a single number; for level="multiple" it may be several.
-fn format_xslt_number_values(numbers: &[i64], picture: &str) -> error::Result<String> {
-    if numbers.is_empty() {
-        return Ok(String::new());
-    }
-
+fn format_xslt_number_values(
+    numbers: &[i64],
+    picture: &str,
+    grouping_separator: Option<char>,
+    grouping_size: Option<usize>,
+) -> error::Result<String> {
     if picture.is_empty() {
         return Err(error::Error::FODF1310);
+    }
+
+    if numbers.is_empty() {
+        // Empty list (e.g. no matching nodes for level="single"/"any"):
+        // per XSLT spec, the formatted numbers part is empty but the prefix
+        // and suffix from the format picture are still produced.
+        let chars: Vec<char> = picture.chars().collect();
+        let first_alnum = chars.iter().position(|c| c.is_alphanumeric());
+        let last_alnum = chars.iter().rposition(|c| c.is_alphanumeric());
+        return match (first_alnum, last_alnum) {
+            (Some(first), Some(last)) => {
+                let prefix: String = chars[..first].iter().collect();
+                let suffix: String = chars[last + 1..].iter().collect();
+                Ok(format!("{}{}", prefix, suffix))
+            }
+            _ => Ok(String::new()),
+        };
     }
 
     // Parse the format picture into tokens and separators per XSLT spec.
@@ -1617,7 +1750,7 @@ fn format_xslt_number_values(numbers: &[i64], picture: &str) -> error::Result<St
             if i > 0 {
                 result.push('.');
             }
-            result.push_str(&format_number_token(num, "1")?);
+            result.push_str(&format_number_token(num, "1", grouping_separator, grouping_size)?);
         }
         return Ok(result);
     }
@@ -1664,14 +1797,19 @@ fn format_xslt_number_values(numbers: &[i64], picture: &str) -> error::Result<St
         };
         let (t_start, t_end) = tokens[token_idx];
         let token: String = chars[t_start..t_end].iter().collect();
-        result.push_str(&format_number_token(num, &token)?);
+        result.push_str(&format_number_token(num, &token, grouping_separator, grouping_size)?);
     }
 
     result.push_str(&suffix);
     Ok(result)
 }
 
-fn format_number_token(number: i64, token: &str) -> error::Result<String> {
+fn format_number_token(
+    number: i64,
+    token: &str,
+    grouping_separator: Option<char>,
+    grouping_size: Option<usize>,
+) -> error::Result<String> {
     if token.is_empty() {
         return Ok(number.to_string());
     }
@@ -1681,7 +1819,8 @@ fn format_number_token(number: i64, token: &str) -> error::Result<String> {
     if chars.iter().all(|c| *c == '0' || *c == '1') && chars.last() == Some(&'1') && chars.len() > 1
     {
         let min_width = chars.len();
-        return Ok(format!("{:0>width$}", number, width = min_width));
+        let formatted = format!("{:0>width$}", number, width = min_width);
+        return Ok(apply_grouping(&formatted, grouping_separator, grouping_size));
     }
 
     if chars.len() > 1 {
@@ -1691,7 +1830,10 @@ fn format_number_token(number: i64, token: &str) -> error::Result<String> {
     }
 
     match chars[0] {
-        '1' => Ok(number.to_string()),
+        '1' => {
+            let formatted = number.to_string();
+            Ok(apply_grouping(&formatted, grouping_separator, grouping_size))
+        }
         'a' => format_alphabetic_number(number, false),
         'A' => format_alphabetic_number(number, true),
         'i' => format_roman_number(number, false),
@@ -1702,9 +1844,44 @@ fn format_number_token(number: i64, token: &str) -> error::Result<String> {
     }
 }
 
+/// Apply digit grouping to a formatted number string.
+/// E.g. "1000000" with separator=',' and size=3 becomes "1,000,000".
+fn apply_grouping(
+    formatted: &str,
+    separator: Option<char>,
+    size: Option<usize>,
+) -> String {
+    let (Some(sep), Some(sz)) = (separator, size) else {
+        return formatted.to_string();
+    };
+    if sz == 0 {
+        return formatted.to_string();
+    }
+    // Only group the digit portion (skip any leading minus sign)
+    let (prefix, digits) = if formatted.starts_with('-') {
+        ("-", &formatted[1..])
+    } else {
+        ("", formatted.as_ref())
+    };
+    if digits.len() <= sz {
+        return formatted.to_string();
+    }
+    let mut result = String::with_capacity(formatted.len() + digits.len() / sz);
+    result.push_str(prefix);
+    let remainder = digits.len() % sz;
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && i >= remainder && (i - remainder) % sz == 0 {
+            result.push(sep);
+        }
+        result.push(ch);
+    }
+    result
+}
+
 fn format_alphabetic_number(number: i64, uppercase: bool) -> error::Result<String> {
-    if number == 0 {
-        return Ok("0".to_string());
+    if number <= 0 {
+        // Spec: fall back to decimal for values outside the representable range
+        return Ok(number.to_string());
     }
 
     let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004(None))?;
@@ -1719,11 +1896,13 @@ fn format_alphabetic_number(number: i64, uppercase: bool) -> error::Result<Strin
 }
 
 fn format_roman_number(number: i64, uppercase: bool) -> error::Result<String> {
-    if number == 0 {
-        return Ok("0".to_string());
+    if number <= 0 || number > 3999 {
+        // Spec: if the number is outside the range for the numbering scheme,
+        // fall back to the default format token "1" (decimal).
+        return Ok(number.to_string());
     }
 
-    let mut value = u64::try_from(number).map_err(|_| error::Error::XPTY0004(None))?;
+    let mut value = number as u64;
     let numerals = [
         (1000, "M"),
         (900, "CM"),

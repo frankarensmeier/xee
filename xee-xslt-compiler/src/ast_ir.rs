@@ -3606,23 +3606,20 @@ impl<'a> IrConverter<'a> {
     }
 
     fn number(&mut self, number: &ast::Number) -> error::SpannedResult<Bindings> {
-        // Reject unsupported formatting attributes early
-        if number.lang.is_some()
-            || number.letter_value.is_some()
-            || number.ordinal.is_some()
-            || number.start_at.is_some()
-            || number.grouping_separator.is_some()
-            || number.grouping_size.is_some()
-        {
-            return Err(error::Error::Unsupported(format!(
-                "Instruction not supported: {:?}",
-                number
-            ))
-            .into());
-        }
+        // lang, letter_value, ordinal are accepted but ignored (implementation-defined)
+        // grouping_separator, grouping_size, start_at are compiled and passed to runtime
 
         // Compile the format AVT (shared between value and counting forms)
         let (format_atom, format_bindings) = self.number_format(&number.format, number.span)?;
+
+        // Compile optional grouping/start-at AVTs
+        let (gs_atom, gs_bindings) =
+            self.number_optional_avt(&number.grouping_separator, number.span)?;
+        let (gsz_atom, gsz_bindings) =
+            self.number_optional_avt(&number.grouping_size, number.span)?;
+        let (sa_atom, sa_bindings) =
+            self.number_optional_avt(&number.start_at, number.span)?;
+        let extra_bindings = gs_bindings.concat(gsz_bindings).concat(sa_bindings);
 
         if let Some(value) = &number.value {
             // value= form: evaluate expression, format, emit text
@@ -3630,11 +3627,12 @@ impl<'a> IrConverter<'a> {
             let string_expr = self.static_function_call_expr(
                 "xslt-number-value",
                 FN_NAMESPACE,
-                2,
-                vec![value_atom, format_atom],
+                5,
+                vec![value_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
             );
             let (text_atom, bindings) = value_bindings
                 .concat(format_bindings)
+                .concat(extra_bindings)
                 .bind_expr_no_span(&mut self.variables, string_expr)
                 .atom_bindings();
             Ok(bindings.bind_expr_no_span(
@@ -3695,13 +3693,14 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             fn_name,
                             FN_NAMESPACE,
-                            4,
-                            vec![node_atom, count_index_atom, from_index_atom, format_atom],
+                            7,
+                            vec![node_atom, count_index_atom, from_index_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
                             .concat(count_index_bindings)
                             .concat(from_index_bindings)
+                            .concat(extra_bindings)
                             .bind_expr_no_span(&mut self.variables, string_expr)
                             .atom_bindings();
                         Ok(bindings.bind_expr_no_span(
@@ -3718,11 +3717,12 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             fn_name,
                             FN_NAMESPACE,
-                            2,
-                            vec![node_atom, format_atom],
+                            5,
+                            vec![node_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
+                            .concat(extra_bindings)
                             .bind_expr_no_span(&mut self.variables, string_expr)
                             .atom_bindings();
                         Ok(bindings.bind_expr_no_span(
@@ -3766,13 +3766,14 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             "xslt-number-count-multiple-pattern",
                             FN_NAMESPACE,
-                            4,
-                            vec![node_atom, count_index_atom, from_index_atom, format_atom],
+                            7,
+                            vec![node_atom, count_index_atom, from_index_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
                             .concat(count_index_bindings)
                             .concat(from_index_bindings)
+                            .concat(extra_bindings)
                             .bind_expr_no_span(&mut self.variables, string_expr)
                             .atom_bindings();
                         Ok(bindings.bind_expr_no_span(
@@ -3783,11 +3784,12 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             "xslt-number-count-multiple",
                             FN_NAMESPACE,
-                            2,
-                            vec![node_atom, format_atom],
+                            5,
+                            vec![node_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
+                            .concat(extra_bindings)
                             .bind_expr_no_span(&mut self.variables, string_expr)
                             .atom_bindings();
                         Ok(bindings.bind_expr_no_span(
@@ -3815,6 +3817,31 @@ impl<'a> IrConverter<'a> {
             ));
             Ok(bindings
                 .bind_expr_no_span(&mut self.variables, format_expr)
+                .atom_bindings())
+        }
+    }
+
+    /// Compile an optional AVT attribute for xsl:number.
+    /// If present, compiles the AVT to a string. If absent, produces an empty sequence
+    /// (which the runtime receives as `None`).
+    fn number_optional_avt<V>(
+        &mut self,
+        avt: &Option<ast::ValueTemplate<V>>,
+        span: ast::Span,
+    ) -> error::SpannedResult<(Spanned<ir::Atom>, Bindings)>
+    where
+        V: Clone + PartialEq + Eq,
+    {
+        if let Some(avt) = avt {
+            Ok(self.attribute_value_template(avt)?.atom_bindings())
+        } else {
+            let bindings = Bindings::empty();
+            let expr = ir::Expr::Atom(Spanned::new(
+                ir::Atom::Const(ir::Const::EmptySequence),
+                adjusted_span(span, self.current_span_offset),
+            ));
+            Ok(bindings
+                .bind_expr_no_span(&mut self.variables, expr)
                 .atom_bindings())
         }
     }

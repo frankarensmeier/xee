@@ -7655,8 +7655,8 @@ fn test_xsl_number_level_single_count_only() {
     )
     .unwrap();
 
-    // Only <a> elements are counted; <b> elements get 0 (no matching ancestor)
-    assert_eq!(xml(&xot, output), "<out>1:a,0:b,2:a,0:b,3:a</out>");
+    // Only <a> elements are counted; <b> elements produce empty string (no matching ancestor)
+    assert_eq!(xml(&xot, output), "<out>1:a,:b,2:a,:b,3:a</out>");
 }
 
 #[test]

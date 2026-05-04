@@ -4,6 +4,34 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-04 13:01 CEST — xsl:number improvements
+
+### What changed
+
+1. **grouping-separator, grouping-size, start-at attributes**: All 7
+   xsl:number runtime functions now accept and process these attributes.
+   The compiler compiles them as optional AVTs and passes them through.
+
+2. **Roman numeral overflow**: Values > 3999 or ≤ 0 now fall back to
+   decimal formatting instead of producing invalid Roman numerals.
+
+3. **Alphabetic number fallback**: Values ≤ 0 fall back to decimal.
+
+4. **Zero-count formatting**: When counting yields no matches
+   (level="single"/"any"), the format picture's prefix and suffix are
+   still emitted (e.g., format `[1]` produces `[]` for zero count).
+
+5. **Blanket rejection removed**: The compiler no longer rejects
+   lang, letter-value, ordinal, start-at, grouping-separator, and
+   grouping-size attributes. lang/letter-value/ordinal are accepted
+   but ignored (implementation-defined behavior).
+
+### Conformance impact
+
+- 50 xsl:number tests removed from filters (now passing)
+- Passed: 5741 (+49 from 5692), Filtered: 2256 (-50 from 2306)
+- 1 flaky pre-existing failure (copy-4901, namespace fixup, non-deterministic)
+
 ## 2026-05-03 11:12 CEST — Namespace fixup for xsl:element and xsl:copy-of
 
 ### What changed
