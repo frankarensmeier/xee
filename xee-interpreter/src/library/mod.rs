@@ -13,6 +13,7 @@ mod hof;
 mod id;
 pub(crate) mod key_cache;
 pub(crate) mod number_count_cache;
+mod xslt_number;
 
 pub(crate) use hidden_xslt::strip_whitespace_only_text_children;
 mod json;
@@ -48,6 +49,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     descriptions.extend(array::static_function_descriptions());
     descriptions.extend(map::static_function_descriptions());
     descriptions.extend(hidden_xslt::static_function_descriptions());
+    descriptions.extend(xslt_number::static_function_descriptions());
     descriptions.extend(uri::static_function_descriptions());
     descriptions.extend(external::static_function_descriptions());
     descriptions.extend(parse::static_function_descriptions());
