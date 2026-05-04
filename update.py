@@ -20,11 +20,11 @@ for i, path in enumerate(files, 1):
         start_new_session=True,
     )
     try:
-        result_code = proc.wait(timeout=30)
+        result_code = proc.wait(timeout=60)
     except subprocess.TimeoutExpired:
         os.killpg(proc.pid, signal.SIGKILL)
         proc.wait()
-        print(f'TIMEOUT after 30s for {path}, skipping', flush=True)
+        print(f'TIMEOUT after 60s for {path}, skipping', flush=True)
         continue
     if result_code != 0:
         print(f'command failed for {path} with exit code {result_code}', flush=True)
