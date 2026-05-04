@@ -2113,6 +2113,7 @@ type-available-0150
 type-available-0151
 = type-expr
 = type-functions
+= unicode-90
 = unparsed-entity-uri
 = unparsed-text
 unparsed-text-2001
