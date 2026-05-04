@@ -761,6 +761,25 @@ pub enum Error {
     /// item.
     XTDE0450,
 
+    /// xsl:number value is not a valid number.
+    ///
+    /// It is a dynamic error if any item in the sequence supplied by the
+    /// value attribute of xsl:number cannot be converted to an integer,
+    /// or if the resulting integer is less than zero.
+    XTDE0980,
+
+    /// xsl:number context item is not a node.
+    ///
+    /// It is a type error if the context item is not a node when xsl:number
+    /// is used without select or value.
+    XTTE0990,
+
+    /// xsl:number select expression returns wrong cardinality.
+    ///
+    /// It is a type error if the select expression of xsl:number returns
+    /// an empty sequence or a sequence of more than one item.
+    XTTE1000,
+
     /// Function cannot be normalized for serialization.
     ///
     /// It is an error if an item in S in sequence normalization is an

@@ -1488,28 +1488,18 @@ normalize-unicode-017
 normalize-unicode-018
 = notation
 = number
-number-0104
 number-0105
-number-0107
-number-0108
 number-0109
-number-0110
 number-0111
 number-0202
 number-0403
-number-0404
-number-0604
 number-0802
 number-0804
 number-0807
 number-0808
 number-0809
-number-0810
-number-0811
 number-0812
 number-0813
-number-0816
-number-0817
 number-0819
 number-0820
 number-0821
@@ -1517,7 +1507,6 @@ number-0823
 number-0824
 number-0825
 number-0826
-number-0827
 number-0828
 number-0829
 number-0901
@@ -1531,14 +1520,12 @@ number-1702
 number-1801
 number-1902
 number-1903
-number-2402
 number-2506
 number-3225
 number-3229
 number-3405
 number-3501
 number-4001
-number-4101
 number-5001
 number-5002
 number-5003

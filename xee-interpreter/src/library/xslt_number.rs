@@ -2,6 +2,7 @@
 
 use ahash::HashMapExt;
 use ibig::IBig;
+use rust_decimal::RoundingStrategy;
 use xee_xpath_ast::Pattern;
 use xee_xpath_macros::xpath_fn;
 use xot::Xot;
@@ -27,32 +28,69 @@ fn xslt_number_value(
 ) -> error::Result<String> {
     let gs = parse_grouping_separator(grouping_separator);
     let gsz = parse_grouping_size(grouping_size);
-    let sa = parse_start_at(start_at);
-    let atomic = sequence::one(value.atomized(interpreter.xot()))??;
-    // Per XSLT spec, the value is rounded to the nearest integer
-    let number = match &atomic {
-        atomic::Atomic::Float(f) => f.round() as i64,
-        atomic::Atomic::Double(d) => d.round() as i64,
-        atomic::Atomic::Decimal(d) => {
-            let rounded = d.round();
-            i64::try_from(rounded).map_err(|_| error::Error::XPTY0004(None))?
-        }
-        atomic::Atomic::Integer(_, i) => {
-            i64::try_from(i.as_ref()).map_err(|_| error::Error::XPTY0004(None))?
-        }
-        _ => atomic
-            .cast_to_integer_value::<i64>()
-            .map_err(|_| error::Error::XPTY0004(None))?,
-    };
-    if number < 0 {
-        return Err(error::Error::Unsupported(
-            "xsl:number value must be non-negative".to_string(),
-        ));
+    let sa_values = parse_start_at_values(start_at);
+    let atomized = value.atomized(interpreter.xot());
+
+    // Convert each item to an integer per XSLT spec (round to nearest)
+    let mut numbers: Vec<i64> = Vec::new();
+    for item in atomized {
+        let atomic = item?;
+        let number = atomic_to_number_value(&atomic)?;
+        numbers.push(number);
     }
 
-    // Apply start-at adjustment: displayed = number + start_at - 1
-    let adjusted = number + sa - 1;
-    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz)
+    if numbers.is_empty() {
+        // Empty sequence: format with empty list
+        return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz);
+    }
+
+    // Apply per-position start-at adjustments
+    apply_start_at_multiple(&mut numbers, &sa_values);
+    format_xslt_number_values(&numbers, format.unwrap_or("1"), gs, gsz)
+}
+
+/// Convert an atomic value to an i64 for xsl:number formatting.
+/// NaN and infinity produce XTDE0980.
+/// Negative values produce XTDE0980.
+fn atomic_to_number_value(atomic: &atomic::Atomic) -> error::Result<i64> {
+    let number = match atomic {
+        atomic::Atomic::Float(f) => {
+            if f.is_nan() || f.is_infinite() {
+                return Err(error::Error::XTDE0980);
+            }
+            f.round() as i64
+        }
+        atomic::Atomic::Double(d) => {
+            if d.is_nan() || d.is_infinite() {
+                return Err(error::Error::XTDE0980);
+            }
+            d.round() as i64
+        }
+        atomic::Atomic::Decimal(d) => {
+            // XSLT spec: round towards positive infinity (half-up)
+            let rounded = d.round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero);
+            i64::try_from(rounded).map_err(|_| error::Error::XTDE0980)?
+        }
+        atomic::Atomic::Integer(_, i) => {
+            i64::try_from(i.as_ref()).map_err(|_| error::Error::XTDE0980)?
+        }
+        _ => {
+            // Try to parse as a number (for string/untyped values)
+            match atomic.string_value().parse::<f64>() {
+                Ok(d) => {
+                    if d.is_nan() || d.is_infinite() {
+                        return Err(error::Error::XTDE0980);
+                    }
+                    d.round() as i64
+                }
+                Err(_) => return Err(error::Error::XTDE0980),
+            }
+        }
+    };
+    if number < 0 {
+        return Err(error::Error::XTDE0980);
+    }
+    Ok(number)
 }
 
 // xsl:number level="single" with default count pattern (no explicit count/from).
@@ -756,10 +794,17 @@ fn parse_start_at_values(s: Option<&str>) -> Vec<i64> {
 }
 
 /// Apply start-at adjustments to a vector of numbers for level="multiple".
-/// Each position gets its corresponding start-at value (default 1).
+/// Each position gets its corresponding start-at value; if there are fewer
+/// start-at values than numbers, the last start-at value is reused per spec.
 fn apply_start_at_multiple(numbers: &mut [i64], start_at_values: &[i64]) {
     for (i, num) in numbers.iter_mut().enumerate() {
-        let sa = start_at_values.get(i).copied().unwrap_or(1);
+        let sa = if start_at_values.is_empty() {
+            1
+        } else if i < start_at_values.len() {
+            start_at_values[i]
+        } else {
+            start_at_values[start_at_values.len() - 1]
+        };
         *num = *num + sa - 1;
     }
 }
@@ -782,7 +827,8 @@ fn format_xslt_number_values(
     grouping_size: Option<usize>,
 ) -> error::Result<String> {
     if picture.is_empty() {
-        return Err(error::Error::FODF1310);
+        // Empty format picture: per XSLT spec, use the default format "1"
+        return format_xslt_number_values(numbers, "1", grouping_separator, grouping_size);
     }
 
     if numbers.is_empty() {
@@ -825,7 +871,8 @@ fn format_xslt_number_values(
     }
 
     if tokens.is_empty() {
-        // No format tokens at all — use default "1"
+        // No format tokens at all — per XSLT spec, the picture is used as
+        // both prefix and suffix, with default format token "1".
         let mut result = picture.to_string();
         for (i, &num) in numbers.iter().enumerate() {
             if i > 0 {
@@ -833,6 +880,7 @@ fn format_xslt_number_values(
             }
             result.push_str(&format_number_token(num, "1", grouping_separator, grouping_size)?);
         }
+        result.push_str(picture);
         return Ok(result);
     }
 
@@ -895,10 +943,10 @@ fn format_number_token(
         return Ok(number.to_string());
     }
 
-    // Handle zero-padded decimal pictures like "01", "001"
+    // Handle decimal format pictures: "1", "0", "01", "001", etc.
+    // Any token consisting entirely of ASCII digits 0 and 1 is a decimal picture.
     let chars: Vec<char> = token.chars().collect();
-    if chars.iter().all(|c| *c == '0' || *c == '1') && chars.last() == Some(&'1') && chars.len() > 1
-    {
+    if chars.iter().all(|c| *c == '0' || *c == '1') {
         let min_width = chars.len();
         let formatted = format!("{:0>width$}", number, width = min_width);
         return Ok(apply_grouping(&formatted, grouping_separator, grouping_size));
@@ -1025,4 +1073,455 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_number_count_multiple),
         wrap_xpath_fn!(xslt_number_count_multiple_pattern),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ordered_float::OrderedFloat;
+    use rust_decimal::Decimal;
+    use std::rc::Rc;
+
+    // --- parse_grouping_separator ---
+
+    #[test]
+    fn grouping_separator_none() {
+        assert_eq!(parse_grouping_separator(None), None);
+    }
+
+    #[test]
+    fn grouping_separator_single_char() {
+        assert_eq!(parse_grouping_separator(Some(",")), Some(','));
+        assert_eq!(parse_grouping_separator(Some(".")), Some('.'));
+        assert_eq!(parse_grouping_separator(Some(" ")), Some(' '));
+    }
+
+    #[test]
+    fn grouping_separator_multi_char_rejected() {
+        assert_eq!(parse_grouping_separator(Some(",,")), None);
+        assert_eq!(parse_grouping_separator(Some("ab")), None);
+    }
+
+    #[test]
+    fn grouping_separator_empty_string() {
+        assert_eq!(parse_grouping_separator(Some("")), None);
+    }
+
+    // --- parse_grouping_size ---
+
+    #[test]
+    fn grouping_size_none() {
+        assert_eq!(parse_grouping_size(None), None);
+    }
+
+    #[test]
+    fn grouping_size_valid() {
+        assert_eq!(parse_grouping_size(Some("3")), Some(3));
+        assert_eq!(parse_grouping_size(Some("1")), Some(1));
+    }
+
+    #[test]
+    fn grouping_size_zero_rejected() {
+        assert_eq!(parse_grouping_size(Some("0")), None);
+    }
+
+    #[test]
+    fn grouping_size_non_numeric() {
+        assert_eq!(parse_grouping_size(Some("abc")), None);
+    }
+
+    // --- parse_start_at ---
+
+    #[test]
+    fn start_at_default() {
+        assert_eq!(parse_start_at(None), 1);
+    }
+
+    #[test]
+    fn start_at_single_value() {
+        assert_eq!(parse_start_at(Some("3")), 3);
+        assert_eq!(parse_start_at(Some("0")), 0);
+        assert_eq!(parse_start_at(Some("-2")), -2);
+    }
+
+    #[test]
+    fn start_at_multiple_values_takes_first() {
+        assert_eq!(parse_start_at(Some("3 5 7")), 3);
+    }
+
+    // --- parse_start_at_values ---
+
+    #[test]
+    fn start_at_values_none() {
+        assert_eq!(parse_start_at_values(None), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn start_at_values_multiple() {
+        assert_eq!(parse_start_at_values(Some("3 5 7")), vec![3, 5, 7]);
+    }
+
+    #[test]
+    fn start_at_values_with_negatives() {
+        assert_eq!(parse_start_at_values(Some("-0 1 -2 3")), vec![0, 1, -2, 3]);
+    }
+
+    // --- apply_start_at_multiple ---
+
+    #[test]
+    fn start_at_multiple_empty_sa() {
+        let mut nums = vec![1, 2, 3];
+        apply_start_at_multiple(&mut nums, &[]);
+        // default sa=1: num + 1 - 1 = num
+        assert_eq!(nums, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn start_at_multiple_single_sa_reused() {
+        // Per XSLT spec: last start-at value is reused for remaining positions
+        let mut nums = vec![1, 2, 3];
+        apply_start_at_multiple(&mut nums, &[3]);
+        // Each: num + 3 - 1 = num + 2
+        assert_eq!(nums, vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn start_at_multiple_per_position() {
+        let mut nums = vec![1, 4, 5];
+        apply_start_at_multiple(&mut nums, &[0, 1, 2]);
+        // 1+(0-1)=0, 4+(1-1)=4, 5+(2-1)=6
+        assert_eq!(nums, vec![0, 4, 6]);
+    }
+
+    #[test]
+    fn start_at_multiple_fewer_sa_than_numbers() {
+        let mut nums = vec![1, 2, 3, 4];
+        apply_start_at_multiple(&mut nums, &[5, 10]);
+        // 1+4=5, 2+9=11, 3+9=12, 4+9=13 (last sa=10 reused)
+        assert_eq!(nums, vec![5, 11, 12, 13]);
+    }
+
+    // --- apply_grouping ---
+
+    #[test]
+    fn grouping_none() {
+        assert_eq!(apply_grouping("1234", None, None), "1234");
+    }
+
+    #[test]
+    fn grouping_thousands() {
+        assert_eq!(apply_grouping("1000000", Some(','), Some(3)), "1,000,000");
+    }
+
+    #[test]
+    fn grouping_small_number() {
+        assert_eq!(apply_grouping("999", Some(','), Some(3)), "999");
+    }
+
+    #[test]
+    fn grouping_exact_boundary() {
+        assert_eq!(apply_grouping("1000", Some(','), Some(3)), "1,000");
+    }
+
+    #[test]
+    fn grouping_size_zero() {
+        assert_eq!(apply_grouping("1000", Some(','), Some(0)), "1000");
+    }
+
+    // --- format_number_token ---
+
+    #[test]
+    fn format_decimal_1() {
+        assert_eq!(format_number_token(42, "1", None, None).unwrap(), "42");
+    }
+
+    #[test]
+    fn format_decimal_0() {
+        assert_eq!(format_number_token(7, "0", None, None).unwrap(), "7");
+    }
+
+    #[test]
+    fn format_zero_padded_01() {
+        assert_eq!(format_number_token(5, "01", None, None).unwrap(), "05");
+        assert_eq!(format_number_token(42, "01", None, None).unwrap(), "42");
+    }
+
+    #[test]
+    fn format_zero_padded_001() {
+        assert_eq!(format_number_token(5, "001", None, None).unwrap(), "005");
+        assert_eq!(format_number_token(42, "001", None, None).unwrap(), "042");
+        assert_eq!(format_number_token(999, "001", None, None).unwrap(), "999");
+        assert_eq!(format_number_token(1000, "001", None, None).unwrap(), "1000");
+    }
+
+    #[test]
+    fn format_alpha_lower() {
+        assert_eq!(format_number_token(1, "a", None, None).unwrap(), "a");
+        assert_eq!(format_number_token(26, "a", None, None).unwrap(), "z");
+        assert_eq!(format_number_token(27, "a", None, None).unwrap(), "aa");
+    }
+
+    #[test]
+    fn format_alpha_upper() {
+        assert_eq!(format_number_token(1, "A", None, None).unwrap(), "A");
+        assert_eq!(format_number_token(26, "A", None, None).unwrap(), "Z");
+        assert_eq!(format_number_token(27, "A", None, None).unwrap(), "AA");
+    }
+
+    #[test]
+    fn format_roman_lower() {
+        assert_eq!(format_number_token(1, "i", None, None).unwrap(), "i");
+        assert_eq!(format_number_token(4, "i", None, None).unwrap(), "iv");
+        assert_eq!(format_number_token(9, "i", None, None).unwrap(), "ix");
+        assert_eq!(format_number_token(42, "i", None, None).unwrap(), "xlii");
+        assert_eq!(
+            format_number_token(3999, "i", None, None).unwrap(),
+            "mmmcmxcix"
+        );
+    }
+
+    #[test]
+    fn format_roman_upper() {
+        assert_eq!(format_number_token(1, "I", None, None).unwrap(), "I");
+        assert_eq!(format_number_token(14, "I", None, None).unwrap(), "XIV");
+    }
+
+    #[test]
+    fn format_roman_out_of_range() {
+        // Spec: fall back to decimal for values outside roman range
+        assert_eq!(format_number_token(0, "i", None, None).unwrap(), "0");
+        assert_eq!(format_number_token(4000, "I", None, None).unwrap(), "4000");
+    }
+
+    #[test]
+    fn format_alpha_zero_fallback() {
+        // Spec: fall back to decimal for 0
+        assert_eq!(format_number_token(0, "a", None, None).unwrap(), "0");
+    }
+
+    #[test]
+    fn format_with_grouping() {
+        assert_eq!(
+            format_number_token(1000000, "1", Some(','), Some(3)).unwrap(),
+            "1,000,000"
+        );
+    }
+
+    // --- format_xslt_number_values ---
+
+    #[test]
+    fn format_single_number() {
+        assert_eq!(
+            format_xslt_number_values(&[42], "1", None, None).unwrap(),
+            "42"
+        );
+    }
+
+    #[test]
+    fn format_multiple_numbers_default_separator() {
+        assert_eq!(
+            format_xslt_number_values(&[1, 2, 3], "1", None, None).unwrap(),
+            "1.2.3"
+        );
+    }
+
+    #[test]
+    fn format_multiple_numbers_custom_separator() {
+        // format="1,1" → token1="1", separator=",", token2="1"
+        assert_eq!(
+            format_xslt_number_values(&[10, 11, 12], "1,1", None, None).unwrap(),
+            "10,11,12"
+        );
+    }
+
+    #[test]
+    fn format_with_prefix_suffix() {
+        // format="(1)" → prefix="(", token="1", suffix=")"
+        assert_eq!(
+            format_xslt_number_values(&[5], "(1)", None, None).unwrap(),
+            "(5)"
+        );
+    }
+
+    #[test]
+    fn format_prefix_suffix_multiple() {
+        // format="(1)" with multiple numbers → (5.6.7.8)
+        assert_eq!(
+            format_xslt_number_values(&[5, 6, 7, 8], "(1)", None, None).unwrap(),
+            "(5.6.7.8)"
+        );
+    }
+
+    #[test]
+    fn format_prefix_only_with_separator() {
+        // format="1;1)" → no prefix, separator=";", suffix=")"
+        assert_eq!(
+            format_xslt_number_values(&[5, 6, 7, 8], "1;1)", None, None).unwrap(),
+            "5;6;7;8)"
+        );
+    }
+
+    #[test]
+    fn format_no_tokens_picture_is_prefix_and_suffix() {
+        // format="*" → no format tokens → "*" is both prefix and suffix
+        assert_eq!(
+            format_xslt_number_values(&[1], "*", None, None).unwrap(),
+            "*1*"
+        );
+    }
+
+    #[test]
+    fn format_empty_picture_defaults_to_1() {
+        assert_eq!(
+            format_xslt_number_values(&[42], "", None, None).unwrap(),
+            "42"
+        );
+    }
+
+    #[test]
+    fn format_empty_numbers() {
+        // Empty number list with format "(1) " → prefix "(" + suffix ") "
+        assert_eq!(
+            format_xslt_number_values(&[], "(1) ", None, None).unwrap(),
+            "() "
+        );
+    }
+
+    #[test]
+    fn format_empty_numbers_no_tokens() {
+        // Empty number list with format "*" → no format tokens, returns empty
+        assert_eq!(
+            format_xslt_number_values(&[], "*", None, None).unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn format_multi_level_alpha() {
+        // format="a.a.a" with three levels
+        assert_eq!(
+            format_xslt_number_values(&[3, 3, 4], "a.a.a", None, None).unwrap(),
+            "c.c.d"
+        );
+    }
+
+    // --- atomic_to_number_value ---
+
+    #[test]
+    fn atomic_integer_positive() {
+        let a = atomic::Atomic::from(IBig::from(42));
+        assert_eq!(atomic_to_number_value(&a).unwrap(), 42);
+    }
+
+    #[test]
+    fn atomic_integer_zero() {
+        let a = atomic::Atomic::from(IBig::from(0));
+        assert_eq!(atomic_to_number_value(&a).unwrap(), 0);
+    }
+
+    #[test]
+    fn atomic_integer_negative_error() {
+        let a = atomic::Atomic::from(IBig::from(-5));
+        assert!(matches!(
+            atomic_to_number_value(&a),
+            Err(error::Error::XTDE0980)
+        ));
+    }
+
+    #[test]
+    fn atomic_double_rounds() {
+        let a = atomic::Atomic::Double(OrderedFloat(6.51));
+        assert_eq!(atomic_to_number_value(&a).unwrap(), 7);
+    }
+
+    #[test]
+    fn atomic_double_nan_error() {
+        let a = atomic::Atomic::Double(OrderedFloat(f64::NAN));
+        assert!(matches!(
+            atomic_to_number_value(&a),
+            Err(error::Error::XTDE0980)
+        ));
+    }
+
+    #[test]
+    fn atomic_double_infinity_error() {
+        let a = atomic::Atomic::Double(OrderedFloat(f64::INFINITY));
+        assert!(matches!(
+            atomic_to_number_value(&a),
+            Err(error::Error::XTDE0980)
+        ));
+    }
+
+    #[test]
+    fn atomic_double_negative_error() {
+        let a = atomic::Atomic::Double(OrderedFloat(-1.0));
+        assert!(matches!(
+            atomic_to_number_value(&a),
+            Err(error::Error::XTDE0980)
+        ));
+    }
+
+    #[test]
+    fn atomic_float_rounds() {
+        let a = atomic::Atomic::Float(OrderedFloat(2.7f32));
+        assert_eq!(atomic_to_number_value(&a).unwrap(), 3);
+    }
+
+    #[test]
+    fn atomic_decimal_half_rounds_away_from_zero() {
+        // 6.5 should round to 7, not 6 (banker's rounding)
+        let d = Decimal::new(65, 1); // 6.5
+        let a = atomic::Atomic::Decimal(d.into());
+        assert_eq!(atomic_to_number_value(&a).unwrap(), 7);
+    }
+
+    #[test]
+    fn atomic_decimal_rounds_down() {
+        let d = Decimal::new(64, 1); // 6.4
+        let a = atomic::Atomic::Decimal(d.into());
+        assert_eq!(atomic_to_number_value(&a).unwrap(), 6);
+    }
+
+    #[test]
+    fn atomic_string_non_numeric_error() {
+        let a = atomic::Atomic::Untyped("fizz".into());
+        assert!(matches!(
+            atomic_to_number_value(&a),
+            Err(error::Error::XTDE0980)
+        ));
+    }
+
+    // --- format_alphabetic_number ---
+
+    #[test]
+    fn alphabetic_boundary_values() {
+        assert_eq!(format_alphabetic_number(1, false).unwrap(), "a");
+        assert_eq!(format_alphabetic_number(26, false).unwrap(), "z");
+        assert_eq!(format_alphabetic_number(27, false).unwrap(), "aa");
+        assert_eq!(format_alphabetic_number(52, false).unwrap(), "az");
+        assert_eq!(format_alphabetic_number(53, false).unwrap(), "ba");
+        assert_eq!(format_alphabetic_number(702, false).unwrap(), "zz");
+        assert_eq!(format_alphabetic_number(703, false).unwrap(), "aaa");
+    }
+
+    // --- format_roman_number ---
+
+    #[test]
+    fn roman_standard_values() {
+        assert_eq!(format_roman_number(1, true).unwrap(), "I");
+        assert_eq!(format_roman_number(4, true).unwrap(), "IV");
+        assert_eq!(format_roman_number(9, true).unwrap(), "IX");
+        assert_eq!(format_roman_number(40, true).unwrap(), "XL");
+        assert_eq!(format_roman_number(90, true).unwrap(), "XC");
+        assert_eq!(format_roman_number(400, true).unwrap(), "CD");
+        assert_eq!(format_roman_number(900, true).unwrap(), "CM");
+        assert_eq!(format_roman_number(1994, true).unwrap(), "MCMXCIV");
+        assert_eq!(format_roman_number(3999, true).unwrap(), "MMMCMXCIX");
+    }
+
+    #[test]
+    fn roman_lowercase() {
+        assert_eq!(format_roman_number(7, false).unwrap(), "vii");
+        assert_eq!(format_roman_number(99, false).unwrap(), "xcix");
+    }
 }
