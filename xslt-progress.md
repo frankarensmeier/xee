@@ -4,6 +4,42 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-04 17:32 CEST — xsl:number runtime fixes (+13 tests)
+
+### What changed
+
+1. **Sequence value handling**: `xslt_number_value()` now iterates all
+   atomized values in a sequence instead of requiring exactly one item.
+   Each value is converted independently and gets its own start-at offset.
+
+2. **Numeric conversion**: New `atomic_to_number_value()` with proper
+   XTDE0980 errors for NaN, infinity, negative values, and non-numeric
+   strings. Uses `string_value()` instead of `to_string()` for untyped
+   atomics (fixes XPTY0004 for untyped values).
+
+3. **Format picture fixes**: Empty picture now defaults to "1". Pictures
+   with no format tokens use the picture as both prefix and suffix (e.g.
+   `format="*"` produces `*1*`).
+
+4. **Decimal token "0"**: `format_number_token()` now accepts "0" as a
+   valid decimal format token (previously required trailing "1").
+
+5. **Start-at reuse**: `apply_start_at_multiple()` reuses the last
+   start-at value for remaining positions per XSLT spec.
+
+6. **Decimal rounding**: Uses `MidpointAwayFromZero` instead of banker's
+   rounding (6.5 → 7, not 6).
+
+7. **New error variants**: XTDE0980, XTTE0990, XTTE1000.
+
+8. **Unit tests**: 59 tests covering formatting, grouping, start-at,
+   alphabetic/roman numbering, and value conversion.
+
+### Conformance impact
+
+- 13 xsl:number tests removed from filters (now passing)
+- Passed: 5755 (+13 from 5742), Filtered: 2243 (-13 from 2256)
+
 ## 2026-05-04 13:01 CEST — xsl:number improvements
 
 ### What changed
