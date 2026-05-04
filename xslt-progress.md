@@ -32,6 +32,23 @@ instead of replacing it.
 - Passed: 5741 (+49 from 5692), Filtered: 2256 (-50 from 2306)
 - 1 flaky pre-existing failure (copy-4901, namespace fixup, non-deterministic)
 
+## 2026-05-04 13:38 CEST — Test runner reporting improvements
+
+### What changed
+
+1. **CharacterRenderer**: Failures now show test name, e.g. `F(copy-4901)`
+   instead of bare `F`.
+
+2. **Assert failure display**: Includes the XPath assertion expression so
+   you can see what was tested without looking up the test definition.
+
+3. **Failure summary**: End of `check` and `all` runs now prints a summary
+   listing all failed tests grouped by test set, with category labels
+   (FAILED, WRONG ERROR, PANIC, etc.).
+
+4. **TestOutcome::category()**: Human-readable failure type for all 9
+   outcome variants.
+
 ## 2026-05-03 11:12 CEST — Namespace fixup for xsl:element and xsl:copy-of
 
 ### What changed

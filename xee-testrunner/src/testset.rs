@@ -79,7 +79,7 @@ impl<L: Language> TestSet<L> {
             let outcome = catch_unwind(AssertUnwindSafe(|| runner.run(run_context, catalog, self)))
                 .unwrap_or(TestOutcome::Panic);
 
-            renderer.render_test_outcome(out, &outcome)?;
+            renderer.render_test_outcome(out, test_case, &outcome)?;
             test_set_outcomes.add_outcome(&test_case.name, outcome);
         }
         renderer.render_test_set_summary(out, self)?;

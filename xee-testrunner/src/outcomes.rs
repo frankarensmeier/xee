@@ -117,6 +117,22 @@ impl TestSetOutcomes {
             .iter()
             .any(|outcome| !outcome.outcome.is_exactly_passed())
     }
+
+    pub(crate) fn failure_summary(&self) -> String {
+        let mut s = String::new();
+        for outcome in &self.outcomes {
+            if !outcome.outcome.is_exactly_passed() {
+                writeln!(
+                    s,
+                    "  {} ({})",
+                    outcome.test_case_name,
+                    outcome.outcome.category()
+                )
+                .unwrap();
+            }
+        }
+        s
+    }
 }
 
 impl Outcomes for TestSetOutcomes {
@@ -153,6 +169,17 @@ impl CatalogOutcomes {
                 .iter()
                 .any(|outcome| !outcome.outcome.is_exactly_passed())
         })
+    }
+
+    pub(crate) fn failure_summary(&self) -> String {
+        let mut s = String::new();
+        for test_set in &self.outcomes {
+            if test_set.has_failures() {
+                writeln!(s, "{}:", test_set.test_set_name).unwrap();
+                s.push_str(&test_set.failure_summary());
+            }
+        }
+        s
     }
 }
 

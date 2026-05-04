@@ -1395,8 +1395,9 @@ impl fmt::Display for Failure {
                 writeln!(f, "  actual: {:?}", actual)?;
                 Ok(())
             }
-            Failure::Assert(_a, failure) => {
+            Failure::Assert(a, failure) => {
                 writeln!(f, "assert:")?;
+                writeln!(f, "  expression: {}", a.0.expr())?;
                 writeln!(f, "  actual: {:?}", failure)?;
                 Ok(())
             }

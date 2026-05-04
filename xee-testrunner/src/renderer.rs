@@ -24,6 +24,7 @@ pub(crate) trait Renderer<L: Language> {
     fn render_test_outcome(
         &self,
         stdout: &mut Stdout,
+        test_case: &TestCase<L>,
         test_result: &TestOutcome,
     ) -> std::io::Result<()>;
     fn render_test_set_summary(
@@ -68,6 +69,7 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
     fn render_test_outcome(
         &self,
         stdout: &mut Stdout,
+        _test_case: &TestCase<L>,
         test_result: &TestOutcome,
     ) -> std::io::Result<()> {
         match test_result {
@@ -189,14 +191,17 @@ impl<L: Language> Renderer<L> for CharacterRenderer {
     fn render_test_outcome(
         &self,
         stdout: &mut Stdout,
+        test_case: &TestCase<L>,
         outcome: &TestOutcome,
     ) -> std::io::Result<()> {
         match outcome {
             TestOutcome::Passed => render_error_code(stdout, ".", crossterm::style::Color::Green),
             TestOutcome::UnexpectedError(_) => {
-                render_error_code(stdout, "F", crossterm::style::Color::Red)
+                render_error_code(stdout, &format!("F({})", test_case.name), crossterm::style::Color::Red)
             }
-            TestOutcome::Failed(_) => render_error_code(stdout, "F", crossterm::style::Color::Red),
+            TestOutcome::Failed(_) => {
+                render_error_code(stdout, &format!("F({})", test_case.name), crossterm::style::Color::Red)
+            }
             TestOutcome::RuntimeError(_) => {
                 render_error_code(stdout, "E", crossterm::style::Color::Red)
             }

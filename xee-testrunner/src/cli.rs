@@ -131,6 +131,10 @@ impl<'a, L: Language> Runner<'a, L> {
         let test_filter = self.load_check_test_filter()?;
         if self.path_info.whole_catalog() {
             let outcomes = self.catalog_outcomes(&catalog, &test_filter)?;
+            let summary = outcomes.failure_summary();
+            if !summary.is_empty() {
+                println!("\nFailures:\n{summary}");
+            }
             println!("{}", outcomes.display());
             if outcomes.has_failures() {
                 // ensure we have process status 1
@@ -138,6 +142,10 @@ impl<'a, L: Language> Runner<'a, L> {
             }
         } else {
             let outcomes = self.test_set_outcomes(&catalog, &test_filter)?;
+            let summary = outcomes.failure_summary();
+            if !summary.is_empty() {
+                println!("\nFailures:\n{summary}");
+            }
             println!("{}", outcomes.display());
             if outcomes.has_failures() {
                 // ensure we have process status 1
@@ -154,9 +162,17 @@ impl<'a, L: Language> Runner<'a, L> {
 
         if self.path_info.whole_catalog() {
             let outcomes = self.catalog_outcomes(&catalog, &test_filter)?;
+            let summary = outcomes.failure_summary();
+            if !summary.is_empty() {
+                println!("\nFailures:\n{summary}");
+            }
             println!("{}", outcomes.display());
         } else {
             let outcomes = self.test_set_outcomes(&catalog, &test_filter)?;
+            let summary = outcomes.failure_summary();
+            if !summary.is_empty() {
+                println!("\nFailures:\n{summary}");
+            }
             println!("{}", outcomes.display());
         }
         Ok(())
