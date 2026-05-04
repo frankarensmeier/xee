@@ -148,6 +148,21 @@ impl Dependencies {
         true
     }
 
+    // the unicode version is supported if the unicode-version is the same
+    pub(crate) fn is_unicode_version_supported(
+        &self,
+        known_dependencies: &KnownDependencies,
+    ) -> bool {
+        for dependency in &self.dependencies {
+            if dependency.spec.type_ == "unicode-version"
+                && !known_dependencies.is_supported(dependency)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     pub(crate) fn is_supported(&self, known_dependencies: &KnownDependencies) -> bool {
         // if we have no dependencies, we're always supported
         if self.dependencies.is_empty() {
@@ -161,6 +176,9 @@ impl Dependencies {
             return false;
         }
         if !self.is_xsd_version_supported(known_dependencies) {
+            return false;
+        }
+        if !self.is_unicode_version_supported(known_dependencies) {
             return false;
         }
         self.is_feature_supported(known_dependencies)

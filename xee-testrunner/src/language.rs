@@ -56,6 +56,10 @@ impl Language for XPathLanguage {
                 type_: "xsd-version".to_string(),
                 value: "1.1".to_string(),
             },
+            DependencySpec {
+                type_: "unicode-version".to_string(),
+                value: "16.0".to_string(),
+            },
         ];
         KnownDependencies::new(&specs)
     }
@@ -113,6 +117,10 @@ impl Language for XsltLanguage {
             DependencySpec {
                 type_: "feature".to_string(),
                 value: "namespace_axis".to_string(),
+            },
+            DependencySpec {
+                type_: "unicode-version".to_string(),
+                value: "16.0".to_string(),
             },
         ];
         KnownDependencies::new(&specs)
