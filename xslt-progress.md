@@ -4320,3 +4320,32 @@ was silently a no-op.
 - 633 unit tests pass, 5678 XSLT conformance pass, 0 failed, 0 error
 
 4. **Filter update logic fix**: The `update_with_test_set_outcomes` function would refuse to populate empty filter sections or add entries for newly-supported tests. Fixed to properly initialize sections where some tests now pass, and to accept the current failure set when new tests appear due to newly-supported features.
+
+## 2026-05-05 12:43 CEST
+
+### XHTML/HTML serialization conformance improvements
+
+Improved output/serialization test pass rate from 98 to 119 (of 222 supported).
+
+**Changes:**
+
+1. **XHTML void elements**: Added `basefont`, `frame`, `isindex` to XHTML void element list.
+
+2. **Space before `/>` in XHTML**: Post-processing to insert space before `/>` in self-closing elements (e.g., `<br />` instead of `<br/>`), working at byte level to avoid UTF-8 corruption.
+
+3. **Apostrophe escaping in XHTML**: Replace `&apos;` with literal `'` in XHTML output.
+
+4. **URI attribute escaping**: Implemented `escape-uri-attributes` for HTML/XHTML output methods. NFC-normalizes and percent-encodes non-ASCII characters in URI-type attributes. Added `unicode-normalization` dependency.
+
+5. **`explicit_method` flag**: Added to `SerializationParameters` to track when the output method was explicitly set vs. defaulted. Prevents incorrect auto-detection from overriding explicit `method="xml"` declarations.
+
+6. **Test runner method auto-detection fix**: `probe_html_method` now respects `explicit_method`.
+
+7. **`omit-xml-declaration` default for XHTML**: Per XSLT 3.0 spec, XHTML with html-version ≥ 5 (default 5.0) defaults `omit-xml-declaration` to "yes".
+
+8. **`assert-serialization @file` support**: Test runner reads expected output from external files via `@file` attribute.
+
+### Results
+
+- Output tests: 98 → 119 passed (of 222 supported)
+- 5892 XSLT conformance pass, 0 failed, 0 error
