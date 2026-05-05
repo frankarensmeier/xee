@@ -64,6 +64,7 @@ impl<'a> IrConverter<'a> {
             })?;
         }
 
+        self.check_mode_conflicts()?;
         self.compile_referenced_accumulators(&mut ir_declarations)?;
 
         // Move accumulated number patterns into IR declarations
@@ -635,7 +636,7 @@ impl<'a> IrConverter<'a> {
                 declaration.import_precedence,
                 &declaration.module_path,
             ),
-            Mode(mode) => self.mode(declarations, mode),
+            Mode(mode) => self.mode(declarations, mode, declaration.import_precedence),
             Output(output) => self.output(declarations, output),
             // Import/Include already handled during pre-processing in parse_with_base_dir
             Import(_) | Include(_) => Ok(()),
@@ -1430,33 +1431,100 @@ impl<'a> IrConverter<'a> {
         &mut self,
         declarations: &mut ir::Declarations,
         mode: &ast::Mode,
+        import_precedence: i64,
     ) -> error::SpannedResult<()> {
-        declarations.modes.insert(
-            mode.name.clone(),
-            ir::Mode {
-                on_no_match: match mode.on_no_match.as_ref() {
-                    Some(ast::OnNoMatch::DeepCopy) => ir::ModeOnNoMatch::DeepCopy,
-                    Some(ast::OnNoMatch::ShallowCopy) => ir::ModeOnNoMatch::ShallowCopy,
-                    Some(ast::OnNoMatch::DeepSkip) => ir::ModeOnNoMatch::DeepSkip,
-                    Some(ast::OnNoMatch::ShallowSkip) => ir::ModeOnNoMatch::ShallowSkip,
-                    Some(ast::OnNoMatch::Fail) => ir::ModeOnNoMatch::Fail,
-                    Some(ast::OnNoMatch::TextOnlyCopy) | None => ir::ModeOnNoMatch::TextOnlyCopy,
-                },
-                on_multiple_match: match mode.on_multiple_match.as_ref() {
-                    Some(ast::OnMultipleMatch::Fail) => ir::OnMultipleMatch::Fail,
-                    Some(ast::OnMultipleMatch::UseLast) | None => ir::OnMultipleMatch::UseLast,
-                },
-                warning_on_no_match: mode.warning_on_no_match,
-                typed: match mode.typed.as_ref() {
-                    Some(ast::Typed::Yes) => ir::ModeTyped::Yes,
-                    Some(ast::Typed::Strict) => ir::ModeTyped::Strict,
-                    Some(ast::Typed::Lax) => ir::ModeTyped::Lax,
-                    Some(ast::Typed::No) | Some(ast::Typed::Unspecified) | None => {
-                        ir::ModeTyped::No
-                    }
-                },
+        // XTSE0020: unnamed mode cannot be public or final
+        if mode.name.is_none() {
+            if let Some(ast::Visibility::Public | ast::Visibility::Final) = mode.visibility {
+                return Err(error::SpannedError {
+                    error: error::Error::XTSE0020,
+                    span: Some(adjusted_span(mode.span, self.current_span_offset).into()),
+                    detail: None,
+                    contexts: Vec::new(),
+                });
+            }
+        }
+
+        let new_mode = ir::Mode {
+            on_no_match: match mode.on_no_match.as_ref() {
+                Some(ast::OnNoMatch::DeepCopy) => ir::ModeOnNoMatch::DeepCopy,
+                Some(ast::OnNoMatch::ShallowCopy) => ir::ModeOnNoMatch::ShallowCopy,
+                Some(ast::OnNoMatch::DeepSkip) => ir::ModeOnNoMatch::DeepSkip,
+                Some(ast::OnNoMatch::ShallowSkip) => ir::ModeOnNoMatch::ShallowSkip,
+                Some(ast::OnNoMatch::Fail) => ir::ModeOnNoMatch::Fail,
+                Some(ast::OnNoMatch::TextOnlyCopy) | None => ir::ModeOnNoMatch::TextOnlyCopy,
             },
-        );
+            on_multiple_match: match mode.on_multiple_match.as_ref() {
+                Some(ast::OnMultipleMatch::Fail) => ir::OnMultipleMatch::Fail,
+                Some(ast::OnMultipleMatch::UseLast) | None => ir::OnMultipleMatch::UseLast,
+            },
+            warning_on_no_match: mode.warning_on_no_match,
+            typed: match mode.typed.as_ref() {
+                Some(ast::Typed::Yes) => ir::ModeTyped::Yes,
+                Some(ast::Typed::Strict) => ir::ModeTyped::Strict,
+                Some(ast::Typed::Lax) => ir::ModeTyped::Lax,
+                Some(ast::Typed::No) | Some(ast::Typed::Unspecified) | None => {
+                    ir::ModeTyped::No
+                }
+            },
+        };
+
+        // Collect mode declaration for deferred conflict checking
+        self.mode_declarations
+            .entry(mode.name.clone())
+            .or_default()
+            .push((import_precedence, mode.clone(), new_mode.clone(), self.current_span_offset));
+
+        declarations.modes.insert(mode.name.clone(), new_mode);
+        Ok(())
+    }
+
+    /// Check for XTSE0545 conflicts among mode declarations at the same
+    /// highest import precedence. Must be called after all declarations
+    /// are processed.
+    pub(super) fn check_mode_conflicts(&self) -> error::SpannedResult<()> {
+        for (_name, decls) in &self.mode_declarations {
+            if decls.len() < 2 {
+                continue;
+            }
+            // Find the highest import precedence
+            let max_precedence = decls.iter().map(|(p, _, _, _)| *p).max().unwrap_or(0);
+            // Collect declarations at that precedence
+            let top_decls: Vec<_> = decls
+                .iter()
+                .filter(|(p, _, _, _)| *p == max_precedence)
+                .collect();
+            if top_decls.len() < 2 {
+                continue;
+            }
+            // Check each subsequent declaration against the first for conflicts
+            let (_, first_ast, first_ir, _) = &top_decls[0];
+            for (_, later_ast, later_ir, later_offset) in &top_decls[1..] {
+                let on_no_match_conflicts = later_ast.on_no_match.is_some()
+                    && first_ir.on_no_match != later_ir.on_no_match;
+                let on_multiple_match_conflicts = later_ast.on_multiple_match.is_some()
+                    && first_ir.on_multiple_match != later_ir.on_multiple_match;
+                let typed_conflicts = later_ast.typed.is_some()
+                    && first_ir.typed != later_ir.typed;
+                let visibility_conflicts = later_ast.visibility.is_some()
+                    && first_ast.visibility != later_ast.visibility;
+
+                if on_no_match_conflicts
+                    || on_multiple_match_conflicts
+                    || typed_conflicts
+                    || visibility_conflicts
+                {
+                    return Err(error::SpannedError {
+                        error: error::Error::XTSE0545,
+                        span: Some(
+                            adjusted_span(later_ast.span, *later_offset).into(),
+                        ),
+                        detail: None,
+                        contexts: Vec::new(),
+                    });
+                }
+            }
+        }
         Ok(())
     }
 

@@ -692,6 +692,12 @@ pub enum Error {
     /// It is a static error if xsl:call-template supplies a non-tunnel
     /// parameter that is not declared by the called template.
     XTSE0680,
+    /// Conflicting xsl:mode declarations.
+    ///
+    /// It is a static error if for any named or unnamed mode there are two
+    /// xsl:mode declarations with the same import precedence that have
+    /// different values for any attribute.
+    XTSE0545,
     /// Invalid XSLT attribute on a literal result element.
     XTSE0805,
     /// xsl:break or xsl:next-iteration outside of xsl:iterate's tail position

@@ -4,6 +4,29 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-05 17:19 CEST
+
+### xsl:mode conflict detection (XTSE0545) and unnamed mode validation (XTSE0020)
+
+Fixed 4 mode conformance tests (1502, 1507, 1508, 1904). Overall XSLT
+conformance: 5947 passed (up from 5943), 4 filters removed.
+
+**Changes:**
+
+1. **XTSE0545 conflicting mode declarations**: Added deferred conflict
+   detection for xsl:mode. Collects all mode declarations with their
+   import precedence during compilation, then checks for attribute
+   conflicts only among declarations at the highest precedence per mode.
+   Lower-precedence conflicts are correctly resolved by higher-precedence
+   overrides (mode-1905 test case).
+
+2. **XTSE0020 unnamed mode visibility**: The unnamed mode cannot have
+   visibility="public" or visibility="final". This is checked immediately
+   during compilation.
+
+Conformance: 5947 passed / 7998 supported (74.4%), 2051 filtered, 0 failed,
+0 error.
+
 ## 2026-05-05 16:43 CEST
 
 ### for-each-group improvements: key normalization and sort context

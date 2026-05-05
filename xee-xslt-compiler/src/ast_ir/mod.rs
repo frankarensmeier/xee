@@ -63,6 +63,9 @@ pub(super) struct IrConverter<'a> {
     pub(super) template_continuation_available: bool,
     pub(super) strip_source_document_whitespace: bool,
     pub(super) number_patterns: Vec<ir::NumberPatternDefinition>,
+    /// Track mode declarations with import precedence and visibility for conflict detection.
+    pub(super) mode_declarations:
+        HashMap<Option<OwnedName>, Vec<(i64, ast::Mode, ir::Mode, usize)>>,
     /// Maps stylesheet URI to its start offset in the virtual concatenated source space.
     pub(super) span_offsets: HashMap<String, usize>,
     /// Current offset to add to AST spans to produce global source offsets.
@@ -575,6 +578,7 @@ impl<'a> IrConverter<'a> {
             template_continuation_available: false,
             strip_source_document_whitespace: false,
             number_patterns: Vec::new(),
+            mode_declarations: HashMap::new(),
             span_offsets,
             current_span_offset: 0,
         }
