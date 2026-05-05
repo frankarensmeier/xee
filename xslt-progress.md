@@ -4,6 +4,25 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-05 14:10 CEST
+
+### Split ast_ir.rs into submodules
+
+Refactored the 7,914-line `xee-xslt-compiler/src/ast_ir.rs` into a directory
+module with 6 focused files:
+
+- `mod.rs` (815 lines): Core structs, constants, public API, IrConverter utilities
+- `preprocess.rs` (520 lines): Stylesheet loading, import/include resolution
+- `declarations.rs` (1702 lines): Top-level declaration compilation
+- `instructions.rs` (3569 lines): Sequence constructor/instruction compilation
+- `construction.rs` (514 lines): XML node construction
+- `xpath_rewrite.rs` (985 lines): XPath expression compilation and AST rewriting
+
+Added module-level and function-level doc comments throughout. Removed 5
+unused import warnings. No logic changes — pure mechanical refactoring.
+
+Conformance unchanged: 5924 passed, 0 failed, 0 error.
+
 ## 2026-05-05 13:36 CEST
 
 ### Standalone forces XML declaration + test runner fixes
