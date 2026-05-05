@@ -1,5 +1,6 @@
 /// XPath defines a standard function library, and this module implements
 /// it.
+pub(crate) mod accumulator_cache;
 mod accessor;
 mod array;
 mod boolean;

@@ -16,6 +16,7 @@ use crate::atomic::{
 use crate::context::DynamicContext;
 use crate::declaration;
 use crate::function;
+use crate::library::accumulator_cache::AccumulatorCache;
 use crate::library::key_cache::KeyCache;
 use crate::library::number_count_cache::NumberCountCache;
 use crate::pattern::pattern_lookup::NameCache;
@@ -50,6 +51,8 @@ pub struct Interpreter<'a> {
     pub(crate) number_count_cache: NumberCountCache,
     /// Index cache for xsl:key / fn:key() — avoids O(n) doc walk per call.
     pub(crate) key_cache: KeyCache,
+    /// Accumulator value cache for xsl:accumulator — avoids repeated doc walks.
+    pub(crate) accumulator_cache: AccumulatorCache,
 }
 
 #[derive(Clone)]
@@ -106,6 +109,7 @@ impl<'a> Interpreter<'a> {
             name_cache: None,
             number_count_cache: NumberCountCache::new(),
             key_cache: KeyCache::new(),
+            accumulator_cache: AccumulatorCache::new(),
         }
     }
 

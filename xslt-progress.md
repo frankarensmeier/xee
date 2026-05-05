@@ -4392,3 +4392,42 @@ Improved output/serialization test pass rate from 98 to 119 (of 222 supported).
 
 - Output tests: 98 → 119 passed (of 222 supported)
 - 5892 XSLT conformance pass, 0 failed, 0 error
+## 2026-05-05 16:22 CEST
+
+### Accumulator runtime support
+
+Implemented accumulator runtime evaluation (previously all accumulator
+functions returned "unsupported").
+
+#### Changes
+
+1. **XTDE3340 error code**: Added to the Error enum for unknown/inapplicable
+   accumulator names.
+
+2. **Initial-value pipeline**: Added `initial_value: FunctionDefinition` to
+   `AccumulatorDefinition` in IR, compiled through `declaration_compiler.rs`
+   to `initial_value_function_id` in the interpreter's `AccumulatorDeclaration`.
+
+3. **Accumulator cache** (`accumulator_cache.rs`): New module that caches
+   per-document, per-accumulator index of before/after values. Once built,
+   subsequent lookups are O(1) by node.
+
+4. **Runtime evaluation** (`hidden_xslt.rs`): `xslt_accumulator_before()` and
+   `xslt_accumulator_after()` now build the index on first access by walking
+   the document tree:
+   - At each node: evaluate start-phase rules, record pre-descent value
+     (= accumulator-before), recurse into children, evaluate end-phase rules,
+     record post-descent value (= accumulator-after).
+   - Initial-value expression is evaluated with the document root as context
+     item per XSLT 3.0 §10.2.1.
+
+5. **Temporary output state**: Accumulator rule sequence constructors are now
+   compiled with `sequence_constructor_with_temporary_output_state`, ensuring
+   `xsl:result-document` inside a rule body correctly raises XTDE1480.
+
+6. **Filter cleanup**: Removed 16 filters for now-passing accumulator tests.
+
+### Results
+
+- Accumulator tests: 7 → 15 passed (of 67 supported, 40 unsupported due to xsl:package)
+- 5940 XSLT conformance pass (was 5924), 0 failed, 0 error, 2058 filtered (was 2074)

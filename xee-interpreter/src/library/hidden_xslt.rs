@@ -750,7 +750,7 @@ fn xslt_accumulator_before(
     name: &str,
     node: Option<xot::Node>,
 ) -> error::Result<sequence::Sequence> {
-    accumulator_probe(interpreter, name, node)
+    accumulator_probe(interpreter, name, node, AccumulatorPhaseQuery::Before)
 }
 
 #[xpath_fn("fn:xslt-accumulator-after($name as xs:string, $node as node()?) as item()*")]
@@ -759,18 +759,23 @@ fn xslt_accumulator_after(
     name: &str,
     node: Option<xot::Node>,
 ) -> error::Result<sequence::Sequence> {
-    accumulator_probe(interpreter, name, node)
+    accumulator_probe(interpreter, name, node, AccumulatorPhaseQuery::After)
+}
+
+#[derive(Clone, Copy)]
+enum AccumulatorPhaseQuery {
+    Before,
+    After,
 }
 
 fn accumulator_probe(
     interpreter: &mut Interpreter,
     name: &str,
     node: Option<xot::Node>,
+    phase: AccumulatorPhaseQuery,
 ) -> error::Result<sequence::Sequence> {
     let Some(name) = parse_accumulator_name(name) else {
-        return Err(error::Error::Unsupported(
-            "xsl:accumulator is not supported yet".to_string(),
-        ));
+        return Err(error::Error::XTDE3340);
     };
     let Some(accumulator) = interpreter
         .runnable()
@@ -779,38 +784,162 @@ fn accumulator_probe(
         .accumulator_by_name(&name)
         .cloned()
     else {
-        return Err(error::Error::Unsupported(
-            "xsl:accumulator is not supported yet".to_string(),
-        ));
+        return Err(error::Error::XTDE3340);
     };
 
     let Some(context_node) = node else {
-        return Err(error::Error::Unsupported(
-            "xsl:accumulator is not supported yet".to_string(),
-        ));
+        return Err(error::Error::XPDY0002);
     };
-    let dynamic_context = interpreter.runnable().dynamic_context();
     let context_root = interpreter.xot().root(context_node);
-    let differs_from_initial_context_root = dynamic_context
-        .context_item()
-        .and_then(|item| item.to_node().ok())
-        .map(|initial_node| interpreter.xot().root(initial_node) != context_root)
-        .unwrap_or(false);
-    let is_temporary_tree = dynamic_context.is_temporary_tree_node(context_node, interpreter.xot())
-        || differs_from_initial_context_root;
 
-    if is_temporary_tree
-        && accumulator
-            .rules
-            .iter()
-            .any(|rule| rule.probe_temporary_output_state)
-    {
-        return Err(error::Error::XTDE1480);
+    // Build the accumulator index if not already cached
+    let cache_key = crate::library::accumulator_cache::AccumulatorCacheKey {
+        doc_root: context_root,
+        accumulator_name: name,
+    };
+
+    if interpreter.accumulator_cache.get(&cache_key).is_none() {
+        let index = build_accumulator_index(interpreter, &accumulator, context_root)?;
+        interpreter
+            .accumulator_cache
+            .insert(cache_key.clone(), index);
     }
 
-    Err(error::Error::Unsupported(
-        "xsl:accumulator is not supported yet".to_string(),
-    ))
+    let index = interpreter
+        .accumulator_cache
+        .get(&cache_key)
+        .ok_or(error::Error::XTDE3340)?;
+
+    match phase {
+        AccumulatorPhaseQuery::Before => index
+            .get_before(context_node)
+            .cloned()
+            .ok_or(error::Error::XTDE3340),
+        AccumulatorPhaseQuery::After => index
+            .get_after(context_node)
+            .cloned()
+            .ok_or(error::Error::XTDE3340),
+    }
+}
+
+/// Build the accumulator index for a given (document, accumulator) pair.
+///
+/// Walks the document tree in document order. At each node:
+/// 1. Record the "before" value (current accumulated value).
+/// 2. Evaluate start-phase rules that match, updating the value.
+/// 3. Recursively process children.
+/// 4. Evaluate end-phase rules that match, updating the value.
+/// 5. Record the "after" value.
+fn build_accumulator_index(
+    interpreter: &mut Interpreter,
+    accumulator: &crate::declaration::AccumulatorDeclaration,
+    root: xot::Node,
+) -> error::Result<crate::library::accumulator_cache::AccumulatorIndex> {
+    use crate::declaration::AccumulatorPhase;
+    use crate::library::accumulator_cache::{AccumulatorIndex, AccumulatorNodeValues};
+    use crate::pattern::PredicateMatcher;
+
+    // Evaluate the initial-value expression
+    let init_function =
+        function::InlineFunctionData::new(accumulator.initial_value_function_id, Vec::new())
+            .into();
+    // Initial value is evaluated with the document root as context item
+    let initial_value = interpreter.call_function_with_arguments(
+        &init_function,
+        vec![
+            sequence::Item::from(root).into(),
+            sequence::Sequence::from(atomic::Atomic::from(1u64)),
+            sequence::Sequence::from(atomic::Atomic::from(1u64)),
+        ],
+    )?;
+
+    let mut index = AccumulatorIndex::new();
+    let mut value = initial_value;
+
+    // Walk the document tree recursively.
+    // We need to collect nodes first since we can't borrow xot while mutating interpreter.
+    fn walk_node(
+        interpreter: &mut Interpreter,
+        accumulator: &crate::declaration::AccumulatorDeclaration,
+        index: &mut AccumulatorIndex,
+        value: &mut sequence::Sequence,
+        node: xot::Node,
+    ) -> error::Result<()> {
+        let item = sequence::Item::from(node);
+
+        // Evaluate start-phase rules
+        for rule in &accumulator.rules {
+            if rule.phase != AccumulatorPhase::Start {
+                continue;
+            }
+            if !interpreter.matches(&rule.pattern, &item) {
+                continue;
+            }
+            // Call the rule function with (context_node, position, size, $value)
+            let rule_function =
+                function::InlineFunctionData::new(rule.function_id, Vec::new()).into();
+            *value = interpreter.call_function_with_arguments(
+                &rule_function,
+                vec![
+                    item.clone().into(),
+                    sequence::Sequence::from(atomic::Atomic::from(1u64)),
+                    sequence::Sequence::from(atomic::Atomic::from(1u64)),
+                    value.clone(),
+                ],
+            )?;
+        }
+
+        // Pre-descent value (after start-phase rules) = accumulator-before
+        let before = value.clone();
+
+        // Process children (including attributes for elements)
+        // Note: we only process child nodes (elements, text, comments, PIs),
+        // not attribute nodes, as XSLT accumulators visit nodes in document order
+        // and attribute nodes are not visited by default.
+        let children: Vec<xot::Node> = interpreter.xot().children(node).collect();
+        for child in children {
+            walk_node(interpreter, accumulator, index, value, child)?;
+        }
+
+        // Evaluate end-phase rules
+        for rule in &accumulator.rules {
+            if rule.phase != AccumulatorPhase::End {
+                continue;
+            }
+            if !interpreter.matches(&rule.pattern, &item) {
+                continue;
+            }
+            let rule_function =
+                function::InlineFunctionData::new(rule.function_id, Vec::new()).into();
+            *value = interpreter.call_function_with_arguments(
+                &rule_function,
+                vec![
+                    item.clone().into(),
+                    sequence::Sequence::from(atomic::Atomic::from(1u64)),
+                    sequence::Sequence::from(atomic::Atomic::from(1u64)),
+                    value.clone(),
+                ],
+            )?;
+        }
+
+        let after = value.clone();
+
+        index.insert(
+            node,
+            AccumulatorNodeValues {
+                before,
+                after,
+            },
+        );
+
+        Ok(())
+    }
+
+    // Start walking from the root's document element.
+    // The document root itself also needs before/after values.
+    walk_node(interpreter, accumulator, &mut index, &mut value, root)?;
+
+    Ok(index)
 }
 
 fn parse_accumulator_name(name: &str) -> Option<OwnedName> {

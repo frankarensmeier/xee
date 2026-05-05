@@ -628,6 +628,12 @@ pub enum Error {
     ///
     /// It is a dynamic error if two result documents are written to the same URI.
     XTDE1490,
+    /// Unknown accumulator name or accumulator not applicable.
+    ///
+    /// It is a dynamic error if the argument to accumulator-before() or
+    /// accumulator-after() does not match the name of any accumulator in
+    /// the stylesheet.
+    XTDE3340,
     /// Recovery not possible when rollback-output is disabled.
     XTDE3530,
     /// Attribute not permitted on an XSLT element.

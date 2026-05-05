@@ -89,10 +89,6 @@ accumulator-049
 accumulator-050
 accumulator-051
 accumulator-051s
-accumulator-052a
-accumulator-052b
-accumulator-053
-accumulator-054
 accumulator-055
 accumulator-055s
 accumulator-056
@@ -112,17 +108,9 @@ accumulator-079
 accumulator-079s
 accumulator-080
 accumulator-080s
-accumulator-081
-accumulator-082
-accumulator-083
-accumulator-084
-accumulator-085
-accumulator-086
 accumulator-087
 accumulator-087s
 accumulator-088
-accumulator-089
-accumulator-090
 = analyze-string
 analyze-string-001
 analyze-string-076
@@ -1372,10 +1360,6 @@ mode-1505
 mode-1507
 mode-1508
 mode-1510
-mode-1511
-mode-1512
-mode-1513
-mode-1514
 mode-1515
 mode-1516
 mode-1606

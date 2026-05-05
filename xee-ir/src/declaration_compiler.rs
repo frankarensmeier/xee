@@ -424,6 +424,9 @@ impl<'a> DeclarationCompiler<'a> {
         let mut function_compiler = self.function_compiler();
         let mut rules = Vec::with_capacity(accumulator.rules.len());
 
+        let initial_value_function_id =
+            function_compiler.compile_function_id(&accumulator.initial_value, (0..0).into())?;
+
         for rule in &accumulator.rules {
             let function_id =
                 function_compiler.compile_function_id(&rule.rule_function, (0..0).into())?;
@@ -449,6 +452,7 @@ impl<'a> DeclarationCompiler<'a> {
             .declarations
             .add_accumulator(xee_interpreter::declaration::AccumulatorDeclaration {
                 name: accumulator.name.clone(),
+                initial_value_function_id,
                 rules,
             });
         Ok(())

@@ -40,6 +40,7 @@ pub struct KeyDeclaration {
 #[derive(Debug, Clone)]
 pub struct AccumulatorDeclaration {
     pub name: OwnedName,
+    pub initial_value_function_id: crate::function::InlineFunctionId,
     pub rules: Vec<AccumulatorRuleDeclaration>,
 }
 

@@ -1075,8 +1075,23 @@ impl<'a> IrConverter<'a> {
             rules.push(self.accumulator_rule(rule)?);
         }
 
+        // Compile the initial-value expression as a zero-argument function
+        let context_names = self.variables.push_context();
+        let params = Self::context_params(&context_names);
+        let initial_value_bindings = self.expression(&accumulator.initial_value)?;
+        self.variables.pop_context();
+
+        let initial_value = ir::FunctionDefinition {
+            declared_name: None,
+            params,
+            return_type: None,
+            body: Box::new(initial_value_bindings.expr()),
+            static_base_uri: self.current_static_base_uri_string(),
+        };
+
         Ok(ir::AccumulatorDefinition {
             name: accumulator.name.clone(),
+            initial_value,
             rules,
         })
     }
@@ -1094,7 +1109,7 @@ impl<'a> IrConverter<'a> {
         let bindings = if let Some(select) = &rule.select {
             self.expression(select)?
         } else if !rule.sequence_constructor.is_empty() {
-            self.sequence_constructor(&rule.sequence_constructor)?
+            self.sequence_constructor_with_temporary_output_state(&rule.sequence_constructor)?
         } else {
             Bindings::empty()
         };

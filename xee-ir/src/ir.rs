@@ -555,6 +555,7 @@ impl Declarations {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AccumulatorDefinition {
     pub name: xmlname::OwnedName,
+    pub initial_value: FunctionDefinition,
     pub rules: Vec<AccumulatorRuleDefinition>,
 }
 
