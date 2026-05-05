@@ -767,6 +767,12 @@ pub enum Error {
     /// It is a type error if the context-item attribute of xsl:evaluate
     /// supplies a sequence of more than one item.
     XTTE3210,
+    /// Namespace or attribute node added to non-element
+    ///
+    /// It is a dynamic error if the result sequence used to construct the
+    /// content of a node includes a namespace or attribute node that cannot
+    /// be added to the node because the node is not an element.
+    XTDE0420,
     /// Function item in complex content
     ///
     /// The result sequence to be added as content cannot contain a function

@@ -4,6 +4,16 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-05 18:08 CEST
+
+### Fix panics in xsl:copy for namespace/attribute on non-element (XTDE0420)
+
+Added XTDE0420 error variant and replaced `.unwrap()` in `xml_append_items()`
+with a proper pre-check and `map_err`. Two conformance tests (copy-1210,
+copy-4601) now pass instead of panicking.
+
+Conformance: 5949 passed (+2), 2049 filtered (−2), 0 failed, 0 error.
+
 ## 2026-05-05 17:19 CEST
 
 ### xsl:mode conflict detection (XTSE0545) and unnamed mode validation (XTSE0020)

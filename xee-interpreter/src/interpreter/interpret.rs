@@ -1815,12 +1815,16 @@ impl<'a> Interpreter<'a> {
                     } else {
                         node
                     };
-                    // TODO: error out if namespace or attribute node
-                    // is added once a normal child already exists
+                    // XTDE0420: namespace or attribute node on non-element
+                    let is_attr_or_ns = self.state.xot.is_attribute_node(node)
+                        || self.state.xot.is_namespace_node(node);
+                    if is_attr_or_ns && !self.state.xot.is_element(parent_node) {
+                        return Err(error::Error::XTDE0420);
+                    }
                     let needs_attr_ns_fixup = self.state.xot.is_element(parent_node)
                         && self.state.xot.is_attribute_node(node);
                     let is_element = self.state.xot.is_element(node);
-                    self.state.xot.any_append(parent_node, node).unwrap();
+                    self.state.xot.any_append(parent_node, node).map_err(|_| error::Error::XTDE0420)?;
                     // Ensure namespace declarations exist for namespaced
                     // nodes appended to the result tree
                     // (XSLT 3.0 §5.7.3: namespace fixup)
