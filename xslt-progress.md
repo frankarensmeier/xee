@@ -4,6 +4,35 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-05 12:43 CEST
+
+### XHTML/HTML serialization conformance improvements
+
+Improved output/serialization test pass rate from 98 to 119 (of 222 supported).
+
+**Changes:**
+
+1. **XHTML void elements**: Added `basefont`, `frame`, `isindex` to XHTML void element list.
+
+2. **Space before `/>` in XHTML**: Post-processing to insert space before `/>` in self-closing elements (e.g., `<br />` instead of `<br/>`), working at byte level to avoid UTF-8 corruption.
+
+3. **Apostrophe escaping in XHTML**: Replace `&apos;` with literal `'` in XHTML output.
+
+4. **URI attribute escaping**: Implemented `escape-uri-attributes` for HTML/XHTML output methods. NFC-normalizes and percent-encodes non-ASCII characters in URI-type attributes. Added `unicode-normalization` dependency.
+
+5. **`explicit_method` flag**: Added to `SerializationParameters` to track when the output method was explicitly set vs. defaulted. Prevents incorrect auto-detection from overriding explicit `method="xml"` declarations.
+
+6. **Test runner method auto-detection fix**: `probe_html_method` now respects `explicit_method`.
+
+7. **`omit-xml-declaration` default for XHTML**: Per XSLT 3.0 spec, XHTML with html-version ≥ 5 (default 5.0) defaults `omit-xml-declaration` to "yes".
+
+8. **`assert-serialization @file` support**: Test runner reads expected output from external files via `@file` attribute.
+
+### Results
+
+- Output tests: 98 → 119 passed (of 222 supported)
+- 5892 XSLT conformance pass, 0 failed, 0 error
+
 ## 2026-05-04 17:32 CEST — xsl:number runtime fixes (+13 tests)
 
 ### What changed

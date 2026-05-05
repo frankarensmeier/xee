@@ -2706,22 +2706,28 @@ impl<'a> IrConverter<'a> {
         serialization.doctype_system = output.doctype_system.clone();
         match &output.method {
             Some(ast::OutputMethod::Adaptive) => {
-                serialization.method = QNameOrString::String("adaptive".to_string())
+                serialization.method = QNameOrString::String("adaptive".to_string());
+                serialization.explicit_method = true;
             }
             Some(ast::OutputMethod::Xml) => {
-                serialization.method = QNameOrString::String("xml".to_string())
+                serialization.method = QNameOrString::String("xml".to_string());
+                serialization.explicit_method = true;
             }
             Some(ast::OutputMethod::Html) => {
-                serialization.method = QNameOrString::String("html".to_string())
+                serialization.method = QNameOrString::String("html".to_string());
+                serialization.explicit_method = true;
             }
             Some(ast::OutputMethod::Xhtml) => {
-                serialization.method = QNameOrString::String("xhtml".to_string())
+                serialization.method = QNameOrString::String("xhtml".to_string());
+                serialization.explicit_method = true;
             }
             Some(ast::OutputMethod::Text) => {
-                serialization.method = QNameOrString::String("text".to_string())
+                serialization.method = QNameOrString::String("text".to_string());
+                serialization.explicit_method = true;
             }
             Some(ast::OutputMethod::Json) => {
-                serialization.method = QNameOrString::String("json".to_string())
+                serialization.method = QNameOrString::String("json".to_string());
+                serialization.explicit_method = true;
             }
             None => {}
             method => {
@@ -2770,7 +2776,9 @@ impl<'a> IrConverter<'a> {
                 ast::NormalizationForm::None => None,
             });
         serialization.omit_xml_declaration = output.omit_xml_declaration.unwrap_or_else(|| {
-            // For XHTML 5 and HTML, the XML declaration SHOULD NOT be output
+            // For XHTML 5 and HTML, the XML declaration SHOULD NOT be output.
+            // Per XSLT 3.0 spec, the default html-version for XHTML is 5.0,
+            // and omit-xml-declaration defaults to "yes" when html-version >= 5.
             match &output.method {
                 Some(ast::OutputMethod::Xhtml)
                     if serialization.html_version

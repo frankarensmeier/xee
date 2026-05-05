@@ -1,5 +1,6 @@
 use ahash::{HashMap, HashSet, HashSetExt};
 use rust_decimal::Decimal;
+use unicode_normalization::UnicodeNormalization;
 use xot::{xmlname::OwnedName, Xot};
 
 use xee_schema_type::Xs;
@@ -33,6 +34,7 @@ pub struct SerializationParameters {
     pub json_node_output_method: QNameOrString,
     pub media_type: Option<String>,
     pub method: QNameOrString,
+    pub explicit_method: bool,
     pub normalization_form: Option<String>,
     pub omit_xml_declaration: bool,
     pub standalone: Option<bool>,
@@ -61,6 +63,7 @@ impl SerializationParameters {
             json_node_output_method: QNameOrString::String("xml".to_string()),
             media_type: Some("text/xml".to_string()),
             method: QNameOrString::String("xml".to_string()),
+            explicit_method: false,
             normalization_form: None,
             omit_xml_declaration: false,
             standalone: None,
@@ -147,6 +150,7 @@ impl SerializationParameters {
             json_node_output_method,
             media_type,
             method,
+            explicit_method: false,
             normalization_form,
             omit_xml_declaration,
             standalone,
@@ -176,6 +180,7 @@ impl SerializationParameters {
             escape_uri_attributes: false,
             html_version: Decimal::from_str_exact("5.0").unwrap(),
             explicit_html_version: false,
+            explicit_method: false,
             include_content_type: html_in_json,
             indent: false,
             item_separator: " ".to_string(),
@@ -451,6 +456,9 @@ fn serialize_html(
         return Ok(xot.string_value(node));
     }
     materialize_html_foreign_attribute_namespaces(node, xot);
+    if parameters.escape_uri_attributes {
+        escape_uri_attributes(node, xot);
+    }
     if parameters.include_content_type {
         inject_content_type_meta(node, &parameters, xot);
     }
@@ -494,7 +502,11 @@ fn serialize_xhtml(
     materialize_xhtml_nonvoid_empty_elements(node, xot);
 
     let html_root = is_html_root_element(node, xot);
-    let xhtml5 = parameters.html_version >= Decimal::from_str_exact("5.0").unwrap();
+    let xhtml5 = parameters.explicit_html_version
+        && parameters.html_version >= Decimal::from_str_exact("5.0").unwrap();
+    if parameters.escape_uri_attributes {
+        escape_uri_attributes(node, xot);
+    }
     if parameters.include_content_type && html_root {
         inject_content_type_meta(node, &parameters, xot);
     }
@@ -534,6 +546,14 @@ fn serialize_xhtml(
     };
 
     let mut serialized = xot.serialize_xml_string(output_parameters, node)?;
+
+    // XHTML compatibility: add space before /> in empty elements
+    serialized = add_xhtml_space_before_self_closing(&serialized);
+
+    // XHTML compatibility: replace &apos; with literal apostrophe.
+    // Some browsers don't support &apos; and in XML with double-quoted
+    // attributes, apostrophes don't need escaping.
+    serialized = serialized.replace("&apos;", "'");
 
     // Strip post-declaration newline when indent="no"
     if !parameters.indent && !parameters.omit_xml_declaration {
@@ -674,11 +694,99 @@ fn is_html_root_element(node: xot::Node, xot: &Xot) -> bool {
     local == "html" && (ns.is_empty() || ns == "http://www.w3.org/1999/xhtml")
 }
 
+/// HTML attributes whose values are URIs and should be percent-encoded
+/// when escape-uri-attributes="yes".
+/// See XSLT 3.0 spec §20.1 and HTML spec.
+const URI_ATTRIBUTES: &[&str] = &[
+    "action",
+    "archive",
+    "background",
+    "cite",
+    "classid",
+    "codebase",
+    "data",
+    "datasrc",
+    "dynsrc",
+    "formaction",
+    "href",
+    "icon",
+    "longdesc",
+    "lowsrc",
+    "manifest",
+    "pluginspage",
+    "poster",
+    "profile",
+    "src",
+    "srcset",
+    "usemap",
+];
+
+/// Percent-encode non-ASCII characters in URI-type attributes of HTML/XHTML elements.
+fn escape_uri_attributes(root: xot::Node, xot: &mut Xot) {
+    let mut elements: Vec<xot::Node> = Vec::new();
+    if matches!(xot.value(root), xot::Value::Element(_)) {
+        elements.push(root);
+    }
+    elements.extend(xot.descendants(root).filter(|node| xot.is_element(*node)));
+
+    for element in elements {
+        let Some(name_id) = xot.node_name(element) else {
+            continue;
+        };
+        let namespace = xot.namespace_str(xot.namespace_for_name(name_id));
+        // Only apply to HTML/XHTML elements (empty namespace or XHTML namespace)
+        if !namespace.is_empty() && namespace != "http://www.w3.org/1999/xhtml" {
+            continue;
+        }
+
+        let mut updates: Vec<(xot::NameId, String)> = Vec::new();
+        for (attr_name, attr_value) in xot.attributes(element).iter() {
+            let (local, attr_ns) = xot.name_ns_str(attr_name);
+            // Only URI-escape attributes in no namespace (HTML attributes)
+            if !attr_ns.is_empty() {
+                continue;
+            }
+            let local_lower = local.to_ascii_lowercase();
+            if URI_ATTRIBUTES.contains(&local_lower.as_str()) {
+                let escaped = percent_encode_non_ascii(attr_value);
+                if escaped != *attr_value {
+                    updates.push((attr_name, escaped));
+                }
+            }
+        }
+
+        for (attr_name, new_value) in updates {
+            xot.attributes_mut(element)
+                .insert(attr_name, new_value);
+        }
+    }
+}
+
+/// Percent-encode non-ASCII bytes in a URI string.
+/// ASCII characters are left as-is; non-ASCII characters are NFC-normalized,
+/// UTF-8 encoded, and each byte is percent-encoded per IRI-to-URI conversion.
+fn percent_encode_non_ascii(s: &str) -> String {
+    let normalized: String = s.nfc().collect();
+    let mut result = String::with_capacity(normalized.len());
+    for byte in normalized.bytes() {
+        if byte > 0x7E {
+            result.push('%');
+            result.push(char::from(HEX_UPPER[(byte >> 4) as usize]));
+            result.push(char::from(HEX_UPPER[(byte & 0x0F) as usize]));
+        } else {
+            result.push(byte as char);
+        }
+    }
+    result
+}
+
+const HEX_UPPER: &[u8; 16] = b"0123456789ABCDEF";
+
 /// XHTML void elements that may use self-closing syntax.
 /// All other elements must use explicit close tags: `<element></element>`, not `<element/>`.
 const XHTML_VOID_ELEMENTS: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
-    "source", "track", "wbr",
+    "area", "base", "basefont", "br", "col", "embed", "frame", "hr", "img", "input", "isindex",
+    "link", "meta", "param", "source", "track", "wbr",
 ];
 
 fn materialize_xhtml_nonvoid_empty_elements(root: xot::Node, xot: &mut Xot) {
@@ -1142,6 +1250,35 @@ fn strip_post_declaration_newline(s: &str) -> String {
         }
     }
     s.to_string()
+}
+
+/// XHTML compatibility: insert a space before `/>` in self-closing elements.
+/// E.g. `<br/>` becomes `<br />`, `<img src="x"/>` becomes `<img src="x" />`.
+fn add_xhtml_space_before_self_closing(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len() + 32);
+    let mut in_quotes = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            in_quotes = !in_quotes;
+            result.push(bytes[i]);
+            i += 1;
+        } else if !in_quotes && bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'>'
+        {
+            if i > 0 && bytes[i - 1] != b' ' {
+                result.push(b' ');
+            }
+            result.push(b'/');
+            result.push(b'>');
+            i += 2;
+        } else {
+            result.push(bytes[i]);
+            i += 1;
+        }
+    }
+    // Safe: input was valid UTF-8 and we only inserted ASCII bytes
+    String::from_utf8(result).expect("add_xhtml_space_before_self_closing: invalid UTF-8")
 }
 
 #[cfg(test)]
