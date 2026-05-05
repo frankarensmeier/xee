@@ -45,6 +45,23 @@ fn simple_content(
     Ok(s)
 }
 
+/// Normalize an atomic value for use as a grouping key.
+///
+/// Ensures that values which are equal under XPath `eq` (with type promotion)
+/// hash and compare identically in a HashMap. Numeric types are promoted to
+/// Double; UntypedAtomic is cast to String.
+fn normalize_grouping_key(key: atomic::Atomic) -> atomic::Atomic {
+    match &key {
+        atomic::Atomic::Integer(_, _)
+        | atomic::Atomic::Decimal(_)
+        | atomic::Atomic::Float(_) => key.clone().cast_to_double().unwrap_or(key),
+        atomic::Atomic::Untyped(s) => {
+            atomic::Atomic::String(atomic::StringType::String, s.clone())
+        }
+        _ => key,
+    }
+}
+
 #[xpath_fn(
     "fn:xslt-for-each-group-by($seq as item()*, $key as function(*), $body as function(*), $sort_key as item()*, $sort_descending as xs:string, $sort_numeric as xs:string) as item()*"
 )]
@@ -79,6 +96,7 @@ fn xslt_for_each_group_by(
             .atomized(interpreter.xot())
             .collect::<error::Result<Vec<_>>>()?;
         for k in keys {
+            let k = normalize_grouping_key(k);
             if !groups.contains_key(&k) {
                 group_keys.push(k.clone());
             }
@@ -92,16 +110,21 @@ fn xslt_for_each_group_by(
         let mut keyed_groups: Vec<(atomic::Atomic, atomic::Atomic)> = Vec::new();
         let total_groups: IBig = group_keys.len().into();
         for (idx, gk) in group_keys.iter().enumerate() {
-            let first_item: sequence::Sequence = groups
-                .get(gk)
-                .and_then(|g| g.first())
+            let group_items: sequence::Sequence =
+                groups.get(gk).cloned().unwrap_or_default().into();
+            let first_item: sequence::Sequence = group_items
+                .iter()
+                .next()
                 .map(|item| item.clone().into())
                 .unwrap_or_default();
             let pos: IBig = (idx + 1).into();
+            interpreter.push_current_group(group_items, Some(gk.clone()));
             let sort_val = interpreter.call_function_with_arguments(
                 &sort_key_fn,
                 vec![first_item, pos.into(), total_groups.clone().into()],
-            )?;
+            );
+            interpreter.pop_current_group();
+            let sort_val = sort_val?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
                 .next()
@@ -205,6 +228,7 @@ fn xslt_for_each_group_adjacent(
             .next()
             .transpose()?
             .unwrap_or(atomic::Atomic::from(""));
+        let k = normalize_grouping_key(k);
 
         // Check if this key is the same as the previous group's key
         if let Some(last_key) = group_keys.last() {
@@ -225,15 +249,19 @@ fn xslt_for_each_group_adjacent(
         let mut keyed: Vec<(usize, atomic::Atomic)> = Vec::new();
         let total_groups: IBig = group_items_list.len().into();
         for (i, group) in group_items_list.iter().enumerate() {
+            let group_seq: sequence::Sequence = group.clone().into();
             let first_item: sequence::Sequence = group
                 .first()
                 .map(|item| item.clone().into())
                 .unwrap_or_default();
             let pos: IBig = (i + 1).into();
+            interpreter.push_current_group(group_seq, Some(group_keys[i].clone()));
             let sort_val = interpreter.call_function_with_arguments(
                 &sort_key_fn,
                 vec![first_item, pos.into(), total_groups.clone().into()],
-            )?;
+            );
+            interpreter.pop_current_group();
+            let sort_val = sort_val?;
             let sort_atomic = sort_val
                 .atomized(interpreter.xot())
                 .next()

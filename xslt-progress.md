@@ -4,6 +4,30 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-05 16:43 CEST
+
+### for-each-group improvements: key normalization and sort context
+
+Fixed 3 for-each-group conformance tests (005, 026, 032). Overall XSLT
+conformance: 5943 passed (up from 5940), 3 filters removed.
+
+**Changes:**
+
+1. **Grouping key normalization**: Added `normalize_grouping_key()` that
+   promotes Integer/Decimal/Float → Double and UntypedAtomic → String before
+   using keys in HashMap. Without this, `Integer(7)` and `Double(7.0)` were
+   treated as different keys, breaking type-mixed grouping scenarios.
+
+2. **Sort key current-group() availability**: Sort key evaluation in both
+   `for-each-group-by` and `for-each-group-adjacent` now pushes/pops the
+   current group around the sort key function call, making `current-group()`
+   and `current-grouping-key()` available during sort. The `?` error
+   propagation is deferred until after `pop_current_group()` to prevent
+   stack corruption on error.
+
+Conformance: 5943 passed / 7998 supported (74.3%), 2055 filtered, 0 failed,
+0 error.
+
 ## 2026-05-05 14:10 CEST
 
 ### Split ast_ir.rs into submodules
