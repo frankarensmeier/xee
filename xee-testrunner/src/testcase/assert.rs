@@ -877,16 +877,18 @@ impl Assertable for AssertStringValue {
         match strings {
             Ok(strings) => {
                 let joined = strings.join(" ");
-                let joined = if self.1 {
-                    // normalize space
-                    joined
-                        .split_ascii_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                let (joined, expected) = if self.1 {
+                    // normalize space (both actual and expected)
+                    let normalize = |s: &str| {
+                        s.split_ascii_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    };
+                    (normalize(&joined), normalize(&self.0))
                 } else {
-                    joined
+                    (joined, self.0.clone())
                 };
-                if joined == self.0 {
+                if joined == expected {
                     TestOutcome::Passed
                 } else {
                     // the string value is not what we expected
@@ -1151,12 +1153,17 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
 
         let string_value_contents = queries.one("string()", convert_string)?;
         let normalize_space_query = queries.option("@normalize-space/string()", convert_boolean)?;
+        // The official XSLT test runner always normalizes whitespace for
+        // assert-string-value in XSLT tests (namespace-based check).
+        // See vendor/xslt-tests/runner/assert.xsl.
+        let is_xslt = context.catalog_ns == crate::ns::XSLT_TEST_NS;
 
         let assert_string_value_query = queries.one(".", move |documents, item| {
             let string_value = string_value_contents.execute(documents, item)?;
             let normalize_space = normalize_space_query
                 .execute(documents, item)?
-                .unwrap_or(false);
+                .unwrap_or(false)
+                || is_xslt;
             Ok(TestCaseResult::AssertStringValue(AssertStringValue::new(
                 string_value,
                 normalize_space,
@@ -1315,6 +1322,42 @@ pub enum Failure {
     Type(AssertType, Sequence),
 }
 
+/// Show where two strings first differ, with codepoint info for non-ASCII
+/// characters at the mismatch point.
+fn format_first_mismatch(expected: &str, actual: &str) -> Option<String> {
+    let mut exp_chars = expected.chars();
+    let mut act_chars = actual.chars();
+    let mut pos = 0;
+    loop {
+        match (exp_chars.next(), act_chars.next()) {
+            (Some(e), Some(a)) if e == a => pos += 1,
+            (Some(e), Some(a)) => {
+                return Some(format!(
+                    "  first mismatch at char {}: expected {:?} (U+{:04X}), got {:?} (U+{:04X})",
+                    pos, e, e as u32, a, a as u32
+                ));
+            }
+            (Some(_), None) => {
+                return Some(format!(
+                    "  first mismatch at char {}: actual is shorter ({} chars) than expected ({} chars)",
+                    pos,
+                    actual.chars().count(),
+                    expected.chars().count()
+                ));
+            }
+            (None, Some(_)) => {
+                return Some(format!(
+                    "  first mismatch at char {}: actual is longer ({} chars) than expected ({} chars)",
+                    pos,
+                    actual.chars().count(),
+                    expected.chars().count()
+                ));
+            }
+            (None, None) => return None,
+        }
+    }
+}
+
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1375,12 +1418,24 @@ impl fmt::Display for Failure {
                 writeln!(f, "string-value:")?;
                 writeln!(f, "  expected: {:?}", a.0)?;
                 writeln!(f, "  actual: {:?}", failure)?;
+                if let AssertStringValueFailure::WrongStringValue(actual) = failure {
+                    if let Some(mismatch) = format_first_mismatch(&a.0, actual) {
+                        writeln!(f, "{}", mismatch)?;
+                    }
+                }
                 Ok(())
             }
             Failure::Xml(a, failure) => {
                 writeln!(f, "xml:")?;
                 writeln!(f, "  expected: {:?}", a)?;
                 writeln!(f, "  actual: {:?}", failure)?;
+                if let (AssertXml::MatchString(expected), AssertXmlFailure::WrongXml(actual)) =
+                    (a, failure)
+                {
+                    if let Some(mismatch) = format_first_mismatch(expected, actual) {
+                        writeln!(f, "{}", mismatch)?;
+                    }
+                }
                 Ok(())
             }
             Failure::SerializationMatches(a, actual) => {

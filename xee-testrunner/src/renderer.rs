@@ -69,16 +69,16 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
     fn render_test_outcome(
         &self,
         stdout: &mut Stdout,
-        _test_case: &TestCase<L>,
+        test_case: &TestCase<L>,
         test_result: &TestOutcome,
     ) -> std::io::Result<()> {
         match test_result {
             TestOutcome::Passed => {
-                writeln!(
+                return writeln!(
                     stdout,
                     "{}",
                     with_color(stdout, "PASS", crossterm::style::Color::Green)
-                )
+                );
             }
             TestOutcome::UnexpectedError(error) => match error {
                 UnexpectedError(s) => writeln!(
@@ -86,7 +86,7 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
                     "{} code: {}",
                     with_color(stdout, "WRONG ERROR", crossterm::style::Color::Yellow),
                     s
-                ),
+                )?,
             },
             TestOutcome::Failed(failure) => {
                 writeln!(
@@ -94,7 +94,7 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
                     "{} {}",
                     with_color(stdout, "FAIL", crossterm::style::Color::Red),
                     failure
-                )
+                )?;
             }
             TestOutcome::RuntimeError(error) => {
                 writeln!(
@@ -103,7 +103,7 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
                     with_color(stdout, "RUNTIME ERROR", crossterm::style::Color::Red),
                     error,
                     error
-                )
+                )?;
             }
             TestOutcome::CompilationError(error) => {
                 writeln!(
@@ -112,7 +112,7 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
                     with_color(stdout, "COMPILATION ERROR", crossterm::style::Color::Red),
                     error,
                     error
-                )
+                )?;
             }
             TestOutcome::UnsupportedExpression(error) => {
                 writeln!(
@@ -124,14 +124,14 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
                         crossterm::style::Color::Red
                     ),
                     error
-                )
+                )?;
             }
             TestOutcome::Unsupported => {
                 writeln!(
                     stdout,
                     "{}",
                     with_color(stdout, "UNSUPPORTED", crossterm::style::Color::Red)
-                )
+                )?;
             }
             TestOutcome::EnvironmentError(error) => {
                 writeln!(
@@ -139,16 +139,21 @@ impl<L: Language> Renderer<L> for VerboseRenderer {
                     "{} {}",
                     with_color(stdout, "CONTEXT ITEM ERROR", crossterm::style::Color::Red),
                     error
-                )
+                )?;
             }
             TestOutcome::Panic => {
                 writeln!(
                     stdout,
                     "{}",
                     with_color(stdout, "PANIC", crossterm::style::Color::Red)
-                )
+                )?;
             }
         }
+        // Show test description for non-pass outcomes
+        if let Some(description) = &test_case.metadata.description {
+            writeln!(stdout, "  description: {}", description)?;
+        }
+        Ok(())
     }
 
     fn render_test_set_summary(

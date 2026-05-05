@@ -48,16 +48,22 @@ impl NumberCountEntry {
             return count_at_pos;
         }
 
-        // Find the largest from-position that is strictly less than pos.
-        // (The from boundary itself is excluded from counting — counting
-        // starts AFTER the from boundary.)
-        let from_idx = self.from_positions.partition_point(|&fp| fp < pos);
+        // Find the largest from-position that is <= pos.
+        // The from boundary itself resets the count — if a node matches both
+        // from and count, it becomes "1" in the new range.
+        let from_idx = self.from_positions.partition_point(|&fp| fp <= pos);
         if from_idx == 0 {
-            // No from boundary before this node
+            // No from boundary at or before this node
             count_at_pos
         } else {
             let from_pos = self.from_positions[from_idx - 1];
-            count_at_pos - self.prefix_sum[from_pos]
+            // Count from the position just before the from boundary.
+            let base = if from_pos > 0 {
+                self.prefix_sum[from_pos - 1]
+            } else {
+                0
+            };
+            count_at_pos - base
         }
     }
 }

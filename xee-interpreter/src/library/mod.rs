@@ -13,6 +13,7 @@ mod hof;
 mod id;
 pub(crate) mod key_cache;
 pub(crate) mod number_count_cache;
+mod number_words;
 mod xslt_number;
 
 pub(crate) use hidden_xslt::strip_whitespace_only_text_children;

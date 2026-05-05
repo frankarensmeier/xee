@@ -3606,7 +3606,8 @@ impl<'a> IrConverter<'a> {
     }
 
     fn number(&mut self, number: &ast::Number) -> error::SpannedResult<Bindings> {
-        // lang, letter_value, ordinal are accepted but ignored (implementation-defined)
+        // letter_value is accepted but ignored (implementation-defined)
+        // lang and ordinal are compiled and passed to runtime
         // grouping_separator, grouping_size, start_at are compiled and passed to runtime
 
         // Compile the format AVT (shared between value and counting forms)
@@ -3619,7 +3620,11 @@ impl<'a> IrConverter<'a> {
             self.number_optional_avt(&number.grouping_size, number.span)?;
         let (sa_atom, sa_bindings) =
             self.number_optional_avt(&number.start_at, number.span)?;
-        let extra_bindings = gs_bindings.concat(gsz_bindings).concat(sa_bindings);
+        let (lang_atom, lang_bindings) =
+            self.number_optional_avt(&number.lang, number.span)?;
+        let (ordinal_atom, ordinal_bindings) =
+            self.number_optional_avt(&number.ordinal, number.span)?;
+        let extra_bindings = gs_bindings.concat(gsz_bindings).concat(sa_bindings).concat(lang_bindings).concat(ordinal_bindings);
 
         if let Some(value) = &number.value {
             // value= form: evaluate expression, format, emit text
@@ -3627,8 +3632,8 @@ impl<'a> IrConverter<'a> {
             let string_expr = self.static_function_call_expr(
                 "xslt-number-value",
                 FN_NAMESPACE,
-                5,
-                vec![value_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
+                7,
+                vec![value_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone(), lang_atom.clone(), ordinal_atom.clone()],
             );
             let (text_atom, bindings) = value_bindings
                 .concat(format_bindings)
@@ -3693,8 +3698,8 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             fn_name,
                             FN_NAMESPACE,
-                            7,
-                            vec![node_atom, count_index_atom, from_index_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
+                            9,
+                            vec![node_atom, count_index_atom, from_index_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone(), lang_atom.clone(), ordinal_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
@@ -3717,8 +3722,8 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             fn_name,
                             FN_NAMESPACE,
-                            5,
-                            vec![node_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
+                            7,
+                            vec![node_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone(), lang_atom.clone(), ordinal_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
@@ -3766,8 +3771,8 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             "xslt-number-count-multiple-pattern",
                             FN_NAMESPACE,
-                            7,
-                            vec![node_atom, count_index_atom, from_index_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
+                            9,
+                            vec![node_atom, count_index_atom, from_index_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone(), lang_atom.clone(), ordinal_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
@@ -3784,8 +3789,8 @@ impl<'a> IrConverter<'a> {
                         let string_expr = self.static_function_call_expr(
                             "xslt-number-count-multiple",
                             FN_NAMESPACE,
-                            5,
-                            vec![node_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone()],
+                            7,
+                            vec![node_atom, format_atom, gs_atom.clone(), gsz_atom.clone(), sa_atom.clone(), lang_atom.clone(), ordinal_atom.clone()],
                         );
                         let (text_atom, bindings) = node_bindings
                             .concat(format_bindings)
