@@ -95,8 +95,7 @@ pub(super) fn format_number(lang: &str, ruleset: &str, number: i64) -> String {
 
     let mut buf = String::new();
     eval_ruleset(data, rs, number, &mut buf, 0);
-    // Replace soft hyphens (U+00AD) with nothing (they're optional joiners in CLDR)
-    buf.replace('\u{00AD}', "")
+    buf
 }
 
 // ---------------------------------------------------------------------------

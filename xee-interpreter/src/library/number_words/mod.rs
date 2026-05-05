@@ -49,9 +49,9 @@ pub(crate) fn number_to_words_lang(
     };
 
     let result = rbnf::format_number(lang_code, ruleset, number);
-    // CLDR RBNF uses hyphens between compound words (e.g. "twenty-one").
-    // XSLT conformance tests expect spaces ("twenty one"), so replace.
-    let result = result.replace('-', " ");
+    // CLDR RBNF uses hyphens and soft hyphens (U+00AD) as word separators.
+    // XSLT conformance tests expect spaces ("twenty one"), so replace both.
+    let result = result.replace('\u{00AD}', " ").replace('-', " ");
 
     match case {
         WordCase::Lower => result.to_lowercase(),
@@ -100,10 +100,20 @@ fn title_case_first(s: &str) -> String {
     }
 }
 
-/// Capitalize the first character of each word.
+/// Words that should not be capitalized in title case (conjunctions).
+const TITLE_CASE_STOPWORDS: &[&str] = &["and", "und"];
+
+/// Capitalize the first character of each word, except stopwords (unless first).
 fn title_case_words(s: &str) -> String {
     s.split(' ')
-        .map(|word| title_case_first(word))
+        .enumerate()
+        .map(|(i, word)| {
+            if i > 0 && TITLE_CASE_STOPWORDS.contains(&word) {
+                word.to_string()
+            } else {
+                title_case_first(word)
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -262,9 +272,10 @@ mod tests {
     fn de_ordinal_2134816_er() {
         // Conformance test 0813: ordinal="-er" format="Ww" lang="de"
         let result = number_to_words_lang(2134816, WordCase::Title, Some("de"), Some("-er"));
-        // Expected regex: Zwei( |)Millionen( |)Ein...sechzehnter
-        assert!(result.contains("illionen"), "got: {}", result);
-        assert!(result.ends_with("sechzehnter"), "got: {}", result);
+        // Soft hyphens become spaces, title case applied (skipping "und")
+        assert!(result.contains("Millionen"), "got: {}", result);
+        assert!(result.ends_with("Sechzehnter"), "got: {}", result);
+        assert!(result.contains(" und "), "und should be lowercase, got: {}", result);
     }
 
     #[test]
