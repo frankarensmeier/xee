@@ -1166,6 +1166,7 @@ fn apply_serialization_parameter_strings(
 ) -> error::Result<()> {
     if !method.is_empty() {
         parameters.method = sequence::QNameOrString::String(method.to_string());
+        parameters.explicit_method = true;
     }
     if !byte_order_mark.is_empty() {
         parameters.byte_order_mark = parse_boolean(byte_order_mark)?;

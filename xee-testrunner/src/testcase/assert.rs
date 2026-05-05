@@ -1190,8 +1190,18 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
         let serialization_flags_query = queries.option("@flags/string()", convert_string)?;
         let assert_serialization_method_query = serialization_method_query.clone();
         let assert_serialization_contents_query = serialization_contents_query.clone();
+        let assert_serialization_file_query =
+            queries.option("@file/string()", convert_string)?;
         let assert_serialization_query = queries.one(".", move |documents, item| {
-            let expected = assert_serialization_contents_query.execute(documents, item)?;
+            let expected =
+                if let Some(path) = assert_serialization_file_query.execute(documents, item)? {
+                    let base_dir = context.path.parent().unwrap();
+                    let path = base_dir.join(path);
+                    std::fs::read_to_string(&path)
+                        .unwrap_or_else(|e| panic!("Failed to read assert-serialization file {:?}: {}", path, e))
+                } else {
+                    assert_serialization_contents_query.execute(documents, item)?
+                };
             let method = assert_serialization_method_query.execute(documents, item)?;
             Ok(TestCaseResult::AssertSerialization(
                 AssertSerialization::new(expected, method),
@@ -1628,10 +1638,10 @@ fn serialize_for_assertion(
             if method == "html" || method == "xhtml" {
                 set_html_media_type(&mut params);
             }
-        } else if principal_result_method_is_xml {
+        } else if principal_result_method_is_xml && !params.explicit_method {
             probe_html_method(&mut params, documents, sequence)?;
         }
-    } else if method.is_none() && principal_result_method_is_xml {
+    } else if method.is_none() && principal_result_method_is_xml && !params.explicit_method {
         probe_html_method(&mut params, documents, sequence)?;
     }
 
