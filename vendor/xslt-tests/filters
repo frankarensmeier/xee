@@ -242,7 +242,6 @@ base-uri-053
 = boolean
 = bug
 bug-0304
-bug-0701
 bug-1402
 bug-1405
 bug-2201
@@ -250,7 +249,6 @@ bug-2401
 bug-2502
 bug-2801
 bug-3001
-bug-5601
 = built-in-templates
 built-in-templates-0201
 built-in-templates-0202
@@ -473,7 +471,6 @@ declared-modes-013
 declared-modes-014
 = deep-equal
 = disable-output-escaping
-doe-0177a
 = docbook
 docbook-004
 = document
@@ -1521,17 +1518,11 @@ on-non-empty-007
 on-non-empty-013
 = outermost
 = output
-output-0101
-output-0101a
-output-0101b
-output-0102a
-output-0102b
 output-0102c
 output-0102e
 output-0103b
 output-0103c
 output-0103e
-output-0104
 output-0105
 output-0106
 output-0106a
@@ -1539,9 +1530,6 @@ output-0106b
 output-0107
 output-0108
 output-0109
-output-0110
-output-0110a
-output-0110b
 output-0111
 output-0112
 output-0113
@@ -1560,10 +1548,6 @@ output-0121
 output-0122
 output-0128
 output-0129
-output-0132
-output-0133
-output-0134
-output-0135
 output-0136
 output-0136a
 output-0136b
@@ -1574,25 +1558,11 @@ output-0138
 output-0139
 output-0140
 output-0146
-output-0148
-output-0148a
-output-0148b
-output-0149
-output-0149a
-output-0149b
-output-0150
-output-0150a
-output-0150b
-output-0152
 output-0153
 output-0158
-output-0164
 output-0166
 output-0167
-output-0168
 output-0169
-output-0170
-output-0173
 output-0174
 output-0175
 output-0182
@@ -1637,7 +1607,6 @@ output-0309
 output-0310
 output-0311
 output-0312
-output-0313
 output-0604
 output-0703
 output-0709
@@ -1718,7 +1687,6 @@ result-document-1410
 result-document-1411
 = root
 = select
-select-0701
 select-1401
 select-1402
 select-2305

@@ -1213,6 +1213,9 @@ fn apply_serialization_parameter_strings(
     }
     if !standalone.is_empty() {
         parameters.standalone = parse_standalone(standalone)?;
+        // Explicitly setting standalone (yes, no, or omit) implies the
+        // XML declaration should be output.
+        parameters.omit_xml_declaration = false;
     }
     if !html_version.is_empty() {
         parameters.html_version = rust_decimal::Decimal::from_str_exact(html_version)

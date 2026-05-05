@@ -1197,8 +1197,21 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
                 if let Some(path) = assert_serialization_file_query.execute(documents, item)? {
                     let base_dir = context.path.parent().unwrap();
                     let path = base_dir.join(path);
-                    std::fs::read_to_string(&path)
-                        .unwrap_or_else(|e| panic!("Failed to read assert-serialization file {:?}: {}", path, e))
+                    match std::fs::read_to_string(&path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            // Some test files use ISO-8859-1 encoding; read as bytes
+                            // and decode as Latin-1
+                            let bytes = std::fs::read(&path).unwrap_or_else(|e2| {
+                                panic!("Failed to read assert-serialization file {:?}: {}", path, e2)
+                            });
+                            if e.kind() == std::io::ErrorKind::InvalidData {
+                                bytes.iter().map(|&b| b as char).collect()
+                            } else {
+                                panic!("Failed to read assert-serialization file {:?}: {}", path, e)
+                            }
+                        }
+                    }
                 } else {
                     assert_serialization_contents_query.execute(documents, item)?
                 };

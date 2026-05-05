@@ -2776,9 +2776,8 @@ impl<'a> IrConverter<'a> {
                 ast::NormalizationForm::None => None,
             });
         serialization.omit_xml_declaration = output.omit_xml_declaration.unwrap_or_else(|| {
-            // For XHTML 5 and HTML, the XML declaration SHOULD NOT be output.
-            // Per XSLT 3.0 spec, the default html-version for XHTML is 5.0,
-            // and omit-xml-declaration defaults to "yes" when html-version >= 5.
+            // For XHTML with html-version >= 5 and HTML, the XML declaration
+            // SHOULD NOT be output. Our default html-version is 5.0.
             match &output.method {
                 Some(ast::OutputMethod::Xhtml)
                     if serialization.html_version
@@ -2790,6 +2789,13 @@ impl<'a> IrConverter<'a> {
                 _ => false,
             }
         });
+        // Per spec, if standalone is explicitly set (yes, no, or omit),
+        // the XML declaration MUST be output. The standalone attribute
+        // is a pseudo-attribute of the XML declaration, so its presence
+        // implies the declaration should be emitted.
+        if output.standalone.is_some() {
+            serialization.omit_xml_declaration = false;
+        }
         assign_if_some(
             &mut serialization.standalone,
             output.standalone.as_ref().map(|s| match s {

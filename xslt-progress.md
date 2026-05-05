@@ -4,6 +4,30 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-05 13:36 CEST
+
+### Standalone forces XML declaration + test runner fixes
+
+Improved output/serialization test pass rate from 119 to 126 (of 222 supported).
+Overall XSLT conformance: 5924 passed (up from 5893), 32 filters removed.
+
+**Changes:**
+
+1. **Standalone forces XML declaration**: When `standalone` is explicitly set
+   (yes/no/true/false/1/0/omit), force `omit_xml_declaration=false` so the XML
+   declaration is always emitted. Applies in both compiler (ast_ir.rs) and
+   runtime (hidden_xslt.rs). Fixes output-0149, 0149a, 0149b, 0150, 0150a,
+   0150b, 0152 (+7 output tests).
+
+2. **ISO-8859-1 test file fallback**: When `read_to_string` fails with
+   `InvalidData` on expected-output files (e.g., select-6101.out), fall back
+   to reading bytes and decoding as Latin-1. Fixes test runner crash on
+   ISO-8859-1 encoded reference files.
+
+3. **Filter refresh**: `python3 update.py` removed 32 stale filters for tests
+   that now pass (including bug-0701, bug-5601, doe-0177a, select-0701, and
+   25 output tests). Zero new filters added.
+
 ## 2026-05-05 12:43 CEST
 
 ### XHTML/HTML serialization conformance improvements
