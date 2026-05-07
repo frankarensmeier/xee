@@ -1,7 +1,7 @@
 // xsl:number runtime implementation: counting and formatting.
 
 use ahash::HashMapExt;
-use ibig::IBig;
+use ibig::{ibig, IBig};
 use rust_decimal::RoundingStrategy;
 use xee_xpath_ast::Pattern;
 use xee_xpath_macros::xpath_fn;
@@ -66,7 +66,7 @@ fn xslt_number_value(
     let atomized = value.atomized(interpreter.xot());
 
     // Convert each item to an integer per XSLT spec (round to nearest)
-    let mut numbers: Vec<i64> = Vec::new();
+    let mut numbers: Vec<IBig> = Vec::new();
     for item in atomized {
         let atomic = item?;
         let number = atomic_to_number_value(&atomic)?;
@@ -83,30 +83,31 @@ fn xslt_number_value(
     format_xslt_number_values(&numbers, format.unwrap_or("1"), gs, gsz, lang, ordinal)
 }
 
-/// Convert an atomic value to an i64 for xsl:number formatting.
+/// Convert an atomic value to an IBig for xsl:number formatting.
 /// NaN and infinity produce XTDE0980.
 /// Negative values produce XTDE0980.
-fn atomic_to_number_value(atomic: &atomic::Atomic) -> error::Result<i64> {
+fn atomic_to_number_value(atomic: &atomic::Atomic) -> error::Result<IBig> {
     let number = match atomic {
         atomic::Atomic::Float(f) => {
             if f.is_nan() || f.is_infinite() {
                 return Err(error::Error::XTDE0980);
             }
-            f.round() as i64
+            float_to_ibig(f.round() as f64)?
         }
         atomic::Atomic::Double(d) => {
             if d.is_nan() || d.is_infinite() {
                 return Err(error::Error::XTDE0980);
             }
-            d.round() as i64
+            float_to_ibig(d.round())?
         }
         atomic::Atomic::Decimal(d) => {
             // XSLT spec: round towards positive infinity (half-up)
             let rounded = d.round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero);
-            i64::try_from(rounded).map_err(|_| error::Error::XTDE0980)?
+            let i: i128 = rounded.trunc().try_into().map_err(|_| error::Error::XTDE0980)?;
+            IBig::from(i)
         }
         atomic::Atomic::Integer(_, i) => {
-            i64::try_from(i.as_ref()).map_err(|_| error::Error::XTDE0980)?
+            i.as_ref().clone()
         }
         _ => {
             // Try to parse as a number (for string/untyped values)
@@ -115,16 +116,71 @@ fn atomic_to_number_value(atomic: &atomic::Atomic) -> error::Result<i64> {
                     if d.is_nan() || d.is_infinite() {
                         return Err(error::Error::XTDE0980);
                     }
-                    d.round() as i64
+                    float_to_ibig(d.round())?
                 }
                 Err(_) => return Err(error::Error::XTDE0980),
             }
         }
     };
-    if number < 0 {
+    if number < ibig!(0) {
         return Err(error::Error::XTDE0980);
     }
     Ok(number)
+}
+
+/// Convert a finite, rounded f64 to an IBig using the XPath canonical
+/// string representation. This ensures that e.g. 1e100 becomes exactly
+/// 10^100 (the mathematical value), not the IEEE 754 binary approximation.
+fn float_to_ibig(d: f64) -> error::Result<IBig> {
+    if d == 0.0 {
+        return Ok(ibig!(0));
+    }
+    let canonical = atomic::Atomic::canonical_float(d);
+    // canonical is like "1.5E10", "42", "-3", "1.0E100", etc.
+    if let Some(e_pos) = canonical.find('E') {
+        let mantissa_str = &canonical[..e_pos];
+        let exp: i64 = canonical[e_pos + 1..]
+            .parse()
+            .map_err(|_| error::Error::XTDE0980)?;
+
+        // Split mantissa into integer and fractional parts
+        let (int_part, frac_digits) = if let Some(dot_pos) = mantissa_str.find('.') {
+            let int_str = &mantissa_str[..dot_pos];
+            let frac_str = &mantissa_str[dot_pos + 1..];
+            let frac_len = frac_str.len() as i64;
+            // Combine integer and fractional digits into one integer
+            let combined = format!("{}{}", int_str, frac_str);
+            let mantissa_int: IBig = combined.parse().map_err(|_| error::Error::XTDE0980)?;
+            (mantissa_int, frac_len)
+        } else {
+            let mantissa_int: IBig = mantissa_str.parse().map_err(|_| error::Error::XTDE0980)?;
+            (mantissa_int, 0i64)
+        };
+
+        // result = int_part * 10^(exp - frac_digits)
+        let effective_exp = exp - frac_digits;
+        if effective_exp >= 0 {
+            let power = IBig::from(10).pow(effective_exp as usize);
+            Ok(int_part * power)
+        } else {
+            // Fractional result after exponent adjustment — truncate
+            let power = IBig::from(10).pow((-effective_exp) as usize);
+            Ok(int_part / power)
+        }
+    } else {
+        // No exponent — simple integer or decimal
+        if let Some(dot_pos) = canonical.find('.') {
+            // Truncate fractional part (already rounded)
+            let int_str = &canonical[..dot_pos];
+            if int_str.is_empty() || int_str == "-" {
+                Ok(ibig!(0))
+            } else {
+                int_str.parse().map_err(|_| error::Error::XTDE0980)
+            }
+        } else {
+            canonical.parse().map_err(|_| error::Error::XTDE0980)
+        }
+    }
 }
 
 // xsl:number level="single" with default count pattern (no explicit count/from).
@@ -149,7 +205,7 @@ fn xslt_number_count_single(
         return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz, lang, ordinal);
     }
     let adjusted = count + sa - 1;
-    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz, lang, ordinal)
+    format_xslt_number_value(&IBig::from(adjusted), format.unwrap_or("1"), gs, gsz, lang, ordinal)
 }
 
 /// For level="single" with default count pattern: find the first ancestor-or-self
@@ -227,7 +283,7 @@ fn xslt_number_count_any(
         return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz, lang, ordinal);
     }
     let adjusted = count + sa - 1;
-    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz, lang, ordinal)
+    format_xslt_number_value(&IBig::from(adjusted), format.unwrap_or("1"), gs, gsz, lang, ordinal)
 }
 
 /// For level="any" with default count pattern: count all nodes preceding
@@ -339,7 +395,7 @@ fn xslt_number_count_single_pattern(
         return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz, lang, ordinal);
     }
     let adjusted = count + sa - 1;
-    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz, lang, ordinal)
+    format_xslt_number_value(&IBig::from(adjusted), format.unwrap_or("1"), gs, gsz, lang, ordinal)
 }
 
 fn count_single_level_pattern(
@@ -439,7 +495,7 @@ fn xslt_number_count_any_pattern(
         return format_xslt_number_values(&[], format.unwrap_or("1"), gs, gsz, lang, ordinal);
     }
     let adjusted = count + sa - 1;
-    format_xslt_number_value(adjusted, format.unwrap_or("1"), gs, gsz, lang, ordinal)
+    format_xslt_number_value(&IBig::from(adjusted), format.unwrap_or("1"), gs, gsz, lang, ordinal)
 }
 
 fn count_any_level_pattern(
@@ -602,7 +658,8 @@ fn xslt_number_count_multiple(
     let gsz = parse_grouping_size(grouping_size);
     let sa_values = parse_start_at_values(start_at);
     let xot = interpreter.xot();
-    let mut numbers = count_multiple_level(xot, node);
+    let counts = count_multiple_level(xot, node);
+    let mut numbers: Vec<IBig> = counts.into_iter().map(IBig::from).collect();
     apply_start_at_multiple(&mut numbers, &sa_values);
     format_xslt_number_values(&numbers, format.unwrap_or("1"), gs, gsz, lang, ordinal)
 }
@@ -661,7 +718,8 @@ fn xslt_number_count_multiple_pattern(
     let from_index: i64 = (&from_index)
         .try_into()
         .map_err(|_| error::Error::XPTY0004(None))?;
-    let mut numbers = count_multiple_level_pattern(interpreter, node, count_index, from_index);
+    let counts = count_multiple_level_pattern(interpreter, node, count_index, from_index);
+    let mut numbers: Vec<IBig> = counts.into_iter().map(IBig::from).collect();
     apply_start_at_multiple(&mut numbers, &sa_values);
     format_xslt_number_values(&numbers, format.unwrap_or("1"), gs, gsz, lang, ordinal)
 }
@@ -882,7 +940,7 @@ fn is_valid_language_tag(s: &str) -> bool {
 /// Apply start-at adjustments to a vector of numbers for level="multiple".
 /// Each position gets its corresponding start-at value; if there are fewer
 /// start-at values than numbers, the last start-at value is reused per spec.
-fn apply_start_at_multiple(numbers: &mut [i64], start_at_values: &[i64]) {
+fn apply_start_at_multiple(numbers: &mut [IBig], start_at_values: &[i64]) {
     for (i, num) in numbers.iter_mut().enumerate() {
         let sa = if start_at_values.is_empty() {
             1
@@ -891,25 +949,25 @@ fn apply_start_at_multiple(numbers: &mut [i64], start_at_values: &[i64]) {
         } else {
             start_at_values[start_at_values.len() - 1]
         };
-        *num = *num + sa - 1;
+        *num = &*num + IBig::from(sa) - ibig!(1);
     }
 }
 
 fn format_xslt_number_value(
-    number: i64,
+    number: &IBig,
     picture: &str,
     grouping_separator: Option<char>,
     grouping_size: Option<usize>,
     lang: Option<&str>,
     ordinal: Option<&str>,
 ) -> error::Result<String> {
-    format_xslt_number_values(&[number], picture, grouping_separator, grouping_size, lang, ordinal)
+    format_xslt_number_values(&[number.clone()], picture, grouping_separator, grouping_size, lang, ordinal)
 }
 
 /// Format a sequence of numbers according to the XSLT format picture.
 /// For level="single"/"any" this is a single number; for level="multiple" it may be several.
 fn format_xslt_number_values(
-    numbers: &[i64],
+    numbers: &[IBig],
     picture: &str,
     grouping_separator: Option<char>,
     grouping_size: Option<usize>,
@@ -971,7 +1029,7 @@ fn format_xslt_number_values(
         // No format tokens at all — per XSLT spec, the picture is used as
         // both prefix and suffix, with default format token "1".
         let mut result = picture.to_string();
-        for (i, &num) in numbers.iter().enumerate() {
+        for (i, num) in numbers.iter().enumerate() {
             if i > 0 {
                 result.push('.');
             }
@@ -986,7 +1044,7 @@ fn format_xslt_number_values(
 
     let mut result = prefix;
 
-    for (i, &num) in numbers.iter().enumerate() {
+    for (i, num) in numbers.iter().enumerate() {
         if i > 0 {
             // Use the separator between token[i-1] and token[i] if it exists,
             // otherwise use the separator between the last two tokens,
@@ -1031,7 +1089,7 @@ fn format_xslt_number_values(
 }
 
 fn format_number_token(
-    number: i64,
+    number: &IBig,
     token: &str,
     grouping_separator: Option<char>,
     grouping_size: Option<usize>,
@@ -1047,10 +1105,16 @@ fn format_number_token(
     let chars: Vec<char> = token.chars().collect();
     if chars.iter().all(|c| *c == '0' || *c == '1') {
         let min_width = chars.len();
-        let formatted = format!("{:0>width$}", number, width = min_width);
+        let num_str = number.to_string();
+        let formatted = if num_str.len() < min_width {
+            format!("{:0>width$}", num_str, width = min_width)
+        } else {
+            num_str
+        };
         let grouped = apply_grouping(&formatted, grouping_separator, grouping_size);
         if ordinal.is_some() {
-            return Ok(format!("{}{}", grouped, ordinal_suffix(number)));
+            let n = i64::try_from(number).unwrap_or(0);
+            return Ok(format!("{}{}", grouped, ordinal_suffix(n)));
         }
         return Ok(grouped);
     }
@@ -1059,7 +1123,8 @@ fn format_number_token(
     if chars.len() > 1 {
         // "Ww" = title case words (first letter uppercase, rest lowercase)
         if token == "Ww" {
-            return Ok(number_to_words_lang(number, WordCase::Title, lang, ordinal));
+            let n = i64::try_from(number).unwrap_or(0);
+            return Ok(number_to_words_lang(n, WordCase::Title, lang, ordinal));
         }
         // Multi-digit Unicode decimal picture: all chars from same digit family
         if let Some(zero) = get_digit_zero(chars[0]) {
@@ -1069,7 +1134,12 @@ fn format_number_token(
             }) {
                 // Minimum width is picture length; format in decimal then translate
                 let min_width = chars.len();
-                let formatted = format!("{:0>width$}", number, width = min_width);
+                let num_str = number.to_string();
+                let formatted = if num_str.len() < min_width {
+                    format!("{:0>width$}", num_str, width = min_width)
+                } else {
+                    num_str
+                };
                 let translated = translate_digits(&formatted, zero);
                 return Ok(apply_grouping_unicode(&translated, grouping_separator, grouping_size));
             }
@@ -1083,68 +1153,71 @@ fn format_number_token(
 
 /// Format a number using a single format character.
 fn format_number_token_char(
-    number: i64,
+    number: &IBig,
     formchar: char,
     grouping_separator: Option<char>,
     grouping_size: Option<usize>,
     lang: Option<&str>,
     ordinal: Option<&str>,
 ) -> error::Result<String> {
+    // Try to convert to i64 for formats that need it; fall back to decimal for huge values
+    let as_i64 = i64::try_from(number).ok();
+
     match formchar {
         '0' | '1' => {
             let formatted = number.to_string();
             if ordinal.is_some() {
-                // Ordinal suffix: "1st", "2nd", etc.
-                Ok(format!("{}{}", apply_grouping(&formatted, grouping_separator, grouping_size), ordinal_suffix(number)))
+                let n = as_i64.unwrap_or(0);
+                Ok(format!("{}{}", apply_grouping(&formatted, grouping_separator, grouping_size), ordinal_suffix(n)))
             } else {
                 Ok(apply_grouping(&formatted, grouping_separator, grouping_size))
             }
         }
-        'a' => format_alphabetic_number(number, false),
-        'A' => format_alphabetic_number(number, true),
-        'i' => format_roman_number(number, false),
-        'I' => format_roman_number(number, true),
-        'w' => Ok(number_to_words_lang(number, WordCase::Lower, lang, ordinal)),
-        'W' => Ok(number_to_words_lang(number, WordCase::Upper, lang, ordinal)),
+        'a' => format_alphabetic_number(as_i64.unwrap_or(0), false),
+        'A' => format_alphabetic_number(as_i64.unwrap_or(0), true),
+        'i' => format_roman_number(as_i64.unwrap_or(0), false),
+        'I' => format_roman_number(as_i64.unwrap_or(0), true),
+        'w' => Ok(number_to_words_lang(as_i64.unwrap_or(0), WordCase::Lower, lang, ordinal)),
+        'W' => Ok(number_to_words_lang(as_i64.unwrap_or(0), WordCase::Upper, lang, ordinal)),
 
         // Greek alphabetic
-        '\u{03B1}' => format_alpha_sequence(number, GREEK_LOWER), // α
-        '\u{0391}' => format_alpha_sequence(number, GREEK_UPPER), // Α
+        '\u{03B1}' => format_alpha_sequence(as_i64.unwrap_or(0), GREEK_LOWER), // α
+        '\u{0391}' => format_alpha_sequence(as_i64.unwrap_or(0), GREEK_UPPER), // Α
 
         // Cyrillic alphabetic
-        '\u{0430}' => format_alpha_sequence(number, CYRILLIC_LOWER), // а
-        '\u{0410}' => format_alpha_sequence(number, CYRILLIC_UPPER), // А
+        '\u{0430}' => format_alpha_sequence(as_i64.unwrap_or(0), CYRILLIC_LOWER), // а
+        '\u{0410}' => format_alpha_sequence(as_i64.unwrap_or(0), CYRILLIC_UPPER), // А
 
         // Hebrew alphabetic
-        '\u{05D0}' => format_alpha_sequence(number, HEBREW), // א
+        '\u{05D0}' => format_alpha_sequence(as_i64.unwrap_or(0), HEBREW), // א
 
         // Hiragana a-order
-        '\u{3042}' => format_alpha_sequence(number, HIRAGANA_A),
+        '\u{3042}' => format_alpha_sequence(as_i64.unwrap_or(0), HIRAGANA_A),
         // Katakana a-order
-        '\u{30A2}' => format_alpha_sequence(number, KATAKANA_A),
+        '\u{30A2}' => format_alpha_sequence(as_i64.unwrap_or(0), KATAKANA_A),
         // Hiragana i-order
-        '\u{3044}' => format_alpha_sequence(number, HIRAGANA_I),
+        '\u{3044}' => format_alpha_sequence(as_i64.unwrap_or(0), HIRAGANA_I),
         // Katakana i-order
-        '\u{30A4}' => format_alpha_sequence(number, KATAKANA_I),
+        '\u{30A4}' => format_alpha_sequence(as_i64.unwrap_or(0), KATAKANA_I),
 
         // Circled digits: ① U+2460
-        '\u{2460}' => format_special_number(number, SpecialNumbering::CircledDigit),
+        '\u{2460}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::CircledDigit),
         // Parenthesized digits: ⑴ U+2474
-        '\u{2474}' => format_special_number(number, SpecialNumbering::ParenthesizedDigit),
+        '\u{2474}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::ParenthesizedDigit),
         // Digit full stop: ⒈ U+2488
-        '\u{2488}' => format_special_number(number, SpecialNumbering::DigitFullStop),
+        '\u{2488}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::DigitFullStop),
         // Dingbat negative circled: ❶ U+2776
-        '\u{2776}' => format_special_number(number, SpecialNumbering::DingbatNegativeCircled),
+        '\u{2776}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::DingbatNegativeCircled),
         // Double circled sans-serif: ➀ U+2780
-        '\u{2780}' => format_special_number(number, SpecialNumbering::DoubleCircledSansSerif),
+        '\u{2780}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::DoubleCircledSansSerif),
         // Double circled: ⓵ U+24F5
-        '\u{24F5}' => format_special_number(number, SpecialNumbering::DoubleCircled),
+        '\u{24F5}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::DoubleCircled),
         // Dingbat negative circled sans-serif: ➊ U+278A
-        '\u{278A}' => format_special_number(number, SpecialNumbering::DingbatNegativeCircledSansSerif),
+        '\u{278A}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::DingbatNegativeCircledSansSerif),
         // Parenthesized ideograph: ㈠ U+3220
-        '\u{3220}' => format_special_number(number, SpecialNumbering::ParenthesizedIdeograph),
+        '\u{3220}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::ParenthesizedIdeograph),
         // Circled ideograph: ㊀ U+3280
-        '\u{3280}' => format_special_number(number, SpecialNumbering::CircledIdeograph),
+        '\u{3280}' => format_special_number(as_i64.unwrap_or(0), SpecialNumbering::CircledIdeograph),
 
         _ => {
             // Check for Unicode decimal digit families
@@ -1156,12 +1229,12 @@ fn format_number_token_char(
 
             // For other Unicode letters below U+1100, use contiguous alphabetic range
             let cp = formchar as u32;
-            if cp < 0x1100 && formchar.is_alphabetic() && number > 0 {
-                return Ok(alpha_from_contiguous_range(number, formchar));
+            if cp < 0x1100 && formchar.is_alphabetic() && *number > ibig!(0) {
+                return Ok(alpha_from_contiguous_range(as_i64.unwrap_or(1), formchar));
             }
 
             // Check for non-BMP special numbering systems
-            if let Some(result) = format_non_bmp_special(number, formchar) {
+            if let Some(result) = format_non_bmp_special(as_i64.unwrap_or(0), formchar) {
                 return Ok(result);
             }
 
@@ -1656,6 +1729,15 @@ mod tests {
     use ordered_float::OrderedFloat;
     use rust_decimal::Decimal;
 
+    // Test helpers to wrap i64/i64-slice calls into IBig for format functions
+    fn fmt_token(n: i64, token: &str, gs: Option<char>, gsz: Option<usize>, lang: Option<&str>, ord: Option<&str>) -> error::Result<String> {
+        format_number_token(&IBig::from(n), token, gs, gsz, lang, ord)
+    }
+    fn fmt_values(nums: &[i64], picture: &str, gs: Option<char>, gsz: Option<usize>, lang: Option<&str>, ord: Option<&str>) -> error::Result<String> {
+        let bigs: Vec<IBig> = nums.iter().map(|&n| IBig::from(n)).collect();
+        format_xslt_number_values(&bigs, picture, gs, gsz, lang, ord)
+    }
+
     // --- parse_grouping_separator ---
 
     #[test]
@@ -1742,37 +1824,41 @@ mod tests {
 
     // --- apply_start_at_multiple ---
 
+    fn ibig_vec(v: &[i64]) -> Vec<IBig> {
+        v.iter().map(|&n| IBig::from(n)).collect()
+    }
+
     #[test]
     fn start_at_multiple_empty_sa() {
-        let mut nums = vec![1, 2, 3];
+        let mut nums = ibig_vec(&[1, 2, 3]);
         apply_start_at_multiple(&mut nums, &[]);
         // default sa=1: num + 1 - 1 = num
-        assert_eq!(nums, vec![1, 2, 3]);
+        assert_eq!(nums, ibig_vec(&[1, 2, 3]));
     }
 
     #[test]
     fn start_at_multiple_single_sa_reused() {
         // Per XSLT spec: last start-at value is reused for remaining positions
-        let mut nums = vec![1, 2, 3];
+        let mut nums = ibig_vec(&[1, 2, 3]);
         apply_start_at_multiple(&mut nums, &[3]);
         // Each: num + 3 - 1 = num + 2
-        assert_eq!(nums, vec![3, 4, 5]);
+        assert_eq!(nums, ibig_vec(&[3, 4, 5]));
     }
 
     #[test]
     fn start_at_multiple_per_position() {
-        let mut nums = vec![1, 4, 5];
+        let mut nums = ibig_vec(&[1, 4, 5]);
         apply_start_at_multiple(&mut nums, &[0, 1, 2]);
         // 1+(0-1)=0, 4+(1-1)=4, 5+(2-1)=6
-        assert_eq!(nums, vec![0, 4, 6]);
+        assert_eq!(nums, ibig_vec(&[0, 4, 6]));
     }
 
     #[test]
     fn start_at_multiple_fewer_sa_than_numbers() {
-        let mut nums = vec![1, 2, 3, 4];
+        let mut nums = ibig_vec(&[1, 2, 3, 4]);
         apply_start_at_multiple(&mut nums, &[5, 10]);
         // 1+4=5, 2+9=11, 3+9=12, 4+9=13 (last sa=10 reused)
-        assert_eq!(nums, vec![5, 11, 12, 13]);
+        assert_eq!(nums, ibig_vec(&[5, 11, 12, 13]));
     }
 
     // --- apply_grouping ---
@@ -1806,77 +1892,77 @@ mod tests {
 
     #[test]
     fn format_decimal_1() {
-        assert_eq!(format_number_token(42, "1", None, None, None, None).unwrap(), "42");
+        assert_eq!(fmt_token(42, "1", None, None, None, None).unwrap(), "42");
     }
 
     #[test]
     fn format_decimal_0() {
-        assert_eq!(format_number_token(7, "0", None, None, None, None).unwrap(), "7");
+        assert_eq!(fmt_token(7, "0", None, None, None, None).unwrap(), "7");
     }
 
     #[test]
     fn format_zero_padded_01() {
-        assert_eq!(format_number_token(5, "01", None, None, None, None).unwrap(), "05");
-        assert_eq!(format_number_token(42, "01", None, None, None, None).unwrap(), "42");
+        assert_eq!(fmt_token(5, "01", None, None, None, None).unwrap(), "05");
+        assert_eq!(fmt_token(42, "01", None, None, None, None).unwrap(), "42");
     }
 
     #[test]
     fn format_zero_padded_001() {
-        assert_eq!(format_number_token(5, "001", None, None, None, None).unwrap(), "005");
-        assert_eq!(format_number_token(42, "001", None, None, None, None).unwrap(), "042");
-        assert_eq!(format_number_token(999, "001", None, None, None, None).unwrap(), "999");
-        assert_eq!(format_number_token(1000, "001", None, None, None, None).unwrap(), "1000");
+        assert_eq!(fmt_token(5, "001", None, None, None, None).unwrap(), "005");
+        assert_eq!(fmt_token(42, "001", None, None, None, None).unwrap(), "042");
+        assert_eq!(fmt_token(999, "001", None, None, None, None).unwrap(), "999");
+        assert_eq!(fmt_token(1000, "001", None, None, None, None).unwrap(), "1000");
     }
 
     #[test]
     fn format_alpha_lower() {
-        assert_eq!(format_number_token(1, "a", None, None, None, None).unwrap(), "a");
-        assert_eq!(format_number_token(26, "a", None, None, None, None).unwrap(), "z");
-        assert_eq!(format_number_token(27, "a", None, None, None, None).unwrap(), "aa");
+        assert_eq!(fmt_token(1, "a", None, None, None, None).unwrap(), "a");
+        assert_eq!(fmt_token(26, "a", None, None, None, None).unwrap(), "z");
+        assert_eq!(fmt_token(27, "a", None, None, None, None).unwrap(), "aa");
     }
 
     #[test]
     fn format_alpha_upper() {
-        assert_eq!(format_number_token(1, "A", None, None, None, None).unwrap(), "A");
-        assert_eq!(format_number_token(26, "A", None, None, None, None).unwrap(), "Z");
-        assert_eq!(format_number_token(27, "A", None, None, None, None).unwrap(), "AA");
+        assert_eq!(fmt_token(1, "A", None, None, None, None).unwrap(), "A");
+        assert_eq!(fmt_token(26, "A", None, None, None, None).unwrap(), "Z");
+        assert_eq!(fmt_token(27, "A", None, None, None, None).unwrap(), "AA");
     }
 
     #[test]
     fn format_roman_lower() {
-        assert_eq!(format_number_token(1, "i", None, None, None, None).unwrap(), "i");
-        assert_eq!(format_number_token(4, "i", None, None, None, None).unwrap(), "iv");
-        assert_eq!(format_number_token(9, "i", None, None, None, None).unwrap(), "ix");
-        assert_eq!(format_number_token(42, "i", None, None, None, None).unwrap(), "xlii");
+        assert_eq!(fmt_token(1, "i", None, None, None, None).unwrap(), "i");
+        assert_eq!(fmt_token(4, "i", None, None, None, None).unwrap(), "iv");
+        assert_eq!(fmt_token(9, "i", None, None, None, None).unwrap(), "ix");
+        assert_eq!(fmt_token(42, "i", None, None, None, None).unwrap(), "xlii");
         assert_eq!(
-            format_number_token(3999, "i", None, None, None, None).unwrap(),
+            fmt_token(3999, "i", None, None, None, None).unwrap(),
             "mmmcmxcix"
         );
     }
 
     #[test]
     fn format_roman_upper() {
-        assert_eq!(format_number_token(1, "I", None, None, None, None).unwrap(), "I");
-        assert_eq!(format_number_token(14, "I", None, None, None, None).unwrap(), "XIV");
+        assert_eq!(fmt_token(1, "I", None, None, None, None).unwrap(), "I");
+        assert_eq!(fmt_token(14, "I", None, None, None, None).unwrap(), "XIV");
     }
 
     #[test]
     fn format_roman_out_of_range() {
         // Spec: fall back to decimal for values outside roman range
-        assert_eq!(format_number_token(0, "i", None, None, None, None).unwrap(), "0");
-        assert_eq!(format_number_token(4000, "I", None, None, None, None).unwrap(), "4000");
+        assert_eq!(fmt_token(0, "i", None, None, None, None).unwrap(), "0");
+        assert_eq!(fmt_token(4000, "I", None, None, None, None).unwrap(), "4000");
     }
 
     #[test]
     fn format_alpha_zero_fallback() {
         // Spec: fall back to decimal for 0
-        assert_eq!(format_number_token(0, "a", None, None, None, None).unwrap(), "0");
+        assert_eq!(fmt_token(0, "a", None, None, None, None).unwrap(), "0");
     }
 
     #[test]
     fn format_with_grouping() {
         assert_eq!(
-            format_number_token(1000000, "1", Some(','), Some(3), None, None).unwrap(),
+            fmt_token(1000000, "1", Some(','), Some(3), None, None).unwrap(),
             "1,000,000"
         );
     }
@@ -1886,7 +1972,7 @@ mod tests {
     #[test]
     fn format_single_number() {
         assert_eq!(
-            format_xslt_number_values(&[42], "1", None, None, None, None).unwrap(),
+            fmt_values(&[42], "1", None, None, None, None).unwrap(),
             "42"
         );
     }
@@ -1894,7 +1980,7 @@ mod tests {
     #[test]
     fn format_multiple_numbers_default_separator() {
         assert_eq!(
-            format_xslt_number_values(&[1, 2, 3], "1", None, None, None, None).unwrap(),
+            fmt_values(&[1, 2, 3], "1", None, None, None, None).unwrap(),
             "1.2.3"
         );
     }
@@ -1903,7 +1989,7 @@ mod tests {
     fn format_multiple_numbers_custom_separator() {
         // format="1,1" → token1="1", separator=",", token2="1"
         assert_eq!(
-            format_xslt_number_values(&[10, 11, 12], "1,1", None, None, None, None).unwrap(),
+            fmt_values(&[10, 11, 12], "1,1", None, None, None, None).unwrap(),
             "10,11,12"
         );
     }
@@ -1912,7 +1998,7 @@ mod tests {
     fn format_with_prefix_suffix() {
         // format="(1)" → prefix="(", token="1", suffix=")"
         assert_eq!(
-            format_xslt_number_values(&[5], "(1)", None, None, None, None).unwrap(),
+            fmt_values(&[5], "(1)", None, None, None, None).unwrap(),
             "(5)"
         );
     }
@@ -1921,7 +2007,7 @@ mod tests {
     fn format_prefix_suffix_multiple() {
         // format="(1)" with multiple numbers → (5.6.7.8)
         assert_eq!(
-            format_xslt_number_values(&[5, 6, 7, 8], "(1)", None, None, None, None).unwrap(),
+            fmt_values(&[5, 6, 7, 8], "(1)", None, None, None, None).unwrap(),
             "(5.6.7.8)"
         );
     }
@@ -1930,7 +2016,7 @@ mod tests {
     fn format_prefix_only_with_separator() {
         // format="1;1)" → no prefix, separator=";", suffix=")"
         assert_eq!(
-            format_xslt_number_values(&[5, 6, 7, 8], "1;1)", None, None, None, None).unwrap(),
+            fmt_values(&[5, 6, 7, 8], "1;1)", None, None, None, None).unwrap(),
             "5;6;7;8)"
         );
     }
@@ -1939,7 +2025,7 @@ mod tests {
     fn format_no_tokens_picture_is_prefix_and_suffix() {
         // format="*" → no format tokens → "*" is both prefix and suffix
         assert_eq!(
-            format_xslt_number_values(&[1], "*", None, None, None, None).unwrap(),
+            fmt_values(&[1], "*", None, None, None, None).unwrap(),
             "*1*"
         );
     }
@@ -1947,7 +2033,7 @@ mod tests {
     #[test]
     fn format_empty_picture_defaults_to_1() {
         assert_eq!(
-            format_xslt_number_values(&[42], "", None, None, None, None).unwrap(),
+            fmt_values(&[42], "", None, None, None, None).unwrap(),
             "42"
         );
     }
@@ -1956,7 +2042,7 @@ mod tests {
     fn format_empty_numbers() {
         // Empty number list with format "(1) " → prefix "(" + suffix ") "
         assert_eq!(
-            format_xslt_number_values(&[], "(1) ", None, None, None, None).unwrap(),
+            fmt_values(&[], "(1) ", None, None, None, None).unwrap(),
             "() "
         );
     }
@@ -1965,7 +2051,7 @@ mod tests {
     fn format_empty_numbers_no_tokens() {
         // Empty number list with format "*" → no format tokens, returns empty
         assert_eq!(
-            format_xslt_number_values(&[], "*", None, None, None, None).unwrap(),
+            fmt_values(&[], "*", None, None, None, None).unwrap(),
             ""
         );
     }
@@ -1974,7 +2060,7 @@ mod tests {
     fn format_multi_level_alpha() {
         // format="a.a.a" with three levels
         assert_eq!(
-            format_xslt_number_values(&[3, 3, 4], "a.a.a", None, None, None, None).unwrap(),
+            fmt_values(&[3, 3, 4], "a.a.a", None, None, None, None).unwrap(),
             "c.c.d"
         );
     }
@@ -1984,13 +2070,13 @@ mod tests {
     #[test]
     fn atomic_integer_positive() {
         let a = atomic::Atomic::from(IBig::from(42));
-        assert_eq!(atomic_to_number_value(&a).unwrap(), 42);
+        assert_eq!(atomic_to_number_value(&a).unwrap(), IBig::from(42));
     }
 
     #[test]
     fn atomic_integer_zero() {
         let a = atomic::Atomic::from(IBig::from(0));
-        assert_eq!(atomic_to_number_value(&a).unwrap(), 0);
+        assert_eq!(atomic_to_number_value(&a).unwrap(), IBig::from(0));
     }
 
     #[test]
@@ -2005,7 +2091,7 @@ mod tests {
     #[test]
     fn atomic_double_rounds() {
         let a = atomic::Atomic::Double(OrderedFloat(6.51));
-        assert_eq!(atomic_to_number_value(&a).unwrap(), 7);
+        assert_eq!(atomic_to_number_value(&a).unwrap(), IBig::from(7));
     }
 
     #[test]
@@ -2038,7 +2124,7 @@ mod tests {
     #[test]
     fn atomic_float_rounds() {
         let a = atomic::Atomic::Float(OrderedFloat(2.7f32));
-        assert_eq!(atomic_to_number_value(&a).unwrap(), 3);
+        assert_eq!(atomic_to_number_value(&a).unwrap(), IBig::from(3));
     }
 
     #[test]
@@ -2046,14 +2132,14 @@ mod tests {
         // 6.5 should round to 7, not 6 (banker's rounding)
         let d = Decimal::new(65, 1); // 6.5
         let a = atomic::Atomic::Decimal(d.into());
-        assert_eq!(atomic_to_number_value(&a).unwrap(), 7);
+        assert_eq!(atomic_to_number_value(&a).unwrap(), IBig::from(7));
     }
 
     #[test]
     fn atomic_decimal_rounds_down() {
         let d = Decimal::new(64, 1); // 6.4
         let a = atomic::Atomic::Decimal(d.into());
-        assert_eq!(atomic_to_number_value(&a).unwrap(), 6);
+        assert_eq!(atomic_to_number_value(&a).unwrap(), IBig::from(6));
     }
 
     #[test]

@@ -4,6 +4,24 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-08 00:13 CEST
+
+### Refactor xsl:number formatting pipeline to use IBig for arbitrary-precision integers
+
+Replaced i64 with IBig throughout the xsl:number formatting pipeline to support
+numbers beyond i64 range. Fixes number-0807 (value="1e100") and number-0111
+($big*$big*$big with grouping separators and Arabic-Indic digits).
+
+Key changes:
+- `atomic_to_number_value()` now returns `IBig` instead of `i64`
+- New `float_to_ibig()` converts floats via XPath canonical string form to
+  preserve exact mathematical values (e.g., 1e100 → 10^100, not IEEE 754 approx)
+- All formatting functions accept `&IBig`; alphabetic/roman/words/ordinal formats
+  fall back to i64 with `unwrap_or(0)` for numbers beyond i64 range
+- Also removes filters for 8 tests fixed in previous commits
+
+Conformance: 6011/7998 passed, 1987 filtered, 0 failed, 0 error (10 filters removed).
+
 ## 2026-05-07 17:35 CEST
 
 ### Implement XTDE0410: attribute after non-attribute child in complex content
