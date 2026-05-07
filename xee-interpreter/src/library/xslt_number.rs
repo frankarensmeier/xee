@@ -521,6 +521,16 @@ fn count_any_level_pattern_attribute(
         0
     };
 
+    // If the current node itself matches the from pattern, it resets the
+    // count boundary.  reverse_document_order excludes the starting node, so
+    // we must check it here explicitly (mirrors the cached path where
+    // partition_point uses `fp <= pos`).
+    if let Some(ref from_pattern) = from_pattern {
+        if node_matches_pattern(interpreter, node, from_pattern) {
+            return count;
+        }
+    }
+
     let preceding: Vec<_> = reverse_document_order(interpreter.xot(), node).collect();
 
     for n in preceding {
