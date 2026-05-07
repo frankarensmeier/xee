@@ -107,5 +107,5 @@ Before every commit, review the staged diff (`git diff --cached`) for:
 
 ## Progress Tracking
 
-Update `xslt-progress.md` with an entry when making meaningful changes.
+Update `docs/xslt-progress.md` with an entry when making meaningful changes.
 Use `date '+%Y-%m-%d %H:%M %Z'` for timestamps — never guess.

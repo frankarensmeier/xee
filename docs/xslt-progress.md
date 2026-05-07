@@ -1,8 +1,30 @@
 # XSLT progress log
 
 This document records concrete progress on XSLT support: what moved forward,
-what blocked us, and what finally worked. It complements `xslt-plan.md`
+what blocked us, and what finally worked. It complements `docs/xslt-plan.md`
 instead of replacing it.
+
+## 2026-05-07 16:10 CEST
+
+### Locale-aware date formatting via pure_rust_locales
+
+Added `pure_rust_locales` (v0.8.2) for localized month names, day-of-week
+names, and AM/PM markers in format-date/time/dateTime. New module
+`locale_data.rs` wraps the crate with ~90 language→locale mappings.
+
+**Key design decisions:**
+- 24h cultures (e.g. German) return empty string for `[P]` component,
+  allowing stylesheet authors to detect and adapt (see
+  `docs/DESIGN-locale-formatting.md`)
+- Unknown languages get `[Language: en]` prefix per spec §9.8.4.8
+
+**Conformance:** 5993/7998 passed (+44), 0 failed, 0 errors.
+
+### Move internal docs to docs/ folder
+
+Moved 9 documentation files from root to `docs/` to reduce clutter.
+Updated cross-references in copilot-instructions.md, prompt files, and
+within the moved documents.
 
 ## 2026-05-07 15:25 CEST
 

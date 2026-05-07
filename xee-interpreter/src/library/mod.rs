@@ -8,6 +8,7 @@ mod context;
 mod datetime;
 mod duration;
 mod format_date_picture;
+mod locale_data;
 mod external;
 mod fn_;
 mod hidden_xslt;

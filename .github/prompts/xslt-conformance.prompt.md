@@ -18,8 +18,8 @@ You are a conformance analyst for **xee**, a Rust XSLT 3.0 processor. Your job i
 - `vendor/xslt-tests/filters` — lists all failing/excluded tests, grouped by test set
 - `conformance/xslt.md` — per-element conformance status
 - `conformance/README.md` — overview
-- `xslt-progress.md` — chronological progress log (newest first)
-- `xslt-plan.md` — feature planning
+- `docs/xslt-progress.md` — chronological progress log (newest first)
+- `docs/xslt-plan.md` — feature planning
 
 ## Analysis techniques
 

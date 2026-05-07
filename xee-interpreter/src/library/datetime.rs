@@ -12,6 +12,8 @@ use crate::{
     context::DynamicContext, error, wrap_xpath_fn,
 };
 
+use super::locale_data;
+
 #[xpath_fn("fn:dateTime($arg1 as xs:date?, $arg2 as xs:time?) as xs:dateTime?")]
 fn date_time(
     arg1: Option<NaiveDateWithOffset>,
@@ -518,10 +520,11 @@ fn resolve_language<'a>(language: Option<&'a str>, result: &mut String) -> Optio
     let Some(lang) = language else {
         return None;
     };
-    // We support English ("en") and any language that starts with "en-".
-    // All other languages fall back to English with a warning prefix.
-    let primary = lang.split('-').next().unwrap_or(lang);
-    if primary == "en" || primary.is_empty() {
+    if lang.is_empty() {
+        return Some(lang);
+    }
+    // Check if we can resolve this language to a locale
+    if locale_data::resolve_locale(lang).is_some() {
         Some(lang)
     } else {
         result.push_str("[Language: en]");
@@ -545,7 +548,7 @@ fn format_component(
     offset: Option<&chrono::FixedOffset>,
     marker: &PictureMarker,
     kind: DateTimeKind,
-    _language: Option<&str>,
+    language: Option<&str>,
     result: &mut String,
 ) -> error::Result<()> {
     match marker.component {
@@ -557,7 +560,7 @@ fn format_component(
         'M' => {
             check_date_component(kind, marker.component)?;
             let month = dt.month();
-            format_month(month, marker, result)
+            format_month(month, marker, language, result)
         }
         'D' => {
             check_date_component(kind, marker.component)?;
@@ -569,7 +572,7 @@ fn format_component(
         }
         'F' => {
             check_date_component(kind, marker.component)?;
-            format_day_of_week(dt, marker, result)
+            format_day_of_week(dt, marker, language, result)
         }
         'W' => {
             check_date_component(kind, marker.component)?;
@@ -594,7 +597,7 @@ fn format_component(
         }
         'P' => {
             check_time_component(kind, marker.component)?;
-            format_ampm(dt, marker, result)
+            format_ampm(dt, marker, language, result)
         }
         'm' => {
             check_time_component(kind, marker.component)?;
@@ -796,11 +799,16 @@ fn format_alpha(value: u32, uppercase: bool) -> String {
 // ── Month formatting ────────────────────────────────────────────────────────
 
 /// Format a month component — handles both numeric and name-based formats.
-fn format_month(month: u32, marker: &PictureMarker, result: &mut String) -> error::Result<()> {
+fn format_month(
+    month: u32,
+    marker: &PictureMarker,
+    language: Option<&str>,
+    result: &mut String,
+) -> error::Result<()> {
     match &marker.primary {
         PrimaryFormat::NameUpper | PrimaryFormat::NameLower | PrimaryFormat::NameTitle => {
-            let name = month_name(month)?;
-            let cased = apply_name_case(name, &marker.primary);
+            let name = localized_month_name(month, language)?;
+            let cased = apply_name_case(&name, &marker.primary);
             let truncated = apply_name_width(&cased, marker);
             result.push_str(&truncated);
             Ok(())
@@ -812,28 +820,19 @@ fn format_month(month: u32, marker: &PictureMarker, result: &mut String) -> erro
 
 // ── Day-of-week formatting ──────────────────────────────────────────────────
 
-const DAY_NAMES: [&str; 7] = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-];
-
 /// Format day-of-week — can be a name or a number (1=Monday..7=Sunday).
 fn format_day_of_week(
     dt: &chrono::NaiveDateTime,
     marker: &PictureMarker,
+    language: Option<&str>,
     result: &mut String,
 ) -> error::Result<()> {
     let day_idx = dt.weekday().num_days_from_monday() as usize;
 
     match &marker.primary {
         PrimaryFormat::NameUpper | PrimaryFormat::NameLower | PrimaryFormat::NameTitle => {
-            let name = DAY_NAMES[day_idx];
-            let cased = apply_name_case(name, &marker.primary);
+            let name = localized_day_name(day_idx, language);
+            let cased = apply_name_case(&name, &marker.primary);
             let truncated = apply_name_width(&cased, marker);
             result.push_str(&truncated);
             Ok(())
@@ -852,22 +851,28 @@ fn format_day_of_week(
 fn format_ampm(
     dt: &chrono::NaiveDateTime,
     marker: &PictureMarker,
+    language: Option<&str>,
     result: &mut String,
 ) -> error::Result<()> {
     let is_am = dt.hour() < 12;
+    let localized = localized_ampm(is_am, language);
     let text = match &marker.primary {
-        PrimaryFormat::NameUpper => {
-            if is_am { "AM" } else { "PM" }
-        }
+        PrimaryFormat::NameUpper => localized.to_uppercase(),
         PrimaryFormat::NameTitle => {
-            if is_am { "Am" } else { "Pm" }
+            let mut chars = localized.chars();
+            match chars.next() {
+                Some(c) => {
+                    let mut s = c.to_uppercase().to_string();
+                    s.extend(chars.flat_map(|c| c.to_lowercase()));
+                    s
+                }
+                None => String::new(),
+            }
         }
         // Default and NameLower: lowercase
-        _ => {
-            if is_am { "am" } else { "pm" }
-        }
+        _ => localized.to_lowercase(),
     };
-    result.push_str(text);
+    result.push_str(&text);
     Ok(())
 }
 
@@ -1139,26 +1144,54 @@ fn apply_name_width(name: &str, marker: &PictureMarker) -> String {
     name.chars().take(target as usize).collect()
 }
 
-fn month_name(month: u32) -> error::Result<&'static str> {
-    const MONTH_NAMES: [&str; 12] = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ];
+/// Get a localized month name, falling back to English if the locale doesn't resolve.
+fn localized_month_name(month: u32, language: Option<&str>) -> error::Result<String> {
+    let locale = language.and_then(locale_data::resolve_locale);
+    if let Some(locale) = locale {
+        if let Some(name) = locale_data::month_name(month, locale) {
+            return Ok(name.to_string());
+        }
+    }
+    // Fallback to English
+    let en = pure_rust_locales::Locale::en_US;
+    locale_data::month_name(month, en)
+        .map(|s| s.to_string())
+        .ok_or(error::Error::FOFD1340)
+}
 
-    let Some(name) = MONTH_NAMES.get(month.saturating_sub(1) as usize) else {
-        return Err(error::Error::FOFD1340);
-    };
-    Ok(name)
+/// Get a localized day name, falling back to English.
+fn localized_day_name(day_from_monday: usize, language: Option<&str>) -> String {
+    let locale = language.and_then(locale_data::resolve_locale);
+    if let Some(locale) = locale {
+        if let Some(name) = locale_data::day_name(day_from_monday, locale) {
+            return name.to_string();
+        }
+    }
+    // Fallback to English. unwrap_or is safe: day_from_monday always comes from
+    // chrono::Weekday (0..6), so the index is always valid for en_US.
+    locale_data::day_name(day_from_monday, pure_rust_locales::Locale::en_US)
+        .unwrap_or("Monday")
+        .to_string()
+}
+
+/// Get a localized AM/PM string.
+///
+/// Returns an empty string when the locale has no AM/PM concept (e.g. 24-hour
+/// cultures like German). This allows stylesheet authors to detect 24h locales
+/// by probing `format-time($t, '[P]', $lang, (), ())` and adapting the picture
+/// string accordingly. Per spec §9.8.4.7, the `[P]` output is entirely
+/// implementation-defined.
+fn localized_ampm(is_am: bool, language: Option<&str>) -> String {
+    let locale = language.and_then(locale_data::resolve_locale);
+    if let Some(locale) = locale {
+        if let Some(s) = locale_data::ampm_str(is_am, locale) {
+            return s.to_string();
+        }
+        // Locale exists but has no AM/PM strings (24h culture) — return empty.
+        return String::new();
+    }
+    // No locale resolved — fall back to English AM/PM.
+    if is_am { "AM".to_string() } else { "PM".to_string() }
 }
 
 fn format_roman_number(number: u32, uppercase: bool) -> error::Result<String> {
@@ -1257,6 +1290,13 @@ mod tests {
             .unwrap()
     }
 
+    fn fmt_dt_lang(dt_str: &str, picture: &str, lang: &str) -> String {
+        let dt = chrono::NaiveDateTime::parse_from_str(dt_str, "%Y-%m-%dT%H:%M:%S%.f")
+            .unwrap();
+        format_datetime_picture(&dt, None, picture, DateTimeKind::DateTime, Some(lang), None)
+            .unwrap()
+    }
+
     #[test]
     fn test_year_width_specifiers() {
         assert_eq!(fmt_dt("0985-03-01T09:15:06.456", "[Y,4-4]"), "0985");
@@ -1288,5 +1328,108 @@ mod tests {
         assert_eq!(fmt_dt("0985-03-01T09:15:06.456", "[f,1-*]"), "456");
         assert_eq!(fmt_dt("0985-03-01T09:15:06.456", "[f,*-2]"), "45");
         assert_eq!(fmt_dt("0985-03-01T09:15:06.456", "[f,3]"), "456");
+    }
+
+    // ── Localized formatting tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_localized_month_name() {
+        // German March — NameTitle
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T10:00:00.0", "[MNn]", "de"),
+            "März"
+        );
+        // French July — NameTitle capitalizes first letter
+        assert_eq!(
+            fmt_dt_lang("2024-07-15T10:00:00.0", "[MNn]", "fr"),
+            "Juillet"
+        );
+        // French July — NameLower
+        assert_eq!(
+            fmt_dt_lang("2024-07-15T10:00:00.0", "[Mn]", "fr"),
+            "juillet"
+        );
+        // English (explicit) January
+        assert_eq!(
+            fmt_dt_lang("2024-01-15T10:00:00.0", "[MNn]", "en"),
+            "January"
+        );
+    }
+
+    #[test]
+    fn test_localized_day_name() {
+        // 2024-03-15 is a Friday
+        // [FNn] is NameTitle (default for F)
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T10:00:00.0", "[FNn]", "de"),
+            "Freitag"
+        );
+        // Swedish: NameTitle capitalizes first letter
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T10:00:00.0", "[FNn]", "sv"),
+            "Fredag"
+        );
+        // Swedish lowercase
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T10:00:00.0", "[Fn]", "sv"),
+            "fredag"
+        );
+    }
+
+    #[test]
+    fn test_localized_ampm() {
+        // English AM (morning)
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T09:00:00.0", "[PN]", "en"),
+            "AM"
+        );
+        // English PM (afternoon)
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T15:00:00.0", "[Pn]", "en"),
+            "pm"
+        );
+        // German locale has no AM/PM strings (24h culture);
+        // returns empty string so stylesheet authors can detect and adapt.
+        // Per spec §9.8.4.7, P output is entirely implementation-defined.
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T09:00:00.0", "[PN]", "de"),
+            ""
+        );
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T15:00:00.0", "[Pn]", "de"),
+            ""
+        );
+    }
+
+    #[test]
+    fn test_ampm_case_variants() {
+        // NameLower: [Pn]
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T09:00:00.0", "[Pn]", "en"),
+            "am"
+        );
+        // NameUpper: [PN]
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T09:00:00.0", "[PN]", "en"),
+            "AM"
+        );
+        // NameTitle: [PNn]
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T09:00:00.0", "[PNn]", "en"),
+            "Am"
+        );
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T15:00:00.0", "[PNn]", "en"),
+            "Pm"
+        );
+    }
+
+    #[test]
+    fn test_unknown_language_fallback() {
+        // Unknown language should prefix with [Language: en] and use English
+        assert_eq!(
+            fmt_dt_lang("2024-03-15T10:00:00.0", "[MNn]", "xx"),
+            "[Language: en]March"
+        );
     }
 }
