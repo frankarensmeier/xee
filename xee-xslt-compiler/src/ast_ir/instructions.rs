@@ -766,10 +766,50 @@ impl<'a> IrConverter<'a> {
             let level = number.level.as_ref().unwrap_or(&ast::NumberLevel::Single);
 
             // Compile the selected node (select= or context item)
+            // Wrap in validation to produce XTTE0990/XTTE1000 instead of XPTY0004
             let (node_atom, node_bindings) = if let Some(select) = &number.select {
-                self.expression(select)?.atom_bindings()
+                let (raw_atom, raw_bindings) = self.expression(select)?.atom_bindings();
+                let validate_expr = self.static_function_call_expr(
+                    "xslt-number-validate-select",
+                    FN_NAMESPACE,
+                    1,
+                    vec![raw_atom],
+                );
+                raw_bindings
+                    .bind_expr_no_span(&mut self.variables, validate_expr)
+                    .atom_bindings()
             } else {
-                self.variables.context_item(adjusted_span(number.span, self.current_span_offset))?.atom_bindings()
+                match self.variables.context_item(adjusted_span(number.span, self.current_span_offset)) {
+                    Ok(bindings) => {
+                        let (raw_atom, raw_bindings) = bindings.atom_bindings();
+                        let validate_expr = self.static_function_call_expr(
+                            "xslt-number-validate-context",
+                            FN_NAMESPACE,
+                            1,
+                            vec![raw_atom],
+                        );
+                        raw_bindings
+                            .bind_expr_no_span(&mut self.variables, validate_expr)
+                            .atom_bindings()
+                    }
+                    Err(_) => {
+                        // Context is absent (e.g. inside xsl:function or xsl:on-completion).
+                        // Produce XTTE0990 at runtime.
+                        let empty_expr = self.empty_sequence();
+                        let (raw_atom, raw_bindings) = Bindings::empty()
+                            .bind_expr_no_span(&mut self.variables, empty_expr.value)
+                            .atom_bindings();
+                        let validate_expr = self.static_function_call_expr(
+                            "xslt-number-validate-context",
+                            FN_NAMESPACE,
+                            1,
+                            vec![raw_atom],
+                        );
+                        raw_bindings
+                            .bind_expr_no_span(&mut self.variables, validate_expr)
+                            .atom_bindings()
+                    }
+                }
             };
 
             match level {

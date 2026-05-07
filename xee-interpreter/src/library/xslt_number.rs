@@ -18,6 +18,37 @@ use crate::pattern::PredicateMatcher;
 use crate::sequence;
 use crate::wrap_xpath_fn;
 
+/// Validate that the context item for xsl:number (without select=) is a single node.
+/// Raises XTTE0990 if it's absent or not a node.
+#[xpath_fn("fn:xslt-number-validate-context($items as item()*) as node()")]
+fn xslt_number_validate_context(
+    items: &sequence::Sequence,
+) -> error::Result<xot::Node> {
+    let mut iter = items.iter();
+    let first = iter.next().ok_or(error::Error::XTTE0990)?;
+    match first {
+        sequence::Item::Node(node) => Ok(node),
+        _ => Err(error::Error::XTTE0990),
+    }
+}
+
+/// Validate that the select= result for xsl:number is a single node.
+/// Raises XTTE1000 if empty or more than one item.
+#[xpath_fn("fn:xslt-number-validate-select($items as item()*) as node()")]
+fn xslt_number_validate_select(
+    items: &sequence::Sequence,
+) -> error::Result<xot::Node> {
+    let mut iter = items.iter();
+    let first = iter.next().ok_or(error::Error::XTTE1000)?;
+    if iter.next().is_some() {
+        return Err(error::Error::XTTE1000);
+    }
+    match first {
+        sequence::Item::Node(node) => Ok(node),
+        _ => Err(error::Error::XTTE1000),
+    }
+}
+
 #[xpath_fn("fn:xslt-number-value($value as item()*, $format as xs:string?, $grouping_separator as xs:string?, $grouping_size as xs:string?, $start_at as xs:string?, $lang as xs:string?, $ordinal as xs:string?) as xs:string")]
 fn xslt_number_value(
     interpreter: &Interpreter,
@@ -1575,6 +1606,8 @@ fn format_non_bmp_special(number: i64, formchar: char) -> Option<String> {
 
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
+        wrap_xpath_fn!(xslt_number_validate_context),
+        wrap_xpath_fn!(xslt_number_validate_select),
         wrap_xpath_fn!(xslt_number_value),
         wrap_xpath_fn!(xslt_number_count_single),
         wrap_xpath_fn!(xslt_number_count_any),
