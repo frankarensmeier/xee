@@ -1778,6 +1778,18 @@ impl<'a> Interpreter<'a> {
         value: &sequence::Sequence,
         string_values: &mut Vec<String>,
     ) -> error::Result<()> {
+        // XTDE0410: track whether non-attribute/namespace children have been
+        // added, either already present in the parent or during this call.
+        let parent_is_element = self.state.xot.is_element(parent_node);
+        let mut has_non_attr_child = if parent_is_element {
+            self.state.xot.children(parent_node).any(|child| {
+                !self.state.xot.is_attribute_node(child)
+                    && !self.state.xot.is_namespace_node(child)
+            })
+        } else {
+            false
+        };
+
         for item in value.iter() {
             match item {
                 sequence::Item::Node(node) => {
@@ -1786,6 +1798,7 @@ impl<'a> Interpreter<'a> {
                     if !string_values.is_empty() {
                         self.xml_append_string_values(parent_node, &string_values);
                         string_values.clear();
+                        has_non_attr_child = true;
                     }
                     match self.state.xot.value(node) {
                         xot::Value::Document => {
@@ -1794,6 +1807,7 @@ impl<'a> Interpreter<'a> {
                                 let child = self.state.xot.clone_node(child);
                                 self.state.xot.any_append(parent_node, child).unwrap();
                                 self.state.record_output_mutation();
+                                has_non_attr_child = true;
                             }
                             continue;
                         }
@@ -1815,13 +1829,17 @@ impl<'a> Interpreter<'a> {
                     } else {
                         node
                     };
-                    // XTDE0420: namespace or attribute node on non-element
                     let is_attr_or_ns = self.state.xot.is_attribute_node(node)
                         || self.state.xot.is_namespace_node(node);
-                    if is_attr_or_ns && !self.state.xot.is_element(parent_node) {
+                    // XTDE0420: namespace or attribute node on non-element
+                    if is_attr_or_ns && !parent_is_element {
                         return Err(error::Error::XTDE0420);
                     }
-                    let needs_attr_ns_fixup = self.state.xot.is_element(parent_node)
+                    // XTDE0410: attribute/namespace after non-attribute/namespace child
+                    if is_attr_or_ns && has_non_attr_child {
+                        return Err(error::Error::XTDE0410);
+                    }
+                    let needs_attr_ns_fixup = parent_is_element
                         && self.state.xot.is_attribute_node(node);
                     let is_element = self.state.xot.is_element(node);
                     self.state.xot.any_append(parent_node, node).map_err(|_| error::Error::XTDE0420)?;
@@ -1834,12 +1852,22 @@ impl<'a> Interpreter<'a> {
                     if is_element {
                         self.ensure_namespace_for_element(node)?;
                     }
+                    if !is_attr_or_ns {
+                        has_non_attr_child = true;
+                    }
                     self.state.record_output_mutation();
                 }
                 sequence::Item::Atomic(atomic) => string_values.push(atomic.string_value()),
                 sequence::Item::Function(function::Function::Array(array)) => {
                     for member in array.iter() {
                         self.xml_append_items(parent_node, member, string_values)?;
+                    }
+                    // Re-derive after recursion: children may have been added
+                    if parent_is_element && !has_non_attr_child {
+                        has_non_attr_child = self.state.xot.children(parent_node).any(|child| {
+                            !self.state.xot.is_attribute_node(child)
+                                && !self.state.xot.is_namespace_node(child)
+                        });
                     }
                 }
                 sequence::Item::Function(_) => return Err(error::Error::XTDE0450),

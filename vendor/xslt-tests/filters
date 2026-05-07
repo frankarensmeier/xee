@@ -154,9 +154,6 @@ assert-010
 attribute-0301
 attribute-0601
 attribute-0701
-attribute-0803
-attribute-0804
-attribute-0805
 attribute-0806
 attribute-1101
 = attribute-set
@@ -373,8 +370,6 @@ copy-3803
 copy-4307
 copy-4308
 copy-4309
-copy-4701
-copy-4702
 = copy-of
 = core-function
 = current
