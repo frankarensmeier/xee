@@ -48,7 +48,8 @@ pub(crate) fn number_to_words_lang(
         "%spellout-cardinal-verbose"
     };
 
-    let result = rbnf::format_number(lang_code, ruleset, number);
+    let result = format_with_verbose_fallback(lang_code, ruleset, number);
+
     // CLDR RBNF uses hyphens and soft hyphens (U+00AD) as word separators.
     // XSLT conformance tests expect spaces ("twenty one"), so replace both.
     let result = result.replace('\u{00AD}', " ").replace('-', " ");
@@ -82,9 +83,32 @@ fn ordinal_ruleset(ordinal: &str) -> &'static str {
             _ => "%spellout-ordinal",
         }
     } else {
-        // Default: "yes" or unspecified → try ordinal (with masculine fallback in RBNF)
-        "%spellout-ordinal"
+        // Default: "yes" or unspecified → try verbose ordinal first to include
+        // "and" (e.g. "one hundred and fifteenth"). The caller will fall back
+        // to non-verbose if this ruleset doesn't exist for the language.
+        "%spellout-ordinal-verbose"
     }
+}
+
+/// Format a number using the given RBNF ruleset, falling back from a verbose
+/// variant to its non-verbose equivalent when the language doesn't support it.
+///
+/// CLDR only provides `-verbose` rulesets for some languages (e.g. English).
+/// When the verbose ruleset isn't found, RBNF returns the raw number as a
+/// string — we detect that and retry with the base ruleset.
+fn format_with_verbose_fallback(lang: &str, ruleset: &str, number: i64) -> String {
+    let result = rbnf::format_number(lang, ruleset, number);
+    if result == number.to_string() {
+        let fallback = match ruleset {
+            "%spellout-ordinal-verbose" => Some("%spellout-ordinal"),
+            "%spellout-cardinal-verbose" => Some("%spellout-cardinal"),
+            _ => None,
+        };
+        if let Some(fb) = fallback {
+            return rbnf::format_number(lang, fb, number);
+        }
+    }
+    result
 }
 
 /// Capitalize first character, leave the rest unchanged.
@@ -205,7 +229,7 @@ mod tests {
     fn en_ordinal_115() {
         assert_eq!(
             number_to_words_lang(115, WordCase::Lower, Some("en"), Some("yes")),
-            "one hundred fifteenth"
+            "one hundred and fifteenth"
         );
     }
 

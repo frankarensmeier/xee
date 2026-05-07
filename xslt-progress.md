@@ -4,6 +4,37 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-07 15:25 CEST
+
+### Comprehensive format-date/format-dateTime/format-time improvements
+
+Rewrote the picture string parser and format_component logic for date/time
+formatting functions. All 70 format-date conformance tests now pass (up from
+~26 previously).
+
+**New file**: `xee-interpreter/src/library/format_date_picture.rs` — structured
+parser for XPath 3.1 picture string variable markers (`[Y0001]`, `[MNn,3-3]`,
+`[FN]`, `[z,2-2]`, etc.). Handles digit patterns with Unicode zero detection,
+width modifiers, secondary modifiers (ordinal/cardinal), and name/word/roman/
+alpha formats.
+
+**Key fixes**:
+- Year truncation: `[Y01]` → 2-digit year, `[Y]` no longer truncates
+- Minute/second defaults: `[m]`/`[s]` default to 2-digit zero-padded
+- Name formatting: case modifiers (N/n/Nn), 3-letter abbreviation preference
+- Ordinal words: verbose RBNF ruleset with language fallback
+- Unicode digit padding: correct char counting for Thai/Arabic digits
+- Fractional seconds: proper precision with trailing-zero stripping
+- Roman numeral padding to min_width
+- Week-of-month (`[w]`): ISO Thursday-based algorithm
+- Timezone (`[Z]`/`[z]`): fixed 30-minute offset rejection (FODT0003),
+  UTC representation, width modifier support for compact formats
+- Language/calendar fallback prefixes
+
+**number_words/mod.rs**: Added `format_with_verbose_fallback()` to try
+`-verbose` RBNF rulesets first, falling back to base when unavailable
+(e.g., German, Italian).
+
 ## 2026-05-05 18:08 CEST
 
 ### Fix panics in xsl:copy for namespace/attribute on non-element (XTDE0420)
