@@ -14,7 +14,7 @@ use crate::element::{
     by_element, children, instruction, parse_sequence_constructor_node, sequence_constructor,
     ContentParseLock,
 };
-use crate::error::ElementError as Error;
+use crate::error::{AttributeError, ElementError as Error};
 use crate::state::State;
 use crate::value_template::ValueTemplateTokenizer;
 
@@ -1499,6 +1499,42 @@ impl InstructionParser for ast::Number {
     fn parse(content: &Content, attributes: &Attributes) -> Result<Self> {
         let names = &content.state.names;
 
+        let start_at: Option<ast::ValueTemplate<String>> = attributes.optional(
+            names.start_at,
+            attributes.value_template(attributes.string()),
+        )?;
+
+        // Validate static start-at values: each token must be a valid integer
+        if let Some(ref sa) = start_at {
+            if let Some((text, span)) = static_value_template_text(sa) {
+                for token in text.split_whitespace() {
+                    if token.parse::<i64>().is_err() {
+                        return Err(AttributeError::Invalid {
+                            value: text,
+                            span,
+                        }
+                        .into());
+                    }
+                }
+            }
+        }
+
+        let lang: Option<ast::ValueTemplate<ast::Language>> = attributes
+            .optional(names.lang, attributes.value_template(attributes.language()))?;
+
+        // Validate static lang values: must be a valid language tag
+        if let Some(ref l) = lang {
+            if let Some((text, span)) = static_value_template_text(l) {
+                if !is_valid_language_tag(&text) {
+                    return Err(AttributeError::Invalid {
+                        value: text,
+                        span,
+                    }
+                    .into());
+                }
+            }
+        }
+
         Ok(ast::Number {
             value: attributes.optional(names.value, attributes.xpath())?,
             select: attributes.optional(names.select, attributes.xpath())?,
@@ -1507,8 +1543,7 @@ impl InstructionParser for ast::Number {
             from: attributes.optional(names.from, attributes.pattern())?,
             format: attributes
                 .optional(names.format, attributes.value_template(attributes.string()))?,
-            lang: attributes
-                .optional(names.lang, attributes.value_template(attributes.language()))?,
+            lang,
             letter_value: attributes.optional(
                 names.letter_value,
                 attributes.value_template(attributes.letter_value()),
@@ -1517,10 +1552,7 @@ impl InstructionParser for ast::Number {
                 names.ordinal,
                 attributes.value_template(attributes.string()),
             )?,
-            start_at: attributes.optional(
-                names.start_at,
-                attributes.value_template(attributes.string()),
-            )?,
+            start_at,
             grouping_separator: attributes.optional(
                 names.grouping_separator,
                 attributes.value_template(attributes.char()),
@@ -2188,4 +2220,58 @@ impl InstructionParser for ast::WithParam {
             sequence_constructor: content.sequence_constructor()?,
         })
     }
+}
+
+/// Extract the concatenated text and first span from a fully-static value template.
+/// Returns None if the template contains any dynamic `{expr}` parts.
+fn static_value_template_text<V: Clone + PartialEq + Eq>(
+    vt: &ast::ValueTemplate<V>,
+) -> Option<(String, ast::Span)> {
+    if vt
+        .template
+        .iter()
+        .any(|item| matches!(item, ast::ValueTemplateItem::Value { .. }))
+    {
+        return None;
+    }
+    let mut text = String::new();
+    let mut first_span = None;
+    for item in &vt.template {
+        match item {
+            ast::ValueTemplateItem::String { text: t, span } => {
+                if first_span.is_none() {
+                    first_span = Some(*span);
+                }
+                text.push_str(t);
+            }
+            ast::ValueTemplateItem::Curly { c } => text.push(*c),
+            _ => unreachable!(),
+        }
+    }
+    Some((text, first_span.unwrap_or(ast::Span::new(0, 0))))
+}
+
+/// Check whether a string is a valid BCP 47 language tag.
+/// Primary subtag: 2-8 ASCII letters. Subsequent subtags: 1-8 ASCII alphanumerics,
+/// separated by hyphens.
+fn is_valid_language_tag(s: &str) -> bool {
+    let mut subtags = s.split('-');
+    let Some(primary) = subtags.next() else {
+        return false;
+    };
+    if primary.is_empty()
+        || primary.len() > 8
+        || !primary.chars().all(|c| c.is_ascii_alphabetic())
+    {
+        return false;
+    }
+    for subtag in subtags {
+        if subtag.is_empty()
+            || subtag.len() > 8
+            || !subtag.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            return false;
+        }
+    }
+    true
 }

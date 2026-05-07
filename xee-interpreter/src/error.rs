@@ -592,6 +592,12 @@ pub enum Error {
     /// parameter, stylesheet function, named output definition, accumulator,
     /// or character map.
     XTSE0080,
+    /// Dynamic error: effective value of an attribute is not valid.
+    ///
+    /// It is a dynamic error if the effective value of an attribute
+    /// written as an attribute value template is a value that is not
+    /// one of the permitted values for that attribute.
+    XTDE0030,
     /// Requested initial template does not exist.
     ///
     /// It is a dynamic error if the supplied initial template name does not

@@ -854,6 +854,31 @@ fn parse_start_at_values(s: Option<&str>) -> Vec<i64> {
     }
 }
 
+/// Check whether a string is a valid BCP 47 language tag.
+/// Primary subtag: 2-8 ASCII letters. Subsequent subtags: 1-8 ASCII alphanumerics,
+/// separated by hyphens.
+fn is_valid_language_tag(s: &str) -> bool {
+    let mut subtags = s.split('-');
+    let Some(primary) = subtags.next() else {
+        return false;
+    };
+    if primary.is_empty()
+        || primary.len() > 8
+        || !primary.chars().all(|c| c.is_ascii_alphabetic())
+    {
+        return false;
+    }
+    for subtag in subtags {
+        if subtag.is_empty()
+            || subtag.len() > 8
+            || !subtag.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Apply start-at adjustments to a vector of numbers for level="multiple".
 /// Each position gets its corresponding start-at value; if there are fewer
 /// start-at values than numbers, the last start-at value is reused per spec.
@@ -891,6 +916,13 @@ fn format_xslt_number_values(
     lang: Option<&str>,
     ordinal: Option<&str>,
 ) -> error::Result<String> {
+    // Validate lang at runtime (XTDE0030 for invalid language tag from AVT)
+    if let Some(lang_str) = lang {
+        if !is_valid_language_tag(lang_str) {
+            return Err(error::Error::XTDE0030);
+        }
+    }
+
     if picture.is_empty() {
         // Empty format picture: per XSLT spec, use the default format "1"
         return format_xslt_number_values(numbers, "1", grouping_separator, grouping_size, lang, ordinal);
