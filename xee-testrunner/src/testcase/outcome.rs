@@ -36,4 +36,18 @@ impl TestOutcome {
             Self::Panic => "PANIC",
         }
     }
+
+    pub(crate) fn detail(&self) -> String {
+        match self {
+            Self::Passed => String::new(),
+            Self::Failed(failure) => format!("{}", failure),
+            Self::UnexpectedError(UnexpectedError(code)) => format!("code: {}", code),
+            Self::RuntimeError(error) => format!("{}", error),
+            Self::CompilationError(error) => format!("{}", error),
+            Self::UnsupportedExpression(error) => format!("{}", error),
+            Self::Unsupported => String::new(),
+            Self::EnvironmentError(error) => error.clone(),
+            Self::Panic => String::new(),
+        }
+    }
 }

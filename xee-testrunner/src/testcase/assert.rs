@@ -1312,16 +1312,40 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
 #[derive(Debug, PartialEq)]
 pub struct AssertCountFailure(usize);
 
+impl fmt::Display for AssertCountFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum AssertStringValueFailure {
     WrongStringValue(String),
     WrongValue(Sequence),
 }
 
+impl fmt::Display for AssertStringValueFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WrongStringValue(s) => write!(f, "{:?}", s),
+            Self::WrongValue(seq) => write!(f, "{}", format_sequence(seq)),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum AssertXmlFailure {
     WrongXml(String),
     WrongValue(Sequence),
+}
+
+impl fmt::Display for AssertXmlFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WrongXml(s) => write!(f, "{:?}", s),
+            Self::WrongValue(seq) => write!(f, "{}", format_sequence(seq)),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -1381,6 +1405,34 @@ fn format_first_mismatch(expected: &str, actual: &str) -> Option<String> {
     }
 }
 
+/// Format a Sequence for human-readable display (without Rust Debug noise).
+fn format_sequence(seq: &Sequence) -> String {
+    if seq.is_empty() {
+        return "(empty)".to_string();
+    }
+    let items: Vec<String> = seq
+        .iter()
+        .map(|item| match item {
+            Item::Atomic(a) => a.xpath_representation(),
+            Item::Node(_) => "<node>".to_string(),
+            Item::Function(_) => "<function>".to_string(),
+        })
+        .collect();
+    if items.len() == 1 {
+        items.into_iter().next().unwrap()
+    } else {
+        format!("({})", items.join(", "))
+    }
+}
+
+/// Format an AssertXml expected value for display.
+fn format_assert_xml(a: &AssertXml) -> String {
+    match a {
+        AssertXml::MatchString(s) => format!("{:?}", s),
+        AssertXml::MatchFile(path) => format!("file {:?}", path),
+    }
+}
+
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1409,38 +1461,38 @@ impl fmt::Display for Failure {
             }
             Failure::Eq(a, value) => {
                 writeln!(f, "eq:")?;
-                writeln!(f, "  expected: {:?}", a.0)?;
-                writeln!(f, "  actual: {:?}", value)?;
+                writeln!(f, "  expected: {}", a.0.expr())?;
+                writeln!(f, "  actual: {}", format_sequence(value))?;
                 Ok(())
             }
             Failure::DeepEq(a, value) => {
                 writeln!(f, "deep-eq:")?;
-                writeln!(f, "  expected: {:?}", a.0)?;
-                writeln!(f, "  actual: {:?}", value)?;
+                writeln!(f, "  expected: {}", a.0.expr())?;
+                writeln!(f, "  actual: {}", format_sequence(value))?;
                 Ok(())
             }
             Failure::True(_a, value) => {
                 writeln!(f, "true:")?;
                 writeln!(f, "  expected: true")?;
-                writeln!(f, "  actual: {:?}", value)?;
+                writeln!(f, "  actual: {}", format_sequence(value))?;
                 Ok(())
             }
             Failure::False(_a, value) => {
                 writeln!(f, "false:")?;
                 writeln!(f, "  expected: false")?;
-                writeln!(f, "  actual: {:?}", value)?;
+                writeln!(f, "  actual: {}", format_sequence(value))?;
                 Ok(())
             }
             Failure::Count(a, failure) => {
                 writeln!(f, "count:")?;
-                writeln!(f, "  expected: {:?}", a.0)?;
-                writeln!(f, "  actual: {:?}", failure)?;
+                writeln!(f, "  expected: {}", a.0)?;
+                writeln!(f, "  actual: {}", failure)?;
                 Ok(())
             }
             Failure::StringValue(a, failure) => {
                 writeln!(f, "string-value:")?;
                 writeln!(f, "  expected: {:?}", a.0)?;
-                writeln!(f, "  actual: {:?}", failure)?;
+                writeln!(f, "  actual: {}", failure)?;
                 if let AssertStringValueFailure::WrongStringValue(actual) = failure {
                     if let Some(mismatch) = format_first_mismatch(&a.0, actual) {
                         writeln!(f, "{}", mismatch)?;
@@ -1450,8 +1502,8 @@ impl fmt::Display for Failure {
             }
             Failure::Xml(a, failure) => {
                 writeln!(f, "xml:")?;
-                writeln!(f, "  expected: {:?}", a)?;
-                writeln!(f, "  actual: {:?}", failure)?;
+                writeln!(f, "  expected: {}", format_assert_xml(a))?;
+                writeln!(f, "  actual: {}", failure)?;
                 if let (AssertXml::MatchString(expected), AssertXmlFailure::WrongXml(actual)) =
                     (a, failure)
                 {
@@ -1476,30 +1528,30 @@ impl fmt::Display for Failure {
             Failure::Assert(a, failure) => {
                 writeln!(f, "assert:")?;
                 writeln!(f, "  expression: {}", a.0.expr())?;
-                writeln!(f, "  actual: {:?}", failure)?;
+                writeln!(f, "  actual: {}", format_sequence(failure))?;
                 Ok(())
             }
             Failure::Permutation(a, failure) => {
                 writeln!(f, "permutation:")?;
-                writeln!(f, "  expected: {:?}", a.0)?;
-                writeln!(f, "  actual: {:?}", failure)?;
+                writeln!(f, "  expected: {}", a.0.expr())?;
+                writeln!(f, "  actual: {}", format_sequence(failure))?;
                 Ok(())
             }
             Failure::Empty(_a, value) => {
                 writeln!(f, "empty:")?;
-                writeln!(f, "  actual: {:?}", value)?;
+                writeln!(f, "  actual: {}", format_sequence(value))?;
                 Ok(())
             }
             Failure::Type(_a, value) => {
                 writeln!(f, "type:")?;
-                writeln!(f, "  expected type: {:?}", _a.0)?;
-                writeln!(f, "  value of wrong type: {:?}", value)?;
+                writeln!(f, "  expected type: {}", _a.0)?;
+                writeln!(f, "  value of wrong type: {}", format_sequence(value))?;
                 Ok(())
             }
             Failure::Error(a, value) => {
                 writeln!(f, "error:")?;
                 writeln!(f, "  expected: {:?}", a.0)?;
-                writeln!(f, "  actual: {:?}", value)?;
+                writeln!(f, "  actual: {}", format_sequence(value))?;
                 Ok(())
             }
         }

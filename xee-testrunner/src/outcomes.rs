@@ -129,6 +129,12 @@ impl TestSetOutcomes {
                     outcome.outcome.category()
                 )
                 .unwrap();
+                let detail = outcome.outcome.detail();
+                if !detail.is_empty() {
+                    for line in detail.lines() {
+                        writeln!(s, "    {}", line).unwrap();
+                    }
+                }
             }
         }
         s
