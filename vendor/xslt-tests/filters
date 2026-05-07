@@ -470,11 +470,6 @@ document-2101
 document-2401
 document-2402
 = element
-element-0001
-element-0002
-element-0003
-element-0004
-element-0006
 element-0104
 element-0105
 element-0106
@@ -1087,7 +1082,6 @@ load-xquery-module-004
 = lre
 lre-011
 lre-019
-lre-022
 lre-028
 lre-104
 lre-105
@@ -1340,7 +1334,6 @@ namespace-1601
 namespace-1602
 namespace-2001
 namespace-2608
-namespace-2614
 namespace-2615
 namespace-2617
 namespace-2618
@@ -1350,8 +1343,6 @@ namespace-2623
 namespace-2624
 namespace-3101
 namespace-3102
-namespace-3103
-namespace-3104
 namespace-3105
 namespace-3106
 namespace-3107
@@ -1364,8 +1355,6 @@ namespace-3143
 namespace-3148
 namespace-3149
 namespace-3153
-namespace-3201
-namespace-3203
 namespace-3301
 namespace-3304
 namespace-3309
@@ -1376,7 +1365,6 @@ namespace-6202
 = namespace-alias
 namespace-alias-1901
 namespace-alias-1902
-namespace-alias-1903
 namespace-alias-1904
 namespace-alias-1905
 namespace-alias-2613
@@ -1386,7 +1374,6 @@ next-match-037
 next-match-040
 = node
 node-1802
-node-1905
 node-1906
 = nodetest
 = normalize-unicode

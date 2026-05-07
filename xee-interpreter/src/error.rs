@@ -785,6 +785,13 @@ pub enum Error {
     /// item.
     XTDE0450,
 
+    /// Invalid element/attribute name
+    ///
+    /// It is a dynamic error if the effective value of the name attribute
+    /// of xsl:element or xsl:attribute is not a valid QName, or (in the
+    /// case of xsl:element) if it has the value xmlns.
+    XTDE0820,
+
     /// xsl:number value is not a valid number.
     ///
     /// It is a dynamic error if any item in the sequence supplied by the

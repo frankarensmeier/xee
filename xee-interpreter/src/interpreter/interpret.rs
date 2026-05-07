@@ -689,6 +689,11 @@ impl<'a> Interpreter<'a> {
                 }
                 EncodedInstruction::XmlElement => {
                     let name_id = self.pop_xot_name()?;
+                    // XTDE0820: the effective value must be a valid QName
+                    let (local_name, _) = self.state.xot.name_ns_str(name_id);
+                    if local_name.is_empty() || local_name == "xmlns" {
+                        return Err(error::Error::XTDE0820);
+                    }
                     let element_node = self.state.xot.new_element(name_id);
                     let item = sequence::Item::Node(element_node);
                     self.state.push(item);

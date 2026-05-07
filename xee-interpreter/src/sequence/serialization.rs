@@ -914,6 +914,7 @@ fn map_serialization_node(
     xot: &mut Xot,
 ) -> xot::Node {
     let mapped_root = xot.clone_node(node);
+    ensure_element_namespace_declarations(mapped_root, xot);
     normalize_namespace_declarations(mapped_root, xot);
 
     if character_maps.is_empty() {
@@ -940,6 +941,46 @@ fn map_serialization_node(
     }
 
     mapped_root
+}
+
+/// Ensure that every element in the tree has a namespace declaration for its
+/// own namespace.  Dynamically-created elements (e.g. `xsl:element` with an
+/// AVT name) may lack a declaration because the namespace is only known at
+/// runtime.  Without this fixup the serializer would fail with
+/// `MissingPrefix`.
+///
+/// Uses the default namespace (`xmlns="..."`) for the declaration.
+fn ensure_element_namespace_declarations(root: xot::Node, xot: &mut Xot) {
+    let elements: Vec<_> = if xot.is_element(root) {
+        std::iter::once(root)
+            .chain(xot.descendants(root))
+            .filter(|n| xot.is_element(*n))
+            .collect()
+    } else {
+        xot.descendants(root)
+            .filter(|n| xot.is_element(*n))
+            .collect()
+    };
+
+    let empty_prefix = xot.empty_prefix();
+    let no_namespace = xot.no_namespace();
+
+    for element in elements {
+        let Some(name_id) = xot.node_name(element) else {
+            continue;
+        };
+        let ns_id = xot.namespace_for_name(name_id);
+        if ns_id == no_namespace {
+            continue;
+        }
+        // Element already has an in-scope prefix for this namespace
+        // (including inherited declarations).
+        if xot.prefix_for_namespace(element, ns_id).is_some() {
+            continue;
+        }
+        // Add a default-namespace declaration: xmlns="..."
+        xot.set_namespace(element, empty_prefix, ns_id);
+    }
 }
 
 /// Normalize namespace declarations in the result tree before serialization.

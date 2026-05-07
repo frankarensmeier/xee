@@ -1049,9 +1049,14 @@ fn resolve_xslt_qname(
     namespace_map: &str,
     force_namespace: &str,
 ) -> error::Result<atomic::Atomic> {
+    // XTDE0820: empty or whitespace-only name is invalid
+    let trimmed = lexical_name.trim();
+    if trimmed.is_empty() {
+        return Err(error::Error::XTDE0820);
+    }
     let namespaces = decode_namespaces(namespace_map, default_namespace)?;
-    let mut name = parse_name(lexical_name, &namespaces)
-        .map_err(|_| error::Error::FOCA0002)?
+    let mut name = parse_name(trimmed, &namespaces)
+        .map_err(|_| error::Error::XTDE0820)?
         .value;
 
     if !force_namespace.is_empty() {

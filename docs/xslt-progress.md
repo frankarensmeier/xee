@@ -4,6 +4,33 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `docs/xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-07 19:02 CEST
+
+### Namespace fixup for dynamic element names + XTDE0820
+
+Fixed two issues affecting `xsl:element` with dynamically-computed names:
+
+1. **Missing namespace declarations**: When `xsl:element` uses an AVT name
+   (e.g., `name="{ $var }"` or `name="{ xs:QName('p:local') }"`), the
+   runtime resolves the QName correctly via `resolve-xslt-qname`, but no
+   namespace declaration was added to the resulting element. Serialization
+   then failed with `MissingPrefix`/`XPST0081`. Fix: added
+   `ensure_element_namespace_declarations()` in the serialization
+   normalization step to add default-namespace declarations (`xmlns="..."`)
+   for elements missing them.
+
+2. **XTDE0820 not implemented**: Empty element names (`<xsl:element name=""/>`)
+   and other invalid QNames were silently accepted. Added validation in both
+   the `XmlElement` instruction handler (catches empty local name and `xmlns`)
+   and `resolve_xslt_qname` (catches empty/whitespace names and unparseable
+   QNames).
+
+**Tests fixed:** 13 filters removed — element-0001 through 0004, element-0006,
+lre-022, namespace-2614/3103/3104/3201/3203, namespace-alias-1903, node-1905.
+
+**Conformance:** 6011/7998 passed (was 5998), 1987 filtered (was 2000),
+0 failed, 0 error.
+
 ## 2026-05-07 16:10 CEST
 
 ### Locale-aware date formatting via pure_rust_locales
