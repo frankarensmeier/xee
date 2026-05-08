@@ -186,6 +186,29 @@ impl Context {
         )
     }
 
+    /// Namespaces for resolving QNames in XSLT attribute values (like
+    /// cdata-section-elements, suppress-indentation, etc.).
+    /// Uses the XML default namespace (xmlns="...") instead of
+    /// xpath-default-namespace for unprefixed names.
+    pub(crate) fn namespaces_for_eqnames<'a>(&'a self, state: &'a State) -> Namespaces {
+        let mut namespaces = Namespaces::default_namespaces();
+        let mut default_element_ns = String::new();
+        for (prefix, ns) in &self.prefixes {
+            let prefix = state.xot.prefix_str(*prefix);
+            let uri = state.xot.namespace_str(*ns);
+            if prefix.is_empty() {
+                default_element_ns = uri.to_string();
+            } else {
+                namespaces.insert(prefix.to_string(), uri.to_string());
+            }
+        }
+        Namespaces::new(
+            namespaces,
+            default_element_ns,
+            FN_NAMESPACE.to_string(),
+        )
+    }
+
     pub(crate) fn literal_namespaces(&self, state: &State) -> Vec<ast::LiteralNamespace> {
         self.prefixes
             .iter()
@@ -234,6 +257,13 @@ impl Context {
 
     pub(crate) fn parser_context(&self, state: &State) -> XPathParserContext {
         let namespaces = self.namespaces(state);
+        XPathParserContext::new(namespaces, self.variable_names.clone())
+    }
+
+    /// Parser context using the XML default namespace for EqName resolution
+    /// in XSLT attribute values (cdata-section-elements, etc.).
+    pub(crate) fn eqname_parser_context(&self, state: &State) -> XPathParserContext {
+        let namespaces = self.namespaces_for_eqnames(state);
         XPathParserContext::new(namespaces, self.variable_names.clone())
     }
 

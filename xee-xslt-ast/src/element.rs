@@ -134,6 +134,12 @@ impl<'a> Content<'a> {
             .parser_context(self.state)
     }
 
+    pub(crate) fn eqname_parser_context(&self) -> XPathParserContext {
+        self.context
+            .with_prefixes(&self.state.xot.prefixes(self.node))
+            .eqname_parser_context(self.state)
+    }
+
     pub(crate) fn sequence_constructor(&self) -> Result<ast::SequenceConstructor, ElementError> {
         SEQUENCE_CONSTRUCTOR_CONTENT.get_or_init(|| children(sequence_constructor()))(self)
     }

@@ -3,6 +3,7 @@ use std::str::FromStr;
 use ahash::{HashSet, HashSetExt};
 use rust_decimal::Decimal;
 use xee_xpath_ast::{ast as xpath_ast, parse_item_type, parse_name, parse_sequence_type};
+use xot::xmlname::NameStrInfo;
 
 use crate::ast_core as ast;
 use crate::content::Content;
@@ -386,6 +387,34 @@ impl<'a> Attributes<'a> {
         }
     }
 
+    /// Parse an EqName that represents an element name in an XSLT attribute value.
+    /// Unprefixed names use the XML default namespace (xmlns="..."), not
+    /// xpath-default-namespace. Used for cdata-section-elements and suppress-indentation.
+    fn _element_eqname(&self, s: &str, span: Span) -> Result<xpath_ast::Name, AttributeError> {
+        let s = Self::trim_token(s);
+        let ctx = self.content.eqname_parser_context();
+        if let Ok(name) = parse_name(s, &ctx.namespaces).map(|n| n.value) {
+            // parse_name doesn't apply default_element_namespace to unprefixed names
+            // (correct for XPath), so we apply it for XSLT element name attributes.
+            let name = if name.prefix().is_empty() && name.namespace().is_empty() {
+                let default_ns = ctx.namespaces.default_element_namespace();
+                if !default_ns.is_empty() {
+                    name.with_default_namespace(default_ns)
+                } else {
+                    name
+                }
+            } else {
+                name
+            };
+            Ok(name)
+        } else {
+            Err(AttributeError::InvalidEqName {
+                value: s.to_string(),
+                span,
+            })
+        }
+    }
+
     pub(crate) fn eqname(
         &self,
     ) -> impl Fn(&'a str, Span) -> Result<xpath_ast::Name, AttributeError> + '_ {
@@ -400,10 +429,30 @@ impl<'a> Attributes<'a> {
         Ok(result)
     }
 
+    fn _element_eqnames(
+        &self,
+        s: &str,
+        span: Span,
+    ) -> Result<Vec<xpath_ast::Name>, AttributeError> {
+        let mut result = Vec::new();
+        for (s, span) in split_whitespace_with_spans(s, span) {
+            result.push(self._element_eqname(s, span)?);
+        }
+        Ok(result)
+    }
+
     pub(crate) fn eqnames(
         &self,
     ) -> impl Fn(&'a str, Span) -> Result<Vec<xpath_ast::Name>, AttributeError> + '_ {
         |s, span| self._eqnames(s, span)
+    }
+
+    /// Parse a list of EqNames that represent element names.
+    /// Uses XML default namespace for unprefixed names.
+    pub(crate) fn element_eqnames(
+        &self,
+    ) -> impl Fn(&'a str, Span) -> Result<Vec<xpath_ast::Name>, AttributeError> + '_ {
+        |s, span| self._element_eqnames(s, span)
     }
 
     fn _modes(&self, s: &str, span: Span) -> Result<Vec<ast::ModeValue>, AttributeError> {

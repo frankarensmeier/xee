@@ -1628,7 +1628,7 @@ impl InstructionParser for ast::Output {
             build_tree: attributes.boolean_with_default(names.build_tree, false)?,
             byte_order_mark: attributes.boolean_with_default(names.byte_order_mark, false)?,
             cdata_section_elements: attributes
-                .optional(names.cdata_section_elements, attributes.eqnames())?
+                .optional(names.cdata_section_elements, attributes.element_eqnames())?
                 .unwrap_or_default(),
             doctype_public: attributes.optional(names.doctype_public, attributes.string())?,
             doctype_system: attributes.optional(names.doctype_system, attributes.string())?,
@@ -1653,7 +1653,7 @@ impl InstructionParser for ast::Output {
             parameter_document: attributes.optional(names.parameter_document, attributes.uri())?,
             standalone: attributes.optional(names.standalone, attributes.standalone())?,
             suppress_indentation: attributes
-                .optional(names.suppress_indentation, attributes.eqnames())?
+                .optional(names.suppress_indentation, attributes.element_eqnames())?
                 .unwrap_or_default(),
             undeclare_prefixes: attributes.boolean_with_default(names.undeclare_prefixes, false)?,
             use_character_maps: attributes
@@ -1834,7 +1834,7 @@ impl InstructionParser for ast::ResultDocument {
             )?,
             cdata_section_elements: attributes.optional(
                 names.cdata_section_elements,
-                attributes.value_template(attributes.eqnames()),
+                attributes.value_template(attributes.element_eqnames()),
             )?,
             doctype_public: attributes.optional(
                 names.doctype_public,
@@ -1894,7 +1894,7 @@ impl InstructionParser for ast::ResultDocument {
             )?,
             suppress_indentation: attributes.optional(
                 names.suppress_indentation,
-                attributes.value_template(attributes.eqnames()),
+                attributes.value_template(attributes.element_eqnames()),
             )?,
             undeclare_prefixes: attributes.optional(
                 names.undeclare_prefixes,

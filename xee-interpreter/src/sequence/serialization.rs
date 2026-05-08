@@ -384,6 +384,7 @@ fn serialize_text(
 ) -> Result<String, error::Error> {
     let node = arg.normalize(&parameters.item_separator, xot)?;
     let serialized = apply_character_maps(&xot.string_value(node), &parameters.use_character_maps);
+    let serialized = apply_normalization_form(serialized, &parameters)?;
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
@@ -392,13 +393,15 @@ fn serialize_xml(
     parameters: SerializationParameters,
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
-    let node = map_serialization_node(
+    let (node, placeholders, reverse_placeholders) = map_serialization_node(
         arg.normalize(&parameters.item_separator, xot)?,
         &parameters.use_character_maps,
         xot,
     );
     let indentation = xot_indentation(&parameters, xot);
     let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
+    // Per spec, character maps do not apply to text in CDATA section elements.
+    revert_placeholders_in_cdata_elements(node, &cdata_section_elements, &reverse_placeholders, xot);
     let declaration = if !parameters.omit_xml_declaration {
         Some(xot::output::xml::Declaration {
             encoding: Some(parameters.encoding.to_string()),
@@ -407,19 +410,7 @@ fn serialize_xml(
     } else {
         None
     };
-    let doctype = match (
-        parameters.doctype_public.clone(),
-        parameters.doctype_system.clone(),
-    ) {
-        (Some(public), Some(system)) => Some(xot::output::xml::DocType::Public { public, system }),
-        (None, Some(system)) => Some(xot::output::xml::DocType::System { system }),
-        // TODO: this should really not happen?
-        (Some(public), None) => Some(xot::output::xml::DocType::Public {
-            public,
-            system: "".to_string(),
-        }),
-        (None, None) => None,
-    };
+    let doctype = build_xml_doctype(&parameters);
     let output_parameters = xot::output::xml::Parameters {
         indentation,
         cdata_section_elements,
@@ -429,6 +420,7 @@ fn serialize_xml(
     };
 
     let serialized = xot.serialize_xml_string(output_parameters, node)?;
+    let serialized = apply_character_map_placeholders(serialized, &placeholders);
 
     // xot unconditionally adds a newline after the XML declaration (?>).
     // When indent="no", the spec requires no whitespace between the
@@ -439,6 +431,11 @@ fn serialize_xml(
         serialized
     };
 
+    // Per spec, the DOCTYPE must appear immediately before the first element.
+    // xot places it after the XML declaration but before comments/PIs.
+    let serialized = reposition_doctype_before_first_element(serialized);
+
+    let serialized = apply_normalization_form(serialized, &parameters)?;
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
@@ -447,7 +444,7 @@ fn serialize_html(
     parameters: SerializationParameters,
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
-    let node = map_serialization_node(
+    let (node, placeholders, reverse_placeholders) = map_serialization_node(
         arg.normalize(&parameters.item_separator, xot)?,
         &parameters.use_character_maps,
         xot,
@@ -457,6 +454,7 @@ fn serialize_html(
     }
     materialize_html_foreign_attribute_namespaces(node, xot);
     if parameters.escape_uri_attributes {
+        revert_placeholders_in_uri_attributes(node, &reverse_placeholders, xot);
         escape_uri_attributes(node, xot);
     }
     if parameters.include_content_type {
@@ -470,10 +468,13 @@ fn serialize_html(
         indentation,
         cdata_section_elements,
     };
-    let mut serialized = html5.serialize_string(output_parameters, node)?;
+    let serialized = html5.serialize_string(output_parameters, node)?;
+    let mut serialized = apply_character_map_placeholders(serialized, &placeholders);
 
     if parameters.explicit_html_version {
         if parameters.html_version >= Decimal::from_str_exact("5.0").unwrap() {
+            // Remove xot's DOCTYPE (always at start), re-add at correct position
+            remove_html5_doctype(&mut serialized);
             ensure_html5_doctype(&mut serialized);
         } else {
             remove_html5_doctype(&mut serialized);
@@ -482,6 +483,7 @@ fn serialize_html(
         remove_html5_doctype(&mut serialized);
     }
 
+    let serialized = apply_normalization_form(serialized, &parameters)?;
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
@@ -490,7 +492,7 @@ fn serialize_xhtml(
     parameters: SerializationParameters,
     xot: &mut Xot,
 ) -> Result<String, error::Error> {
-    let node = map_serialization_node(
+    let (node, placeholders, reverse_placeholders) = map_serialization_node(
         arg.normalize(&parameters.item_separator, xot)?,
         &parameters.use_character_maps,
         xot,
@@ -504,6 +506,9 @@ fn serialize_xhtml(
     let html_root = is_html_root_element(node, xot);
     let xhtml5 = parameters.explicit_html_version
         && parameters.html_version >= Decimal::from_str_exact("5.0").unwrap();
+    if xhtml5 {
+        strip_xhtml5_namespace_prefixes(node, xot);
+    }
     if parameters.escape_uri_attributes {
         escape_uri_attributes(node, xot);
     }
@@ -514,6 +519,8 @@ fn serialize_xhtml(
     // XHTML uses the XML output method for serialization (well-formed XML)
     let indentation = xot_indentation(&parameters, xot);
     let cdata_section_elements = xot_names(&parameters.cdata_section_elements, xot);
+    // Per spec, character maps do not apply to text in CDATA section elements.
+    revert_placeholders_in_cdata_elements(node, &cdata_section_elements, &reverse_placeholders, xot);
     let declaration = if !parameters.omit_xml_declaration {
         Some(xot::output::xml::Declaration {
             encoding: Some(parameters.encoding.to_string()),
@@ -524,18 +531,7 @@ fn serialize_xhtml(
     };
 
     // DOCTYPE from explicit doctype-public/doctype-system
-    let doctype = match (
-        parameters.doctype_public.clone(),
-        parameters.doctype_system.clone(),
-    ) {
-        (Some(public), Some(system)) => Some(xot::output::xml::DocType::Public { public, system }),
-        (None, Some(system)) => Some(xot::output::xml::DocType::System { system }),
-        (Some(public), None) => Some(xot::output::xml::DocType::Public {
-            public,
-            system: "".to_string(),
-        }),
-        (None, None) => None,
-    };
+    let doctype = build_xml_doctype(&parameters);
 
     let output_parameters = xot::output::xml::Parameters {
         indentation,
@@ -545,7 +541,8 @@ fn serialize_xhtml(
         ..Default::default()
     };
 
-    let mut serialized = xot.serialize_xml_string(output_parameters, node)?;
+    let serialized = xot.serialize_xml_string(output_parameters, node)?;
+    let mut serialized = apply_character_map_placeholders(serialized, &placeholders);
 
     // XHTML compatibility: add space before /> in empty elements
     serialized = add_xhtml_space_before_self_closing(&serialized);
@@ -555,20 +552,23 @@ fn serialize_xhtml(
     // attributes, apostrophes don't need escaping.
     serialized = serialized.replace("&apos;", "'");
 
+    // XHTML: escape C1 control characters as numeric character references
+    // for browser compatibility.
+    serialized = escape_c1_control_characters(&serialized);
+
     // Strip post-declaration newline when indent="no"
     if !parameters.indent && !parameters.omit_xml_declaration {
         serialized = strip_post_declaration_newline(&serialized);
     }
 
-    // For XHTML 5 with html root, add <!DOCTYPE html> when no explicit doctype
-    if html_root
-        && xhtml5
-        && parameters.doctype_public.is_none()
-        && parameters.doctype_system.is_none()
-    {
+    // For XHTML 5 with html root, add <!DOCTYPE html> when no effective doctype.
+    // Per spec, doctype-public without doctype-system is treated as absent.
+    let has_effective_doctype = build_xml_doctype(&parameters).is_some();
+    if html_root && xhtml5 && !has_effective_doctype {
         ensure_html5_doctype(&mut serialized);
     }
 
+    let serialized = apply_normalization_form(serialized, &parameters)?;
     Ok(apply_byte_order_mark(serialized, &parameters))
 }
 
@@ -648,7 +648,7 @@ fn html_head_node(document_element: xot::Node, xot: &Xot) -> Option<xot::Node> {
     })
 }
 
-fn head_content_type_meta(head: xot::Node, http_equiv_name: xot::NameId, xot: &Xot) -> Option<xot::Node> {
+fn head_content_type_meta(head: xot::Node, _http_equiv_name: xot::NameId, xot: &Xot) -> Option<xot::Node> {
     xot.children(head).find(|child| {
         if !xot.is_element(*child) {
             return false;
@@ -662,25 +662,76 @@ fn head_content_type_meta(head: xot::Node, http_equiv_name: xot::NameId, xot: &X
         {
             return false;
         }
+        // Check for http-equiv="Content-Type" case-insensitively,
+        // because HTML attribute names may be uppercase in the source
         xot.attributes(*child)
-            .get(http_equiv_name)
-            .is_some_and(|value| value.eq_ignore_ascii_case("Content-Type"))
+            .iter()
+            .any(|(attr_name, value)| {
+                let (attr_local, _) = xot.name_ns_str(attr_name);
+                attr_local.eq_ignore_ascii_case("http-equiv")
+                    && value.eq_ignore_ascii_case("Content-Type")
+            })
     })
 }
 
 fn ensure_html5_doctype(serialized: &mut String) {
-    if !serialized.contains("<!DOCTYPE html>") {
-        // Insert after XML declaration if present, otherwise at the beginning
-        if let Some(pos) = serialized.find("?>") {
-            let insert_pos = pos + 2;
-            // Skip any whitespace after the declaration
-            let rest = &serialized[insert_pos..];
-            let ws_len = rest.len() - rest.trim_start().len();
-            serialized.insert_str(insert_pos + ws_len, "<!DOCTYPE html>\n");
-        } else {
-            *serialized = format!("<!DOCTYPE html>\n{serialized}");
+    if serialized.contains("<!DOCTYPE ") {
+        return;
+    }
+    // Extract the root element name to match its case in the DOCTYPE.
+    // Only insert DOCTYPE if the root element is "html" (case-insensitive).
+    if let Some(pos) = find_first_element_position(serialized) {
+        let rest = &serialized[pos + 1..];
+        let name_end = rest
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+            .unwrap_or(rest.len());
+        let name = &rest[..name_end];
+        if name.eq_ignore_ascii_case("html") {
+            let doctype = format!("<!DOCTYPE {name}>");
+            serialized.insert_str(pos, &doctype);
         }
     }
+}
+
+/// Find the byte position of the first element start tag in the serialized output.
+/// Skips XML declaration, comments, processing instructions, and whitespace.
+fn find_first_element_position(s: &str) -> Option<usize> {
+    let mut pos = 0;
+    let bytes = s.as_bytes();
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b' ' | b'\t' | b'\n' | b'\r' => pos += 1,
+            b'<' => {
+                if s[pos..].starts_with("<?") {
+                    // Skip PI
+                    if let Some(end) = s[pos..].find("?>") {
+                        pos += end + 2;
+                    } else {
+                        return Some(pos);
+                    }
+                } else if s[pos..].starts_with("<!--") {
+                    // Skip comment
+                    if let Some(end) = s[pos..].find("-->") {
+                        pos += end + 3;
+                    } else {
+                        return Some(pos);
+                    }
+                } else if s[pos..].starts_with("<!DOCTYPE") {
+                    // Skip existing DOCTYPE
+                    if let Some(end) = s[pos..].find('>') {
+                        pos += end + 1;
+                    } else {
+                        return Some(pos);
+                    }
+                } else {
+                    // This is an element start tag
+                    return Some(pos);
+                }
+            }
+            _ => return Some(pos),
+        }
+    }
+    None
 }
 
 fn is_html_root_element(node: xot::Node, xot: &Xot) -> bool {
@@ -691,7 +742,7 @@ fn is_html_root_element(node: xot::Node, xot: &Xot) -> bool {
         return false;
     };
     let (local, ns) = xot.name_ns_str(name_id);
-    local == "html" && (ns.is_empty() || ns == "http://www.w3.org/1999/xhtml")
+    local.eq_ignore_ascii_case("html") && (ns.is_empty() || ns == "http://www.w3.org/1999/xhtml")
 }
 
 /// HTML attributes whose values are URIs and should be percent-encoded
@@ -720,6 +771,142 @@ const URI_ATTRIBUTES: &[&str] = &[
     "srcset",
     "usemap",
 ];
+
+/// Revert PUA character map placeholders in URI attributes.
+/// Per spec, character maps are not applied to HTML attributes where
+/// URI-escaping has been applied (see Bug 2459 resolution).
+fn revert_placeholders_in_uri_attributes(
+    root: xot::Node,
+    reverse_placeholders: &ReversePlaceholderMap,
+    xot: &mut Xot,
+) {
+    if reverse_placeholders.is_empty() {
+        return;
+    }
+    let mut elements: Vec<xot::Node> = Vec::new();
+    if matches!(xot.value(root), xot::Value::Element(_)) {
+        elements.push(root);
+    }
+    elements.extend(xot.descendants(root).filter(|node| xot.is_element(*node)));
+
+    for element in elements {
+        let Some(name_id) = xot.node_name(element) else {
+            continue;
+        };
+        let namespace = xot.namespace_str(xot.namespace_for_name(name_id));
+        if !namespace.is_empty() && namespace != "http://www.w3.org/1999/xhtml" {
+            continue;
+        }
+
+        let mut updates: Vec<(xot::NameId, String)> = Vec::new();
+        for (attr_name, attr_value) in xot.attributes(element).iter() {
+            let (local, attr_ns) = xot.name_ns_str(attr_name);
+            if !attr_ns.is_empty() {
+                continue;
+            }
+            let local_lower = local.to_ascii_lowercase();
+            if URI_ATTRIBUTES.contains(&local_lower.as_str()) {
+                let reverted: String = attr_value
+                    .chars()
+                    .map(|c| *reverse_placeholders.get(&c).unwrap_or(&c))
+                    .collect();
+                if reverted != *attr_value {
+                    updates.push((attr_name, reverted));
+                }
+            }
+        }
+
+        for (attr_name, new_value) in updates {
+            xot.attributes_mut(element).insert(attr_name, new_value);
+        }
+    }
+}
+
+/// Revert PUA character map placeholders in text nodes that are children of
+/// CDATA section elements. Per spec, character maps do not apply to text
+/// that will be serialized as CDATA sections.
+fn revert_placeholders_in_cdata_elements(
+    root: xot::Node,
+    cdata_section_elements: &[xot::NameId],
+    reverse_placeholders: &ReversePlaceholderMap,
+    xot: &mut Xot,
+) {
+    if reverse_placeholders.is_empty() || cdata_section_elements.is_empty() {
+        return;
+    }
+
+    let mut text_nodes_to_revert = Vec::new();
+
+    // Find all text nodes whose parent is a CDATA section element
+    let all_nodes: Vec<_> = std::iter::once(root)
+        .chain(xot.descendants(root))
+        .collect();
+
+    for node in all_nodes {
+        if let Some(_text) = xot.text(node) {
+            if let Some(parent) = xot.parent(node) {
+                if let Some(parent_name) = xot.node_name(parent) {
+                    if cdata_section_elements.contains(&parent_name) {
+                        text_nodes_to_revert.push(node);
+                    }
+                }
+            }
+        }
+    }
+
+    for text_node in text_nodes_to_revert {
+        if let Some(text) = xot.text_mut(text_node) {
+            let current = text.get().to_string();
+            let reverted: String = current
+                .chars()
+                .map(|c| *reverse_placeholders.get(&c).unwrap_or(&c))
+                .collect();
+            if reverted != current {
+                text.set(reverted);
+            }
+        }
+    }
+}
+
+/// The three namespaces that should use default namespace declarations
+/// (no prefix) in XHTML5 output.
+const XHTML5_DEFAULT_NS: &[&str] = &[
+    "http://www.w3.org/1999/xhtml",
+    "http://www.w3.org/2000/svg",
+    "http://www.w3.org/1998/Math/MathML",
+];
+
+/// Strip namespace prefixes from elements in XHTML, SVG, and MathML namespaces
+/// for XHTML5 output. These namespaces should use default namespace declarations.
+fn strip_xhtml5_namespace_prefixes(root: xot::Node, xot: &mut Xot) {
+    let elements: Vec<xot::Node> = std::iter::once(root)
+        .chain(xot.descendants(root))
+        .filter(|n| xot.is_element(*n))
+        .collect();
+
+    let empty_prefix = xot.empty_prefix();
+
+    // Collect namespace changes: (element, prefix_to_remove, namespace_id)
+    let mut changes: Vec<(xot::Node, xot::PrefixId, xot::NamespaceId)> = Vec::new();
+    for element in &elements {
+        // Iterate namespace declarations on this element
+        for (prefix_id, ns_id) in xot.namespaces(*element).iter() {
+            if prefix_id == empty_prefix {
+                continue; // Already default namespace
+            }
+            let ns = xot.namespace_str(*ns_id);
+            if XHTML5_DEFAULT_NS.contains(&ns) {
+                changes.push((*element, prefix_id, *ns_id));
+            }
+        }
+    }
+
+    for (element, prefix_to_remove, ns_id) in changes {
+        // Remove the prefixed declaration and add default namespace
+        xot.remove_namespace(element, prefix_to_remove);
+        xot.set_namespace(element, empty_prefix, ns_id);
+    }
+}
 
 /// Percent-encode non-ASCII characters in URI-type attributes of HTML/XHTML elements.
 fn escape_uri_attributes(root: xot::Node, xot: &mut Xot) {
@@ -901,24 +1088,62 @@ fn needs_explicit_xhtml_end_tag(element: xot::Node, xot: &Xot) -> bool {
 }
 
 fn remove_html5_doctype(serialized: &mut String) {
-    let trimmed = serialized.trim_start();
-    let Some(rest) = trimmed.strip_prefix("<!DOCTYPE html>") else {
-        return;
-    };
-    *serialized = rest.trim_start_matches('\n').to_string();
+    if let Some(pos) = serialized.find("<!DOCTYPE html>") {
+        let end = pos + "<!DOCTYPE html>".len();
+        // Also remove a trailing newline if present
+        let end = if serialized[end..].starts_with('\n') {
+            end + 1
+        } else {
+            end
+        };
+        serialized.replace_range(pos..end, "");
+    }
 }
+
+/// A mapping from PUA placeholder characters to their replacement strings,
+/// used to defer character map application until after XML serialization.
+type PlaceholderMap = HashMap<char, String>;
+
+/// Prepare a node for serialization by cloning it, fixing namespace
+/// declarations, and replacing character-mapped characters with PUA
+/// placeholders.  Returns the cloned node and a map from placeholder
+/// codepoints to the intended replacement strings.
+///
+/// After serialization, call `apply_character_map_placeholders` on the
+/// serialized string to replace the placeholders with the actual replacement
+/// strings (which may contain XML markup characters like `&` or `<`).
+/// Reverse placeholder map: PUA codepoint → original character.
+/// Used to revert character map placeholders in URI attributes (HTML output).
+type ReversePlaceholderMap = HashMap<char, char>;
 
 fn map_serialization_node(
     node: xot::Node,
     character_maps: &HashMap<char, String>,
     xot: &mut Xot,
-) -> xot::Node {
+) -> (xot::Node, PlaceholderMap, ReversePlaceholderMap) {
     let mapped_root = xot.clone_node(node);
     ensure_element_namespace_declarations(mapped_root, xot);
     normalize_namespace_declarations(mapped_root, xot);
 
     if character_maps.is_empty() {
-        return mapped_root;
+        return (mapped_root, HashMap::default(), HashMap::default());
+    }
+
+    // Build a mapping: source_char → PUA codepoint, and PUA codepoint → replacement string
+    let mut char_to_placeholder: HashMap<char, char> = HashMap::default();
+    let mut placeholder_to_replacement: PlaceholderMap = HashMap::default();
+    let mut placeholder_to_original: ReversePlaceholderMap = HashMap::default();
+    // Use Unicode Private Use Area starting at U+E000
+    let mut pua_offset = 0u32;
+    for (source_char, replacement) in character_maps {
+        let Some(placeholder) = char::from_u32(0xE000 + pua_offset) else {
+            // PUA range exhausted; skip remaining character map entries
+            break;
+        };
+        char_to_placeholder.insert(*source_char, placeholder);
+        placeholder_to_replacement.insert(placeholder, replacement.clone());
+        placeholder_to_original.insert(placeholder, *source_char);
+        pua_offset += 1;
     }
 
     let mut text_nodes = Vec::new();
@@ -933,14 +1158,68 @@ fn map_serialization_node(
     for text_node in text_nodes {
         if let Some(text) = xot.text_mut(text_node) {
             let current = text.get().to_string();
-            let mapped = apply_character_maps(&current, character_maps);
+            let mapped: String = current
+                .chars()
+                .map(|c| *char_to_placeholder.get(&c).unwrap_or(&c))
+                .collect();
             if mapped != current {
                 text.set(mapped);
             }
         }
     }
 
-    mapped_root
+    // Also apply character maps to attribute values
+    let elements: Vec<_> = if xot.is_element(mapped_root) {
+        std::iter::once(mapped_root)
+            .chain(xot.descendants(mapped_root))
+            .filter(|n| xot.is_element(*n))
+            .collect()
+    } else {
+        xot.descendants(mapped_root)
+            .filter(|n| xot.is_element(*n))
+            .collect()
+    };
+
+    for element in elements {
+        let attr_updates: Vec<(xot::NameId, String)> = xot
+            .attributes(element)
+            .iter()
+            .filter_map(|(name_id, value)| {
+                let mapped: String = value
+                    .chars()
+                    .map(|c| *char_to_placeholder.get(&c).unwrap_or(&c))
+                    .collect();
+                if mapped != *value {
+                    Some((name_id, mapped))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (attr_name, mapped_value) in attr_updates {
+            xot.set_attribute(element, attr_name, mapped_value);
+        }
+    }
+
+    (mapped_root, placeholder_to_replacement, placeholder_to_original)
+}
+
+/// Replace PUA placeholder characters in the serialized output with the
+/// actual character map replacement strings.
+fn apply_character_map_placeholders(serialized: String, placeholders: &PlaceholderMap) -> String {
+    if placeholders.is_empty() {
+        return serialized;
+    }
+    let mut result = String::with_capacity(serialized.len());
+    for c in serialized.chars() {
+        if let Some(replacement) = placeholders.get(&c) {
+            result.push_str(replacement);
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 /// Ensure that every element in the tree has a namespace declaration for its
@@ -1075,6 +1354,22 @@ fn apply_character_maps(value: &str, character_maps: &HashMap<char, String>) -> 
         }
     }
     mapped
+}
+
+fn apply_normalization_form(
+    serialized: String,
+    parameters: &SerializationParameters,
+) -> error::Result<String> {
+    match parameters.normalization_form.as_deref() {
+        Some("NFC") => Ok(serialized.nfc().collect()),
+        Some("NFD") => Ok(serialized.nfd().collect()),
+        Some("NFKC") => Ok(serialized.nfkc().collect()),
+        Some("NFKD") => Ok(serialized.nfkd().collect()),
+        Some("none") => Ok(serialized),
+        Some("fully-normalized") => Err(error::Error::SESU0011),
+        Some(_) => Err(error::Error::SESU0011),
+        None => Ok(serialized),
+    }
 }
 
 fn apply_byte_order_mark(mut serialized: String, parameters: &SerializationParameters) -> String {
@@ -1280,6 +1575,71 @@ fn xot_names(names: &[xot::xmlname::OwnedName], xot: &mut Xot) -> Vec<xot::NameI
         .collect()
 }
 
+/// Build DocType from serialization parameters.
+/// Per XSLT spec erratum E31, empty doctype-system and doctype-public suppress DOCTYPE.
+/// Per XSLT spec: if doctype-system is absent, doctype-public is also treated as absent.
+fn build_xml_doctype(
+    parameters: &SerializationParameters,
+) -> Option<xot::output::xml::DocType> {
+    match (
+        parameters.doctype_public.as_deref(),
+        parameters.doctype_system.as_deref(),
+    ) {
+        // Both empty — suppress DOCTYPE entirely (erratum E31)
+        (Some(""), Some("")) => None,
+        (Some(public), Some(system)) => Some(xot::output::xml::DocType::Public {
+            public: public.to_string(),
+            system: system.to_string(),
+        }),
+        (None, Some(system)) => Some(xot::output::xml::DocType::System {
+            system: system.to_string(),
+        }),
+        // doctype-public without doctype-system: treat public as absent
+        (Some(_), None) | (None, None) => None,
+    }
+}
+
+/// Reposition DOCTYPE declaration to immediately before the first element.
+/// Per spec, the DOCTYPE must appear immediately before the first element in the
+/// serialized output, not immediately after the XML declaration.
+fn reposition_doctype_before_first_element(serialized: String) -> String {
+    // Find DOCTYPE in the output
+    let Some(doctype_start) = serialized.find("<!DOCTYPE") else {
+        return serialized;
+    };
+    let Some(doctype_end_rel) = serialized[doctype_start..].find('>') else {
+        return serialized;
+    };
+    let doctype_end = doctype_start + doctype_end_rel + 1;
+
+    // Find first element position
+    let Some(element_pos) = find_first_element_position(&serialized) else {
+        return serialized;
+    };
+
+    // If DOCTYPE is already immediately before the first element, nothing to do
+    if doctype_end == element_pos || serialized[doctype_end..element_pos].trim().is_empty() {
+        return serialized;
+    }
+
+    // Extract the DOCTYPE string (include trailing newline if present)
+    let mut doctype_str = serialized[doctype_start..doctype_end].to_string();
+    let after_doctype = if serialized[doctype_end..].starts_with('\n') {
+        doctype_end + 1
+    } else {
+        doctype_end
+    };
+
+    // Build new string: everything before DOCTYPE + everything between DOCTYPE and element + DOCTYPE + element onwards
+    let mut result = String::with_capacity(serialized.len());
+    result.push_str(&serialized[..doctype_start]);
+    result.push_str(&serialized[after_doctype..element_pos]);
+    doctype_str.push('\n');
+    result.push_str(&doctype_str);
+    result.push_str(&serialized[element_pos..]);
+    result
+}
+
 fn strip_post_declaration_newline(s: &str) -> String {
     if let Some(pos) = s.find("?>") {
         let after = pos + 2;
@@ -1320,6 +1680,21 @@ fn add_xhtml_space_before_self_closing(s: &str) -> String {
     }
     // Safe: input was valid UTF-8 and we only inserted ASCII bytes
     String::from_utf8(result).expect("add_xhtml_space_before_self_closing: invalid UTF-8")
+}
+
+/// Escape C1 control characters (U+0080..U+009F) as decimal numeric character
+/// references (e.g. `&#150;`). These codepoints are not representable in HTML
+/// and must be escaped in XHTML for interoperability.
+fn escape_c1_control_characters(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ('\u{0080}'..='\u{009F}').contains(&ch) {
+            result.push_str(&format!("&#{};", ch as u32));
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 #[cfg(test)]

@@ -4,6 +4,12 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `docs/xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-08 16:10 CEST — Output serialization improvements (126→166 tests)
+
+Improved xsl:output conformance from 126/205 (61.5%) to 166/205 (81%) passing
+output tests. Full conformance maintained at 6019/0/0. See root xslt-progress.md
+for full details.
+
 ## 2026-05-07 19:02 CEST
 
 ### Namespace fixup for dynamic element names + XTDE0820

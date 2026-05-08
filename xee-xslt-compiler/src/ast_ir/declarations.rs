@@ -245,13 +245,89 @@ impl<'a> IrConverter<'a> {
                 continue;
             };
             let key = Self::output_key(name);
-            let should_replace = match self.named_outputs.get(&key) {
-                Some((precedence, _)) => declaration.import_precedence >= *precedence,
-                None => true,
-            };
-            if should_replace {
-                self.named_outputs
-                    .insert(key, (declaration.import_precedence, (**output).clone()));
+            match self.named_outputs.get_mut(&key) {
+                Some((precedence, existing)) if declaration.import_precedence == *precedence => {
+                    // Same precedence: merge non-overlapping attributes.
+                    // List attributes always accumulate.
+                    existing
+                        .cdata_section_elements
+                        .extend(output.cdata_section_elements.clone());
+                    existing
+                        .suppress_indentation
+                        .extend(output.suppress_indentation.clone());
+                    existing
+                        .use_character_maps
+                        .extend(output.use_character_maps.clone());
+                    // Single-valued: take from new if not set in existing.
+                    if existing.method.is_none() {
+                        existing.method = output.method.clone();
+                    }
+                    if existing.doctype_public.is_none() {
+                        existing.doctype_public = output.doctype_public.clone();
+                    }
+                    if existing.doctype_system.is_none() {
+                        existing.doctype_system = output.doctype_system.clone();
+                    }
+                    if existing.encoding.is_none() {
+                        existing.encoding = output.encoding.clone();
+                    }
+                    if existing.html_version.is_none() {
+                        existing.html_version = output.html_version;
+                    }
+                    if existing.item_separator.is_none() {
+                        existing.item_separator = output.item_separator.clone();
+                    }
+                    if existing.media_type.is_none() {
+                        existing.media_type = output.media_type.clone();
+                    }
+                    if existing.normalization_form.is_none() {
+                        existing.normalization_form = output.normalization_form.clone();
+                    }
+                    if existing.omit_xml_declaration.is_none() {
+                        existing.omit_xml_declaration = output.omit_xml_declaration;
+                    }
+                    if existing.standalone.is_none() {
+                        existing.standalone = output.standalone.clone();
+                    }
+                    if existing.version.is_none() {
+                        existing.version = output.version.clone();
+                    }
+                    if existing.parameter_document.is_none() {
+                        existing.parameter_document = output.parameter_document.clone();
+                    }
+                }
+                Some((precedence, existing)) if declaration.import_precedence > *precedence => {
+                    // Higher precedence: wins for single-valued, accumulates for lists.
+                    let cdata = std::mem::take(&mut existing.cdata_section_elements);
+                    let suppress = std::mem::take(&mut existing.suppress_indentation);
+                    let mut char_maps = std::mem::take(&mut existing.use_character_maps);
+                    *precedence = declaration.import_precedence;
+                    *existing = (**output).clone();
+                    existing.cdata_section_elements.extend(cdata);
+                    existing.suppress_indentation.extend(suppress);
+                    // use_character_maps: lower precedence first, higher precedence last
+                    // so that higher-precedence mappings win in HashMap resolution.
+                    char_maps.extend(existing.use_character_maps.drain(..));
+                    existing.use_character_maps = char_maps;
+                }
+                Some(_) => {
+                    // Lower precedence: only accumulate list attributes.
+                    // Prepend to ensure lower-precedence maps come first.
+                    let (_, existing) = self.named_outputs.get_mut(&key).unwrap();
+                    existing
+                        .cdata_section_elements
+                        .extend(output.cdata_section_elements.clone());
+                    existing
+                        .suppress_indentation
+                        .extend(output.suppress_indentation.clone());
+                    let mut new_maps = output.use_character_maps.clone();
+                    new_maps.extend(existing.use_character_maps.drain(..));
+                    existing.use_character_maps = new_maps;
+                }
+                None => {
+                    self.named_outputs
+                        .insert(key, (declaration.import_precedence, (**output).clone()));
+                }
             }
         }
     }
@@ -346,7 +422,35 @@ impl<'a> IrConverter<'a> {
 
         outputs
             .into_iter()
-            .map(|(namespace, local_name, output)| {
+            .map(|(namespace, local_name, mut output)| {
+                // Load parameter document and merge its settings
+                let mut param_doc_char_maps = ahash::HashMap::default();
+                if let Some(parameter_document) = &output.parameter_document {
+                    if let Ok(loaded) = self.load_output_parameter_document(parameter_document) {
+                        if output.method.is_none() {
+                            if let Some(method) = loaded.method {
+                                output.method = match method.as_str() {
+                                    "xml" => Some(ast::OutputMethod::Xml),
+                                    "html" => Some(ast::OutputMethod::Html),
+                                    "xhtml" => Some(ast::OutputMethod::Xhtml),
+                                    "text" => Some(ast::OutputMethod::Text),
+                                    "json" => Some(ast::OutputMethod::Json),
+                                    "adaptive" => Some(ast::OutputMethod::Adaptive),
+                                    _ => None,
+                                };
+                            }
+                        }
+                        if output.omit_xml_declaration.is_none() {
+                            output.omit_xml_declaration = loaded.omit_xml_declaration;
+                        }
+                        param_doc_char_maps = loaded.use_character_maps;
+                    }
+                }
+                let mut resolved_char_maps = self.resolve_character_maps(&output.use_character_maps)?;
+                // Parameter document char maps are lower priority; stylesheet char maps win
+                for (ch, replacement) in param_doc_char_maps {
+                    resolved_char_maps.entry(ch).or_insert(replacement);
+                }
                 let fields = vec![
                     namespace,
                     local_name,
@@ -364,7 +468,7 @@ impl<'a> IrConverter<'a> {
                         .html_version
                         .map(|html_version| html_version.to_string())
                         .unwrap_or_default(),
-                    Self::encode_character_maps(&self.resolve_character_maps(&output.use_character_maps)?),
+                    Self::encode_character_maps(&resolved_char_maps),
                     output.version.unwrap_or_default(),
                 ];
                 Ok(fields
@@ -506,27 +610,26 @@ impl<'a> IrConverter<'a> {
     pub(super) fn qname_list_literal(names: &[ast::EqName]) -> String {
         names
             .iter()
-            .map(|name| {
-                if name.prefix().is_empty() {
-                    name.local_name().to_string()
-                } else {
-                    format!("{}:{}", name.prefix(), name.local_name())
-                }
-            })
+            .map(Self::encode_eqname)
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// Encode an EqName using Clark notation {namespace_uri}localname
+    /// when a namespace URI is present, or just localname otherwise.
+    fn encode_eqname(name: &ast::EqName) -> String {
+        let ns = name.namespace();
+        if ns.is_empty() {
+            name.local_name().to_string()
+        } else {
+            format!("{{{}}}{}", ns, name.local_name())
+        }
     }
 
     pub(super) fn merge_literal_qname_lists(base: &[ast::EqName], extra: Option<String>) -> String {
         let mut merged = base
             .iter()
-            .map(|name| {
-                if name.prefix().is_empty() {
-                    name.local_name().to_string()
-                } else {
-                    format!("{}:{}", name.prefix(), name.local_name())
-                }
-            })
+            .map(Self::encode_eqname)
             .collect::<Vec<_>>();
         if let Some(extra) = extra {
             for token in extra.split_ascii_whitespace() {
@@ -1544,6 +1647,9 @@ impl<'a> IrConverter<'a> {
             if let Some(method) = loaded.method {
                 serialization.method = QNameOrString::String(method);
             }
+            if let Some(omit) = loaded.omit_xml_declaration {
+                serialization.omit_xml_declaration = omit;
+            }
             if !loaded.use_character_maps.is_empty() {
                 serialization.use_character_maps = loaded.use_character_maps;
             }
@@ -1564,6 +1670,12 @@ impl<'a> IrConverter<'a> {
         serialization
             .cdata_section_elements
             .extend(output.cdata_section_elements.clone());
+        // Validate doctype-public: must contain only valid PubidChar characters
+        if let Some(ref public_id) = output.doctype_public {
+            if !is_valid_public_id(public_id) {
+                return Err(error::Error::XTSE0020.into());
+            }
+        }
         serialization.doctype_public = output.doctype_public.clone();
         serialization.doctype_system = output.doctype_system.clone();
         match &output.method {
@@ -1670,8 +1782,8 @@ impl<'a> IrConverter<'a> {
             .extend(output.suppress_indentation.clone());
         serialization.undeclare_prefixes = output.undeclare_prefixes;
         if !output.use_character_maps.is_empty() {
-            serialization.use_character_maps =
-                self.resolve_character_maps(&output.use_character_maps)?;
+            let resolved = self.resolve_character_maps(&output.use_character_maps)?;
+            serialization.use_character_maps.extend(resolved);
         }
         assign_if_some(&mut serialization.version, output.version.clone());
         Ok(())
@@ -1746,6 +1858,11 @@ impl<'a> IrConverter<'a> {
                         loaded.method = Some(value.to_string());
                     }
                 }
+                "omit-xml-declaration" => {
+                    if let Some(value) = xot.attributes(child).get(value_name) {
+                        loaded.omit_xml_declaration = Some(value == "yes");
+                    }
+                }
                 "use-character-maps" => {
                     for map_node in xot.children(child).filter(|node| xot.is_element(*node)) {
                         let Some(map_name) = xot.node_name(map_node) else {
@@ -1782,4 +1899,15 @@ impl<'a> IrConverter<'a> {
             ast::ModeValue::All => ir::ModeValue::All,
         }
     }
+}
+
+/// Check whether a string is a valid XML public identifier.
+/// PubidChar ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+fn is_valid_public_id(s: &str) -> bool {
+    s.chars().all(|c| matches!(c,
+        ' ' | '\r' | '\n'
+        | 'a'..='z' | 'A'..='Z' | '0'..='9'
+        | '-' | '\'' | '(' | ')' | '+' | ',' | '.' | '/'
+        | ':' | '=' | '?' | ';' | '!' | '*' | '#' | '@' | '$' | '_' | '%'
+    ))
 }

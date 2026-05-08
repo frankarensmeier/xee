@@ -1592,7 +1592,18 @@ fn parse_cdata_section_elements(
     cdata
         .split_ascii_whitespace()
         .map(|name| {
-            if let Some((prefix, local_name)) = name.split_once(':') {
+            if let Some(rest) = name.strip_prefix('{') {
+                // Clark notation: {namespace_uri}localname
+                if let Some((ns, local)) = rest.split_once('}') {
+                    Ok(OwnedName::new(
+                        local.to_string(),
+                        ns.to_string(),
+                        String::new(),
+                    ))
+                } else {
+                    Err(error::Error::XTSE0020)
+                }
+            } else if let Some((prefix, local_name)) = name.split_once(':') {
                 OwnedName::prefixed(prefix, local_name, |lookup_prefix| {
                     context
                         .static_context()

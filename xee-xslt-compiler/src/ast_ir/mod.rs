@@ -104,6 +104,7 @@ pub(super) const SERIALIZATION_NAMESPACE: &str = "http://www.w3.org/2010/xslt-xq
 #[derive(Debug, Default)]
 pub(super) struct LoadedOutputParameterDocument {
     pub(super) method: Option<String>,
+    pub(super) omit_xml_declaration: Option<bool>,
     pub(super) use_character_maps: ahash::HashMap<char, String>,
 }
 

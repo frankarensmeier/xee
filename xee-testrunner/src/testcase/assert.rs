@@ -1197,8 +1197,10 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
                 if let Some(path) = assert_serialization_file_query.execute(documents, item)? {
                     let base_dir = context.path.parent().unwrap();
                     let path = base_dir.join(path);
+                    // Strip \r from file content, matching the official test runner
+                    // which uses translate(unparsed-text(...), '&#xd;', '')
                     match std::fs::read_to_string(&path) {
-                        Ok(s) => s,
+                        Ok(s) => s.replace('\r', ""),
                         Err(e) => {
                             // Some test files use ISO-8859-1 encoding; read as bytes
                             // and decode as Latin-1
@@ -1206,7 +1208,7 @@ impl ContextLoadable<LoadContext> for TestCaseResult {
                                 panic!("Failed to read assert-serialization file {:?}: {}", path, e2)
                             });
                             if e.kind() == std::io::ErrorKind::InvalidData {
-                                bytes.iter().map(|&b| b as char).collect()
+                                bytes.iter().map(|&b| b as char).collect::<String>().replace('\r', "")
                             } else {
                                 panic!("Failed to read assert-serialization file {:?}: {}", path, e)
                             }
@@ -1699,9 +1701,14 @@ fn serialize_for_assertion(
 
     if !has_serialization_parameters {
         if let Some(method) = method {
-            params.method = QNameOrString::String(method.to_string());
-            if method == "html" || method == "xhtml" {
-                set_html_media_type(&mut params);
+            // Only use the assertion's method hint when the stylesheet didn't
+            // explicitly set one.  When xsl:output declares an explicit method,
+            // that method governs serialization.
+            if !params.explicit_method {
+                params.method = QNameOrString::String(method.to_string());
+                if method == "html" || method == "xhtml" {
+                    set_html_media_type(&mut params);
+                }
             }
         } else if principal_result_method_is_xml && !params.explicit_method {
             probe_html_method(&mut params, documents, sequence)?;
@@ -1711,9 +1718,7 @@ fn serialize_for_assertion(
     }
 
     Ok(sequence
-        .serialize(params, documents.xot_mut())?
-        .trim_end_matches('\n')
-        .to_string())
+        .serialize(params, documents.xot_mut())?)
 }
 
 #[cfg(test)]

@@ -4,6 +4,76 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-08 16:10 CEST — Output serialization improvements (126→166 tests)
+
+Improved xsl:output conformance from 126/205 (61.5%) to 166/205 (81%) passing
+output tests. Full conformance maintained at 6019/0/0.
+
+### Fixes implemented
+
+1. **Named output merging (output-0174)**: Rewrote `collect_named_outputs()` to
+   properly merge same-precedence declarations (extending lists, first-seen for
+   single-valued). Higher precedence wins for single-valued but accumulates lists.
+
+2. **CDATA section elements accumulation (output-0175)**: List attributes
+   (cdata-section-elements, suppress-indentation, use-character-maps) now
+   accumulate across all precedence levels.
+
+3. **Character map import precedence (output-0306, output-0308)**: Fixed
+   use-character-maps ordering so lower-precedence maps come first and
+   higher-precedence maps overwrite in HashMap resolution.
+
+4. **Character maps vs CDATA sections (output-0310)**: Added
+   `revert_placeholders_in_cdata_elements()` — per spec, character maps don't
+   apply inside CDATA section elements.
+
+5. **Character maps vs URI attributes (character-map-009)**: Added
+   `revert_placeholders_in_uri_attributes()` — PUA placeholders must be reverted
+   before URI-escaping in HTML output.
+
+6. **XHTML5 DOCTYPE case matching (output-0209, 0210)**: Made
+   `ensure_html5_doctype()` case-insensitive and case-preserving for root element
+   name.
+
+7. **XHTML5 namespace prefix stripping (output-0211, 0225, 0226)**: Added
+   `strip_xhtml5_namespace_prefixes()` to remove prefixes for XHTML, SVG, and
+   MathML namespaces in XHTML5 output.
+
+8. **DOCTYPE positioning (output-0234)**: Added
+   `reposition_doctype_before_first_element()` to move DOCTYPE immediately before
+   the first element per spec.
+
+9. **C1 control character escaping (output-0102e, etc.)**: Added
+   `escape_c1_control_characters()` for XHTML — escapes U+0080..U+009F as
+   decimal numeric character references.
+
+10. **Test runner assertion method override (output-0129, 0166)**: Fixed
+    `serialize_for_assertion()` to not override the stylesheet's explicit output
+    method with the assertion's method hint.
+
+11. **doctype-public validation (output-0284)**: Added `is_valid_public_id()`
+    PubidChar validation, raising XTSE0020 for invalid characters.
+
+12. **Normalization form error handling (output-0193)**: Changed
+    `apply_normalization_form()` to return SESU0011 for unsupported forms
+    (fully-normalized, unknown NmTokens) instead of silently ignoring them.
+
+13. **Parameter document omit-xml-declaration (output-0722)**: Extended parameter
+    document loading to support `omit-xml-declaration` element.
+
+### Remaining 39 failures
+
+- 31 XML-declaration-only tests: expect `<?xml` for XHTML but our XHTML5 default
+  (html-version=5.0) correctly omits it per XSLT 3.0 spec. Can't fix without
+  breaking doe tests.
+- 2 xot attribute escaping (0102c, 0103c): `>` not escaped as `&gt;` and
+  `&quot;` vs `&#34;` in attributes — xot serializer limitations.
+- 1 xot prefix selection (0138): xot picks different prefix than expected.
+- 1 xot system ID quoting (0311): system ID with both `'` and `"`.
+- 1 build-tree="no" (0703): unsupported feature.
+- 2 parameter document (0721, 0722): adaptive method XML declaration behavior
+  and parameter document resolution edge cases.
+
 ## 2026-05-08 00:13 CEST
 
 ### Refactor xsl:number formatting pipeline to use IBig for arbitrary-precision integers
