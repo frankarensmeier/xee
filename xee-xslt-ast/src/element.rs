@@ -43,6 +43,12 @@ impl<'a> XsltParser<'a> {
         let namespace = self.state.xot.namespace_for_name(name);
 
         let transform = if namespace == self.state.names.xsl_ns
+            && name == self.state.names.xsl_package
+        {
+            return Err(ElementError::Unsupported(
+                "xsl:package is not supported".to_string(),
+            ));
+        } else if namespace == self.state.names.xsl_ns
             && (name == self.state.names.xsl_transform || name == self.state.names.xsl_stylesheet)
         {
             ast::Transform::parse_and_validate(&attributes)?

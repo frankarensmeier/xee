@@ -80,7 +80,11 @@ impl<L: Language> TestSet<L> {
                 .unwrap_or(TestOutcome::Panic);
 
             renderer.render_test_outcome(out, test_case, &outcome)?;
-            test_set_outcomes.add_outcome(&test_case.name, outcome);
+            if matches!(outcome, TestOutcome::Unsupported) {
+                test_set_outcomes.add_unsupported();
+            } else {
+                test_set_outcomes.add_outcome(&test_case.name, outcome);
+            }
         }
         renderer.render_test_set_summary(out, self)?;
         Ok(test_set_outcomes)

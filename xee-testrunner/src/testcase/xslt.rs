@@ -133,6 +133,9 @@ impl Runnable<XsltLanguage> for XsltTestCase {
         let program = match program {
             Ok(program) => program,
             Err(error) => {
+                if matches!(error.error, xee_xpath::error::ErrorValue::Unsupported(_)) {
+                    return TestOutcome::Unsupported;
+                }
                 return match &self.test_case.result {
                     TestCaseResult::AssertError(assert_error) => {
                         assert_error.assert_error(&error.error)
