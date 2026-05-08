@@ -7,8 +7,13 @@ mod repl_cmd;
 mod xpath;
 mod xslt;
 
+#[cfg(not(feature = "dhat-heap"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, Subcommand};
 
@@ -38,6 +43,9 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let cli = Cli::parse();
     match cli.command {
         Commands::Indent(indent) => {

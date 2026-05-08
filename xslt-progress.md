@@ -4,6 +4,30 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-08 19:49 CEST — Rc sharing for dynamic XPath programs (RSS 2.7GB → 570MB)
+
+Massive memory reduction by sharing InlineFunction and Declarations via Rc
+instead of deep-cloning them in compile_dynamic_xpath(). dhat heap profiling
+revealed that 87.5% of 2.08GB peak allocations came from cloning ~2500
+InlineFunctions × 160 cached programs.
+
+### Changes
+
+- `Program.functions`: `Vec<InlineFunction>` → `Vec<Rc<InlineFunction>>`
+- `Program.declarations`: `Declarations` → `Rc<Declarations>` with COW via
+  `Rc::make_mut` during compilation
+- Added `suppress_named_templates` flag to avoid mutating shared Declarations
+  (replaces `named_templates.clear()`)
+- Lazy global variables initialization (`Option<Vec<GlobalValueState>>`)
+- Cached `Watchpoint::from_env()` via `OnceLock`
+- Added dhat-heap profiling support behind feature flag
+
+### Results
+
+- RSS: 2.7GB → 570MB (−78%, 4.7× improvement) on input-large.xml
+- bench-xslt: 1.92s avg (−9.8% vs 2.13s baseline)
+- Conformance: 6019/0/0 maintained
+
 ## 2026-05-08 16:10 CEST — Output serialization improvements (126→166 tests)
 
 Improved xsl:output conformance from 126/205 (61.5%) to 166/205 (81%) passing

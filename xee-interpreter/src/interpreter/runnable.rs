@@ -41,7 +41,6 @@ impl<'a> Runnable<'a> {
         if self.dynamic_context.context_item().is_none()
             && self
                 .program
-                .declarations
                 .named_template_by_name("initial-template")
                 .is_some()
         {
@@ -107,7 +106,6 @@ impl<'a> Runnable<'a> {
     ) -> error::SpannedResult<sequence::Sequence> {
         let named_template = self
             .program
-            .declarations
             .named_template_by_name(name)
             .ok_or(SpannedError {
                 error: error::Error::XTDE0040,

@@ -27,11 +27,16 @@ pub(crate) struct Watchpoint {
 
 impl Watchpoint {
     fn from_env() -> Option<Self> {
-        std::env::var("XEE_WATCH_STACK").ok().and_then(|s| {
-            s.parse::<usize>().ok().map(|pos| Watchpoint {
-                position: pos,
-                previous_len: 0,
-            })
+        use std::sync::OnceLock;
+        static WATCH_POS: OnceLock<Option<usize>> = OnceLock::new();
+        let pos = WATCH_POS.get_or_init(|| {
+            std::env::var("XEE_WATCH_STACK")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+        });
+        pos.map(|position| Watchpoint {
+            position,
+            previous_len: 0,
         })
     }
 
@@ -241,7 +246,7 @@ impl<'a> State<'a> {
             eprintln!("[WATCH] Stack watchpoint active on position {}", wp.position);
         }
         Self {
-            stack: vec![],
+            stack: Vec::new(),
             build_stack: vec![],
             mutation_count: 0,
             frames: Vec::new(),

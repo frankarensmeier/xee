@@ -79,8 +79,8 @@ impl<'a> DeclarationCompiler<'a> {
         &mut self,
         declarations: &ir::Declarations,
     ) -> error::SpannedResult<()> {
-        self.program.declarations.serialization_params = declarations.serialization_params.clone();
-        self.program.declarations.strip_space_all = declarations.strip_space_all;
+        self.program.declarations_mut().serialization_params = declarations.serialization_params.clone();
+        self.program.declarations_mut().strip_space_all = declarations.strip_space_all;
 
         // first keep track of what modes exist, to create a ModeId for them. We do
         // this early so any mode reference within apply-templates will resolve.
@@ -180,7 +180,7 @@ impl<'a> DeclarationCompiler<'a> {
                     .unwrap_or_default(),
                 ir::ApplyTemplatesModeValue::Current => continue,
             };
-            self.program.declarations.add_mode(*mode_id, declaration);
+            self.program.declarations_mut().add_mode(*mode_id, declaration);
         }
     }
 
@@ -372,7 +372,7 @@ impl<'a> DeclarationCompiler<'a> {
         };
         let function_id = function_compiler
             .compile_function_id(&function_definition, global_variable.expr.span.into())?;
-        self.program.declarations.add_global_variable(
+        self.program.declarations_mut().add_global_variable(
             xee_interpreter::declaration::GlobalVariableDeclaration {
                 name: global_variable.name.clone(),
                 function_id,
@@ -449,7 +449,7 @@ impl<'a> DeclarationCompiler<'a> {
         }
 
         self.program
-            .declarations
+            .declarations_mut()
             .add_accumulator(xee_interpreter::declaration::AccumulatorDeclaration {
                 name: accumulator.name.clone(),
                 initial_value_function_id,
@@ -471,7 +471,7 @@ impl<'a> DeclarationCompiler<'a> {
         })?;
 
         self.program
-            .declarations
+            .declarations_mut()
             .add_key(xee_interpreter::declaration::KeyDeclaration {
                 name: key.name.clone(),
                 pattern,
@@ -502,7 +502,7 @@ impl<'a> DeclarationCompiler<'a> {
         })?;
 
         self.program
-            .declarations
+            .declarations_mut()
             .add_number_pattern(xee_interpreter::declaration::NumberPatternDeclaration { pattern });
         Ok(())
     }
@@ -531,17 +531,17 @@ impl<'a> DeclarationCompiler<'a> {
             .collect::<Vec<_>>();
         if !template_params.is_empty() {
             self.program
-                .declarations
+                .declarations_mut()
                 .add_template_params(function_id, template_params);
         }
-        self.program.declarations.add_named_template(
+        self.program.declarations_mut().add_named_template(
             xee_interpreter::declaration::NamedTemplateDeclaration {
                 name: function_binding.name.clone(),
                 function_id,
             },
         );
         self.program
-            .declarations
+            .declarations_mut()
             .add_template_import_precedence(function_id, function_binding.import_precedence);
         Ok(())
     }
@@ -580,14 +580,14 @@ impl<'a> DeclarationCompiler<'a> {
             .collect::<Vec<_>>();
         if !template_params.is_empty() {
             self.program
-                .declarations
+                .declarations_mut()
                 .add_template_params(function_id, template_params);
         }
         self.program
-            .declarations
+            .declarations_mut()
             .add_template_import_precedence(function_id, rule.import_precedence);
         self.program
-            .declarations
+            .declarations_mut()
             .add_template_module_path(function_id, rule.module_path.clone());
 
         self.add_rule(
@@ -682,7 +682,7 @@ impl<'a> DeclarationCompiler<'a> {
                 .cloned()
                 .expect("Mode should have been registered");
             self.program
-                .declarations
+                .declarations_mut()
                 .mode_lookup
                 .add_rules(mode_id, rules)
         }

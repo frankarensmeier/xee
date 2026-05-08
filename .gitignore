@@ -4,3 +4,4 @@ perf.data*
 /.idea
 *.code-workspace
 /xslt
+dhat-heap.json

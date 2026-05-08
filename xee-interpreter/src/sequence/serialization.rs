@@ -1121,12 +1121,13 @@ fn map_serialization_node(
     character_maps: &HashMap<char, String>,
     xot: &mut Xot,
 ) -> (xot::Node, PlaceholderMap, ReversePlaceholderMap) {
-    let mapped_root = xot.clone_node(node);
-    ensure_element_namespace_declarations(mapped_root, xot);
-    normalize_namespace_declarations(mapped_root, xot);
+    // The node from normalize() is already a fresh clone, so we can
+    // apply namespace fixup directly without another clone.
+    ensure_element_namespace_declarations(node, xot);
+    normalize_namespace_declarations(node, xot);
 
     if character_maps.is_empty() {
-        return (mapped_root, HashMap::default(), HashMap::default());
+        return (node, HashMap::default(), HashMap::default());
     }
 
     // Build a mapping: source_char → PUA codepoint, and PUA codepoint → replacement string
@@ -1147,11 +1148,11 @@ fn map_serialization_node(
     }
 
     let mut text_nodes = Vec::new();
-    if matches!(xot.value(mapped_root), xot::Value::Text(_)) {
-        text_nodes.push(mapped_root);
+    if matches!(xot.value(node), xot::Value::Text(_)) {
+        text_nodes.push(node);
     }
     text_nodes.extend(
-        xot.descendants(mapped_root)
+        xot.descendants(node)
             .filter(|descendant| matches!(xot.value(*descendant), xot::Value::Text(_))),
     );
 
@@ -1169,13 +1170,13 @@ fn map_serialization_node(
     }
 
     // Also apply character maps to attribute values
-    let elements: Vec<_> = if xot.is_element(mapped_root) {
-        std::iter::once(mapped_root)
-            .chain(xot.descendants(mapped_root))
+    let elements: Vec<_> = if xot.is_element(node) {
+        std::iter::once(node)
+            .chain(xot.descendants(node))
             .filter(|n| xot.is_element(*n))
             .collect()
     } else {
-        xot.descendants(mapped_root)
+        xot.descendants(node)
             .filter(|n| xot.is_element(*n))
             .collect()
     };
@@ -1202,7 +1203,7 @@ fn map_serialization_node(
         }
     }
 
-    (mapped_root, placeholder_to_replacement, placeholder_to_original)
+    (node, placeholder_to_replacement, placeholder_to_original)
 }
 
 /// Replace PUA placeholder characters in the serialized output with the

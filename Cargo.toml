@@ -62,3 +62,9 @@ opt-level = 1
 debug = true
 lto = "thin"
 codegen-units = 1
+
+# Maximum performance profile for benchmarking
+[profile.release-perf]
+inherits = "release"
+lto = "fat"
+panic = "abort"

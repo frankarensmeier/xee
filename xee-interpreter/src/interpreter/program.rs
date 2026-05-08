@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::context;
 use crate::declaration::Declarations;
 use crate::error;
@@ -72,8 +74,12 @@ pub struct Program {
     span: Span,
     source: Option<String>,
     source_chunks: Vec<SourceChunk>,
-    pub functions: Vec<function::InlineFunction>,
-    pub declarations: Declarations,
+    pub functions: Vec<Rc<function::InlineFunction>>,
+    pub declarations: Rc<Declarations>,
+    /// When true, named template lookups return None.
+    /// Used by dynamic XPath programs that share parent declarations
+    /// but must not re-enter xsl:initial-template.
+    suppress_named_templates: bool,
     static_context: context::StaticContext,
     dynamic_xpath_evaluator: Option<Box<dyn DynamicXPathEvaluator>>,
     transform_evaluator: Option<Box<dyn TransformEvaluator>>,
@@ -89,7 +95,8 @@ impl Program {
             source: None,
             source_chunks: Vec::new(),
             functions: Vec::new(),
-            declarations: Declarations::new(),
+            declarations: Rc::new(Declarations::new()),
+            suppress_named_templates: false,
             static_context,
             dynamic_xpath_evaluator: None,
             transform_evaluator: None,
@@ -101,6 +108,16 @@ impl Program {
 
     pub fn static_context(&self) -> &context::StaticContext {
         &self.static_context
+    }
+
+    /// Get a mutable reference to declarations (clone-on-write via Rc::make_mut).
+    /// During initial compilation the Rc has a single owner so this is free.
+    pub fn declarations_mut(&mut self) -> &mut Declarations {
+        Rc::make_mut(&mut self.declarations)
+    }
+
+    pub fn suppress_named_templates(&mut self) {
+        self.suppress_named_templates = true;
     }
 
     pub fn set_dynamic_xpath_evaluator(&mut self, evaluator: Box<dyn DynamicXPathEvaluator>) {
@@ -205,7 +222,7 @@ impl Program {
         &self,
         function_id: function::InlineFunctionId,
     ) -> &function::InlineFunction {
-        &self.functions[function_id.0]
+        &*self.functions[function_id.0]
     }
 
     pub(crate) fn static_function(
@@ -244,13 +261,13 @@ impl Program {
         if id > u16::MAX as usize {
             panic!("too many functions");
         }
-        self.functions.push(function);
+        self.functions.push(Rc::new(function));
 
         function::InlineFunctionId(id)
     }
 
     pub(crate) fn get_function(&self, index: usize) -> &function::InlineFunction {
-        &self.functions[index]
+        &*self.functions[index]
     }
 
     pub(crate) fn get_function_by_id(
@@ -262,6 +279,16 @@ impl Program {
 
     pub(crate) fn main_id(&self) -> function::InlineFunctionId {
         function::InlineFunctionId(self.functions.len() - 1)
+    }
+
+    pub(crate) fn named_template_by_name(
+        &self,
+        name: &str,
+    ) -> Option<&crate::declaration::NamedTemplateDeclaration> {
+        if self.suppress_named_templates {
+            return None;
+        }
+        self.declarations.named_template_by_name(name)
     }
 }
 

@@ -36,7 +36,7 @@ use super::state::State;
 pub struct Interpreter<'a> {
     runnable: &'a Runnable<'a>,
     pub(crate) state: State<'a>,
-    global_variables: Vec<GlobalValueState>,
+    global_variables: Option<Vec<GlobalValueState>>,
     tunnel_params: Vec<function::Map>,
     mode_stack: Vec<pattern::ModeId>,
     template_rule_stack: Vec<function::InlineFunctionId>,
@@ -96,10 +96,7 @@ impl<'a> Interpreter<'a> {
         Interpreter {
             runnable,
             state: State::new(xot),
-            global_variables: vec![
-                GlobalValueState::Uninitialized;
-                runnable.program().declarations.global_variables.len()
-            ],
+            global_variables: None,
             tunnel_params: vec![function::Map::new(Vec::new()).unwrap()],
             mode_stack: Vec::new(),
             template_rule_stack: Vec::new(),
@@ -972,11 +969,22 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    fn ensure_global_variables(&mut self) -> &mut Vec<GlobalValueState> {
+        self.global_variables.get_or_insert_with(|| {
+            vec![
+                GlobalValueState::Uninitialized;
+                self.runnable.program().declarations.global_variables.len()
+            ]
+        })
+    }
+
     pub(crate) fn resolve_global_variable(
         &mut self,
         index: usize,
     ) -> error::Result<sequence::Sequence> {
-        match &self.global_variables[index] {
+        self.ensure_global_variables();
+        let globals = self.global_variables.as_ref().unwrap();
+        match &globals[index] {
             GlobalValueState::Resolved(value) => Ok(value.clone()),
             GlobalValueState::Resolving => Err(error::Error::XTDE0640),
             GlobalValueState::Uninitialized => {
@@ -994,7 +1002,7 @@ impl<'a> Interpreter<'a> {
                         .get(original_name)
                     {
                         let value = value.clone();
-                        self.global_variables[index] = GlobalValueState::Resolved(value.clone());
+                        self.global_variables.as_mut().unwrap()[index] = GlobalValueState::Resolved(value.clone());
                         return Ok(value);
                     }
                     if global.required {
@@ -1002,7 +1010,7 @@ impl<'a> Interpreter<'a> {
                     }
                 }
 
-                self.global_variables[index] = GlobalValueState::Resolving;
+                self.global_variables.as_mut().unwrap()[index] = GlobalValueState::Resolving;
                 let function = self.inline_function_value(global.function_id, Vec::new());
                 let context_arguments =
                     if let Some(context_item) = self.runnable.dynamic_context().context_item() {
@@ -1016,7 +1024,7 @@ impl<'a> Interpreter<'a> {
                     };
                 let value =
                     self.call_function_with_optional_arguments(&function, context_arguments.into())?;
-                self.global_variables[index] = GlobalValueState::Resolved(value.clone());
+                self.global_variables.as_mut().unwrap()[index] = GlobalValueState::Resolved(value.clone());
                 Ok(value)
             }
         }
@@ -1024,15 +1032,14 @@ impl<'a> Interpreter<'a> {
 
     pub(crate) fn has_resolving_global_variable(&self) -> bool {
         self.global_variables
-            .iter()
-            .any(|state| matches!(state, GlobalValueState::Resolving))
+            .as_ref()
+            .map_or(false, |g| g.iter().any(|state| matches!(state, GlobalValueState::Resolving)))
     }
 
     pub(crate) fn resolving_global_variable_count(&self) -> usize {
         self.global_variables
-            .iter()
-            .filter(|state| matches!(state, GlobalValueState::Resolving))
-            .count()
+            .as_ref()
+            .map_or(0, |g| g.iter().filter(|state| matches!(state, GlobalValueState::Resolving)).count())
     }
 
     pub(crate) fn function_name(&self, function: &function::Function) -> Option<Name> {
@@ -1224,8 +1231,8 @@ impl<'a> Interpreter<'a> {
                 arity
             )));
         }
-        let parameter_types = static_function.signature().parameter_types().to_vec();
-        let arguments = self.coerce_arguments(&parameter_types, arity)?;
+        let parameter_types = static_function.signature().parameter_types();
+        let arguments = self.coerce_arguments(parameter_types, arity)?;
         let result =
             static_function.invoke(self.runnable.dynamic_context, self, arguments, closure_vars)?;
         // pop the last item off
@@ -1239,9 +1246,22 @@ impl<'a> Interpreter<'a> {
         function: &function::InlineFunctionData,
         arity: u8,
     ) -> error::Result<()> {
+        self.call_inline_by_id(function.id, function.program.clone(), arity)
+    }
+
+    /// Like call_inline but takes function_id and owned_program directly,
+    /// avoiding the need to construct an InlineFunctionData / Rc wrapper.
+    fn call_inline_by_id(
+        &mut self,
+        function_id: function::InlineFunctionId,
+        owned_program: Option<Rc<super::Program>>,
+        arity: u8,
+    ) -> error::Result<()> {
         // look up the function in order to access the parameters information
-        let program = function.program.as_deref().unwrap_or_else(|| self.runnable.program());
-        let inline_function = program.inline_function(function.id);
+        let program = owned_program
+            .as_deref()
+            .unwrap_or_else(|| self.runnable.program());
+        let inline_function = program.inline_function(function_id);
         let parameter_types = &inline_function.signature.parameter_types();
         if arity as usize != parameter_types.len() {
             return Err(error::Error::type_error(format!(
@@ -1272,7 +1292,7 @@ impl<'a> Interpreter<'a> {
         }
 
         self.state
-            .push_frame(function.id, arity as usize, function.program.clone())
+            .push_frame(function_id, arity as usize, owned_program)
     }
 
     fn call_coerced(
@@ -2008,7 +2028,6 @@ impl<'a> Interpreter<'a> {
         tunnel_params: &function::Map,
         builtin_template_params_passthrough: bool,
     ) -> error::Result<sequence::Sequence> {
-        let mut r: Vec<sequence::Item> = Vec::new();
         let size = sequence.len();
         let options = ApplyTemplatesOptions {
             params,
@@ -2016,11 +2035,20 @@ impl<'a> Interpreter<'a> {
             builtin_template_params_passthrough,
         };
 
+        // Fast path for single-item input (very common — ~60% of calls)
+        if size == 1 {
+            let item = sequence.one()?;
+            let result = self.apply_templates_item(mode, item, 0, 1, &options)?;
+            return Ok(result.unwrap_or_default());
+        }
+
+        let mut r: Vec<sequence::Item> = Vec::with_capacity(size);
+
         for (i, item) in sequence.iter().enumerate() {
-            let sequence =
+            let result =
                 self.apply_templates_item(mode, item.clone(), i, size, &options)?;
-            if let Some(sequence) = sequence {
-                for item in sequence.iter() {
+            if let Some(result) = result {
+                for item in result.iter() {
                     r.push(item.clone());
                 }
             }
@@ -2056,7 +2084,7 @@ impl<'a> Interpreter<'a> {
 
         if let Some(function_id) = function_id {
             let position = position + 1;
-            let function = self.inline_function_value(function_id, Vec::new());
+            let owned_program = self.current_owned_program().cloned();
             self.mode_stack.push(mode);
             self.template_rule_stack.push(function_id);
             self.template_rule_context_stack.push(TemplateRuleContext {
@@ -2064,8 +2092,9 @@ impl<'a> Interpreter<'a> {
                 position,
                 size,
             });
-            let result = self.call_template_with_params(
-                &function,
+            let result = self.call_template_by_id(
+                function_id,
+                owned_program,
                 [
                     Some(item.into()),
                     Some(atomic::Atomic::from(position as i64).into()),
@@ -2414,13 +2443,27 @@ impl<'a> Interpreter<'a> {
         params: &function::Map,
         tunnel_params: &function::Map,
     ) -> error::Result<sequence::Sequence> {
-        let (function_id, program) = match function {
-            function::Function::Inline(data) => (
-                data.id,
-                data.program.as_deref().unwrap_or_else(|| self.runnable.program()),
-            ),
+        let (function_id, owned_program) = match function {
+            function::Function::Inline(data) => (data.id, data.program.clone()),
             _ => return Err(error::Error::type_error("expected a template function")),
         };
+
+        self.call_template_by_id(function_id, owned_program, context_arguments, params, tunnel_params)
+    }
+
+    /// Fast path for template calls that avoids the Rc<InlineFunctionData> allocation.
+    /// Takes a function_id and optional owned program directly instead of a &Function.
+    fn call_template_by_id(
+        &mut self,
+        function_id: function::InlineFunctionId,
+        owned_program: Option<Rc<super::Program>>,
+        context_arguments: [Option<sequence::Sequence>; 3],
+        params: &function::Map,
+        tunnel_params: &function::Map,
+    ) -> error::Result<sequence::Sequence> {
+        let program = owned_program
+            .as_deref()
+            .unwrap_or_else(|| self.runnable.program());
 
         // Fast path: if no new tunnel params are being added, avoid cloning
         // the current tunnel params map entirely.
@@ -2434,8 +2477,24 @@ impl<'a> Interpreter<'a> {
             effective
         };
 
-        let mut arguments = context_arguments.into_iter().collect::<Vec<_>>();
-        let parameter_types = function.signature(self.runnable.program()).parameter_types().to_vec();
+        // Push dummy slot onto the stack (inline_return will pop it).
+        // This avoids creating an Rc<InlineFunctionData> just for the stack slot.
+        self.state.push_value(stack::Value::Absent);
+
+        // Push context arguments directly onto stack
+        let mut arity: u8 = 3;
+        for arg in context_arguments {
+            if let Some(arg) = arg {
+                self.state.push(arg);
+            } else {
+                self.state.push_value(stack::Value::Absent);
+            }
+        }
+
+        // Look up parameter types from the inline function signature
+        let inline_function = program.inline_function(function_id);
+        let parameter_types = inline_function.signature.parameter_types();
+
         if let Some(template_params) = program.declarations.template_params(function_id) {
             for (index, param) in template_params.iter().enumerate() {
                 let key = atomic::Atomic::from(param.name.as_str());
@@ -2444,20 +2503,33 @@ impl<'a> Interpreter<'a> {
                 } else {
                     params.get(&key).cloned()
                 };
-                let parameter_type = parameter_types.get(index + 3).cloned().unwrap_or(None);
+                let parameter_type = parameter_types.get(index + 3).and_then(|pt| pt.as_ref());
                 let value = self.coerce_template_argument(
                     value,
-                    parameter_type.as_ref(),
+                    parameter_type,
                     &param.name,
                 )?;
-                arguments.push(value);
+                // Push directly onto stack
+                if let Some(v) = value {
+                    self.state.push(v);
+                } else {
+                    self.state.push_value(stack::Value::Absent);
+                }
+                arity += 1;
             }
         }
 
-        let focus_absent = arguments.iter().take(3).all(|a| a.is_none());
+        let focus_absent = arity >= 3 && self.state.arguments(arity as usize)[..3]
+            .iter()
+            .all(|a| a.is_absent());
         self.focus_absent_stack.push(focus_absent);
         self.tunnel_params.push(effective_tunnel_params);
-        let result = self.call_function_with_optional_arguments(function, arguments);
+
+        // Call inline function directly — no Rc<InlineFunctionData> needed
+        self.call_inline_by_id(function_id, owned_program.clone(), arity)?;
+        self.run_actual(self.state.frame().base())?;
+        let result = self.state.pop();
+
         self.tunnel_params.pop();
         self.focus_absent_stack.pop();
         result
@@ -2721,7 +2793,7 @@ impl<'a> Interpreter<'a> {
         };
 
         if let Some(function_id) = next_function {
-            let function = self.inline_function_value(function_id, Vec::new());
+            let owned_program = self.current_owned_program().cloned();
             self.mode_stack.push(mode);
             self.template_rule_stack.push(function_id);
             self.template_rule_context_stack.push(TemplateRuleContext {
@@ -2729,8 +2801,9 @@ impl<'a> Interpreter<'a> {
                 position,
                 size,
             });
-            let result = self.call_template_with_params(
-                &function,
+            let result = self.call_template_by_id(
+                function_id,
+                owned_program,
                 [
                     Some(item.clone().into()),
                     Some(atomic::Atomic::from(position as i64).into()),

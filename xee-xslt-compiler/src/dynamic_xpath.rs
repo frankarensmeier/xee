@@ -368,11 +368,11 @@ fn compile_dynamic_xpath(
 
     let mut program = Program::new(static_context, xpath.0.span);
     program.functions = caller_program.functions.clone();
-    program.declarations = caller_program.declarations.clone();
-    // Dynamic XPath executes its compiled expression as the program entrypoint.
-    // Keeping stylesheet named templates here lets absent-context evaluation
-    // re-enter xsl:initial-template instead of running the expression.
-    program.declarations.named_templates.clear();
+    program.declarations = Rc::clone(&caller_program.declarations);
+    // Dynamic XPath must not re-enter xsl:initial-template when there is
+    // no context item. Suppress named template lookups instead of cloning
+    // and clearing, since declarations are now shared via Rc.
+    program.suppress_named_templates();
 
     let mut scopes = Scopes::new();
     let builder = FunctionBuilder::new(&mut program);
