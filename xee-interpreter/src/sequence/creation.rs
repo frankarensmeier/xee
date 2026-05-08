@@ -342,19 +342,7 @@ impl Sequence {
     }
 }
 
-fn stable_document_root_key(node: xot::Node, xot: &Xot) -> (usize, usize) {
+fn stable_document_root_key(node: xot::Node, xot: &Xot) -> usize {
     let root = xot.root(node);
-    // Extract a stable sort key from the Node's debug representation.
-    // Node wraps indextree::NodeId which has (index1: NonZeroUsize, stamp: NodeStamp).
-    // We need a deterministic Ord key (not just grouping) because the visit
-    // order of roots determines the document IDs assigned by
-    // DocumentOrderAnnotations, which in turn determines final sort order.
-    let debug = format!("{root:?}");
-    let mut numbers = debug
-        .split(|ch: char| !ch.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<usize>().ok());
-    let index = numbers.next().unwrap_or_default();
-    let stamp = numbers.next().unwrap_or_default();
-    (index, stamp)
+    root.sort_key()
 }

@@ -54,7 +54,7 @@ pub struct DynamicContext<'a> {
     principal_result_document_parameters: RefCell<Vec<sequence::SerializationParameters>>,
     assertion_serialization_parameters:
         RefCell<Option<sequence::SerializationParameters>>,
-    temporary_tree_roots: RefCell<HashSet<xot::Node>>,
+    temporary_tree_roots: Rc<RefCell<HashSet<xot::Node>>>,
     temporary_output_state_depth: RefCell<usize>,
     on_multiple_match: OnMultipleMatch,
     static_base_uri_stack: RefCell<Vec<Option<IriAbsoluteString>>>,
@@ -102,7 +102,7 @@ impl<'a> DynamicContext<'a> {
                 principal_result_document_parameters,
             ),
             assertion_serialization_parameters: RefCell::new(None),
-            temporary_tree_roots: RefCell::new(temporary_tree_roots),
+            temporary_tree_roots: Rc::new(RefCell::new(temporary_tree_roots)),
             temporary_output_state_depth: RefCell::new(0),
             on_multiple_match,
             static_base_uri_stack: RefCell::new(Vec::new()),
@@ -312,7 +312,7 @@ impl<'a> DynamicContext<'a> {
             principal_result_documents: RefCell::new(Vec::new()),
             principal_result_document_parameters: RefCell::new(Vec::new()),
             assertion_serialization_parameters: RefCell::new(None),
-            temporary_tree_roots: RefCell::new(self.temporary_tree_roots.borrow().clone()),
+            temporary_tree_roots: self.temporary_tree_roots.clone(), // Rc clone — O(1)
             temporary_output_state_depth: RefCell::new(0),
             on_multiple_match: self.on_multiple_match,
             static_base_uri_stack: RefCell::new(Vec::new()),
