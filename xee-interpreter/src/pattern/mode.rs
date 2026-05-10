@@ -10,6 +10,7 @@ use crate::function;
 use super::pattern_lookup::NameCache;
 
 use super::pattern_lookup::PatternLookup;
+use super::pattern_lookup::NodeKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModeId(usize);
@@ -51,38 +52,42 @@ impl<V: Clone> ModeLookup<V> {
         &self,
         mode: ModeId,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
     ) -> Option<&V> {
         let pattern_lookup = self.modes.get(&mode)?;
-        pattern_lookup.lookup(name_id, matches)
+        pattern_lookup.lookup(name_id, node_kind, matches)
     }
 
     pub(crate) fn lookup_with_ambiguity(
         &self,
         mode: ModeId,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         same_rank: impl Fn(&V, &V) -> bool,
     ) -> Option<(&V, bool)> {
         let pattern_lookup = self.modes.get(&mode)?;
-        pattern_lookup.lookup_with_ambiguity(name_id, matches, same_rank)
+        pattern_lookup.lookup_with_ambiguity(name_id, node_kind, matches, same_rank)
     }
 
     pub(crate) fn lookup_after(
         &self,
         mode: ModeId,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
     ) -> Option<&V> {
         let pattern_lookup = self.modes.get(&mode)?;
-        pattern_lookup.lookup_after(name_id, matches, is_current)
+        pattern_lookup.lookup_after(name_id, node_kind, matches, is_current)
     }
 
     pub(crate) fn lookup_after_lower_import_precedence(
         &self,
         mode: ModeId,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         current_import_precedence: i64,
         matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
@@ -92,6 +97,7 @@ impl<V: Clone> ModeLookup<V> {
         let pattern_lookup = self.modes.get(&mode)?;
         pattern_lookup.lookup_after_lower_import_precedence(
             name_id,
+            node_kind,
             current_import_precedence,
             matches,
             is_current,

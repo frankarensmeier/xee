@@ -5,6 +5,7 @@ use std::rc::Rc;
 use ahash::HashMap;
 use iri_string::types::{IriReferenceStr, IriString};
 use xee_xpath_ast::{ast, pattern, Pattern};
+use xee_xpath_type::ast::KindTest;
 use xot::xmlname::NameStrInfo;
 use xot::Xot;
 
@@ -12,6 +13,69 @@ use crate::function;
 use crate::interpreter::Interpreter;
 use crate::pattern::pattern_core::PredicateMatcher;
 use crate::sequence::{Item, Sequence};
+
+/// Node kind used for type-aware pattern indexing. Wildcard patterns are
+/// classified by which node kinds they can match, so that at lookup time
+/// only the relevant wildcards are checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NodeKind {
+    Element,
+    Attribute,
+    Text,
+    Comment,
+    ProcessingInstruction,
+    Document,
+    Namespace,
+}
+
+/// Number of `NodeKind` variants — used for the fixed-size array.
+const NODE_KIND_COUNT: usize = 7;
+
+impl NodeKind {
+    /// Index into the per-kind wildcard arrays.
+    fn index(self) -> usize {
+        match self {
+            NodeKind::Element => 0,
+            NodeKind::Attribute => 1,
+            NodeKind::Text => 2,
+            NodeKind::Comment => 3,
+            NodeKind::ProcessingInstruction => 4,
+            NodeKind::Document => 5,
+            NodeKind::Namespace => 6,
+        }
+    }
+}
+
+/// Determine the `NodeKind` for an item (returns None for non-node items).
+pub(crate) fn item_node_kind(item: &Item, xot: &Xot) -> Option<NodeKind> {
+    if let Item::Node(node) = item {
+        Some(node_kind(*node, xot))
+    } else {
+        None
+    }
+}
+
+/// Determine the `NodeKind` for a node.
+fn node_kind(node: xot::Node, xot: &Xot) -> NodeKind {
+    if xot.is_element(node) {
+        NodeKind::Element
+    } else if xot.is_attribute_node(node) {
+        NodeKind::Attribute
+    } else if xot.is_text(node) {
+        NodeKind::Text
+    } else if xot.is_comment(node) {
+        NodeKind::Comment
+    } else if xot.is_processing_instruction(node) {
+        NodeKind::ProcessingInstruction
+    } else if xot.is_document(node) {
+        NodeKind::Document
+    } else if xot.is_namespace_node(node) {
+        NodeKind::Namespace
+    } else {
+        // Shouldn't happen, but treat as element for safety
+        NodeKind::Element
+    }
+}
 
 /// Cache mapping pointer-as-integer of `OwnedName` instances in pattern ASTs
 /// to their resolved `NameId`. Keyed by raw pointer cast to `usize` for
@@ -28,17 +92,26 @@ pub struct PatternLookup<V: Clone> {
     name_index: OnceCell<NameIndex>,
 }
 
-/// Index that partitions patterns into name-specific buckets and a wildcard
-/// list.  Built once (lazily) from the flat patterns Vec by resolving
+/// Index that partitions patterns into name-specific buckets and per-node-kind
+/// wildcard lists.  Built once (lazily) from the flat patterns Vec by resolving
 /// OwnedName → NameId via &Xot.  Indices refer into the patterns Vec which
 /// is already sorted by priority (highest first).
+///
+/// The per-kind wildcard lists mean that when matching e.g. an element node,
+/// we only check wildcards that can actually match elements, not those that
+/// can only match text, attributes, etc.  This is the first level of the
+/// "decision tree" optimization.
 #[derive(Debug, Clone, Default)]
 struct NameIndex {
     /// Patterns whose anchor step is a specific element/attribute name test.
     by_name: HashMap<xot::NameId, Vec<usize>>,
-    /// Patterns that can match any name (wildcard, kind-test, predicate-only,
-    /// union, etc.) — these must always be checked.
-    wildcards: Vec<usize>,
+    /// Per-node-kind wildcard lists.  `wildcards_by_kind[NodeKind::index()]`
+    /// contains pattern indices that can match that node kind.
+    /// A wildcard pattern that can match multiple kinds appears in each
+    /// relevant list.
+    wildcards_by_kind: [Vec<usize>; NODE_KIND_COUNT],
+    /// Wildcard patterns that can match non-node items (predicate patterns).
+    non_node_wildcards: Vec<usize>,
     /// Pre-resolved OwnedName → NameId cache for ALL name tests across ALL
     /// patterns, keyed by pointer-as-integer. Built once during
     /// `build_index`; used during pattern matching to skip repeated
@@ -216,7 +289,8 @@ impl<V: Clone> PatternLookup<V> {
     /// OwnedName → NameId.  Called lazily on first lookup via OnceCell.
     fn build_index(&self, xot: &Xot) -> NameIndex {
         let mut by_name: HashMap<xot::NameId, Vec<usize>> = HashMap::default();
-        let mut wildcards: Vec<usize> = Vec::new();
+        let mut wildcards_by_kind: [Vec<usize>; NODE_KIND_COUNT] = Default::default();
+        let mut non_node_wildcards: Vec<usize> = Vec::new();
 
         for (i, (pattern, _)) in self.patterns.iter().enumerate() {
             match extract_anchor_name(pattern) {
@@ -225,12 +299,21 @@ impl<V: Clone> PatternLookup<V> {
                         by_name.entry(name_id).or_default().push(i);
                     } else {
                         // Name not found in xot — can never match, but keep
-                        // in wildcards for correctness
-                        wildcards.push(i);
+                        // in wildcards for correctness (add to all kinds)
+                        for kinds in &mut wildcards_by_kind {
+                            kinds.push(i);
+                        }
                     }
                 }
                 AnchorName::Wildcard => {
-                    wildcards.push(i);
+                    let kinds = extract_anchor_node_kinds(pattern);
+                    for kind in &kinds {
+                        wildcards_by_kind[kind.index()].push(i);
+                    }
+                    // Predicate patterns can match non-node items
+                    if matches!(pattern, Pattern::Predicate(_)) {
+                        non_node_wildcards.push(i);
+                    }
                 }
                 AnchorName::Multiple(names) => {
                     // Union pattern with multiple specific names — add to each
@@ -248,7 +331,10 @@ impl<V: Clone> PatternLookup<V> {
                         }
                     }
                     if !added_any {
-                        wildcards.push(i);
+                        // Couldn't resolve any names — add to all kinds
+                        for kinds in &mut wildcards_by_kind {
+                            kinds.push(i);
+                        }
                     }
                 }
             }
@@ -264,7 +350,8 @@ impl<V: Clone> PatternLookup<V> {
 
         NameIndex {
             by_name,
-            wildcards,
+            wildcards_by_kind,
+            non_node_wildcards,
             name_cache: Rc::new(name_cache),
         }
     }
@@ -283,13 +370,18 @@ impl<V: Clone> PatternLookup<V> {
     }
 
     /// Iterate pattern indices relevant for a node with the given optional
-    /// NameId, yielding them in priority order (= original Vec order).
-    fn relevant_indices(&self, name_id: Option<xot::NameId>) -> MergedIndices<'_> {
+    /// NameId and NodeKind, yielding them in priority order (= original Vec order).
+    fn relevant_indices(&self, name_id: Option<xot::NameId>, node_kind: Option<NodeKind>) -> MergedIndices<'_> {
         let index = self.name_index.get().expect("ensure_index must be called before relevant_indices");
         let named = name_id.and_then(|nid| index.by_name.get(&nid));
+        let wildcards: &[usize] = match node_kind {
+            Some(kind) => &index.wildcards_by_kind[kind.index()],
+            // Non-node items can only match predicate patterns
+            None => &index.non_node_wildcards,
+        };
         MergedIndices {
             named: named.map(|v| v.as_slice()).unwrap_or(&[]),
-            wildcards: &index.wildcards,
+            wildcards,
             named_pos: 0,
             wildcard_pos: 0,
         }
@@ -298,9 +390,10 @@ impl<V: Clone> PatternLookup<V> {
     pub(crate) fn lookup(
         &self,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
     ) -> Option<&V> {
-        for idx in self.relevant_indices(name_id) {
+        for idx in self.relevant_indices(name_id, node_kind) {
             let (pattern, value) = &self.patterns[idx];
             if matches(pattern) {
                 return Some(value);
@@ -312,11 +405,12 @@ impl<V: Clone> PatternLookup<V> {
     pub(crate) fn lookup_with_ambiguity(
         &self,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         same_rank: impl Fn(&V, &V) -> bool,
     ) -> Option<(&V, bool)> {
         let mut first = None;
-        for idx in self.relevant_indices(name_id) {
+        for idx in self.relevant_indices(name_id, node_kind) {
             let (pattern, value) = &self.patterns[idx];
             if !matches(pattern) {
                 continue;
@@ -332,11 +426,12 @@ impl<V: Clone> PatternLookup<V> {
     pub(crate) fn lookup_after(
         &self,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
     ) -> Option<&V> {
         let mut seen_current = false;
-        for idx in self.relevant_indices(name_id) {
+        for idx in self.relevant_indices(name_id, node_kind) {
             let (pattern, value) = &self.patterns[idx];
             if !matches(pattern) {
                 continue;
@@ -355,6 +450,7 @@ impl<V: Clone> PatternLookup<V> {
     pub(crate) fn lookup_after_lower_import_precedence(
         &self,
         name_id: Option<xot::NameId>,
+        node_kind: Option<NodeKind>,
         current_import_precedence: i64,
         mut matches: impl FnMut(&Pattern<function::InlineFunctionId>) -> bool,
         is_current: impl Fn(&V) -> bool,
@@ -362,7 +458,7 @@ impl<V: Clone> PatternLookup<V> {
         is_eligible: impl Fn(&V) -> bool,
     ) -> Option<&V> {
         let mut seen_current = false;
-        for idx in self.relevant_indices(name_id) {
+        for idx in self.relevant_indices(name_id, node_kind) {
             let (pattern, value) = &self.patterns[idx];
             if !matches(pattern) {
                 continue;
@@ -518,6 +614,157 @@ fn extract_anchor_from_binary<E>(binary: &pattern::BinaryExpr<E>) -> AnchorName<
         // Intersect/except: use the left branch for indexing
         pattern::Operator::Intersect | pattern::Operator::Except => {
             extract_anchor_from_expr(&binary.left)
+        }
+    }
+}
+
+/// All node kinds — used as fallback when we can't determine type constraints.
+const ALL_NODE_KINDS: &[NodeKind] = &[
+    NodeKind::Element,
+    NodeKind::Attribute,
+    NodeKind::Text,
+    NodeKind::Comment,
+    NodeKind::ProcessingInstruction,
+    NodeKind::Document,
+    NodeKind::Namespace,
+];
+
+/// Node kinds reachable via child/descendant axis (not attribute, not document,
+/// not namespace).
+const CHILD_AXIS_KINDS: &[NodeKind] = &[
+    NodeKind::Element,
+    NodeKind::Text,
+    NodeKind::Comment,
+    NodeKind::ProcessingInstruction,
+];
+
+/// Determine which node kinds a wildcard pattern can match.
+/// This is used to partition wildcards into per-kind buckets so that
+/// at lookup time, only relevant wildcards are checked.
+fn extract_anchor_node_kinds<E>(pattern: &Pattern<E>) -> Vec<NodeKind> {
+    match pattern {
+        Pattern::Predicate(_) => {
+            // Predicate patterns (e.g., `.[condition]`) can match any node
+            ALL_NODE_KINDS.to_vec()
+        }
+        Pattern::Expr(expr) => extract_node_kinds_from_expr(expr),
+    }
+}
+
+fn extract_node_kinds_from_expr<E>(expr: &pattern::ExprPattern<E>) -> Vec<NodeKind> {
+    match expr {
+        pattern::ExprPattern::Path(path) => extract_node_kinds_from_path(path),
+        pattern::ExprPattern::BinaryExpr(binary) => extract_node_kinds_from_binary(binary),
+    }
+}
+
+fn extract_node_kinds_from_path<E>(path: &pattern::PathExpr<E>) -> Vec<NodeKind> {
+    if let Some(last_step) = path.steps.last() {
+        match last_step {
+            pattern::StepExpr::AxisStep(axis_step) => {
+                extract_node_kinds_from_step(axis_step)
+            }
+            pattern::StepExpr::PostfixExpr(postfix) => {
+                extract_node_kinds_from_expr(&postfix.expr)
+            }
+        }
+    } else {
+        // No steps — depends on the path root:
+        // - "/" (AbsoluteSlash) matches document nodes
+        // - "$x" or "doc(...)" (Rooted) can match any node type
+        // - "//" with no steps is unusual but treat as any
+        // - Relative with no steps shouldn't happen but treat as any
+        match &path.root {
+            pattern::PathRoot::AbsoluteSlash => vec![NodeKind::Document],
+            pattern::PathRoot::Rooted { .. } => ALL_NODE_KINDS.to_vec(),
+            _ => ALL_NODE_KINDS.to_vec(),
+        }
+    }
+}
+
+fn extract_node_kinds_from_step<E>(step: &pattern::AxisStep<E>) -> Vec<NodeKind> {
+    // Combine axis constraint with node test constraint
+    let axis_kinds = match step.forward {
+        pattern::ForwardAxis::Child | pattern::ForwardAxis::Descendant => {
+            CHILD_AXIS_KINDS
+        }
+        pattern::ForwardAxis::Attribute => {
+            &[NodeKind::Attribute] as &[NodeKind]
+        }
+        pattern::ForwardAxis::Namespace => {
+            &[NodeKind::Namespace] as &[NodeKind]
+        }
+        pattern::ForwardAxis::Self_ | pattern::ForwardAxis::DescendantOrSelf => {
+            ALL_NODE_KINDS
+        }
+    };
+
+    let test_kinds = match &step.node_test {
+        ast::NodeTest::NameTest(name_test) => {
+            match name_test {
+                ast::NameTest::Name(_) => {
+                    // Named test — this shouldn't be a wildcard, but if it is
+                    // (e.g., unresolvable name), it depends on the axis
+                    match step.forward {
+                        pattern::ForwardAxis::Attribute => vec![NodeKind::Attribute],
+                        _ => vec![NodeKind::Element],
+                    }
+                }
+                ast::NameTest::Star | ast::NameTest::LocalName(_) | ast::NameTest::Namespace(_) => {
+                    // `*`, `*:local`, `ns:*` — elements or attributes depending on axis
+                    match step.forward {
+                        pattern::ForwardAxis::Attribute => vec![NodeKind::Attribute],
+                        _ => vec![NodeKind::Element],
+                    }
+                }
+            }
+        }
+        ast::NodeTest::KindTest(kind_test) => {
+            match kind_test {
+                KindTest::Element(_) => vec![NodeKind::Element],
+                KindTest::Attribute(_) => vec![NodeKind::Attribute],
+                KindTest::Text => vec![NodeKind::Text],
+                KindTest::Comment => vec![NodeKind::Comment],
+                KindTest::PI(_) => vec![NodeKind::ProcessingInstruction],
+                KindTest::Document(_) => vec![NodeKind::Document],
+                KindTest::NamespaceNode => vec![NodeKind::Namespace],
+                KindTest::SchemaElement(_) => vec![NodeKind::Element],
+                KindTest::SchemaAttribute(_) => vec![NodeKind::Attribute],
+                KindTest::Any => {
+                    // node() — depends on axis
+                    axis_kinds.to_vec()
+                }
+            }
+        }
+    };
+
+    // Return test_kinds directly. The axis constraint is already incorporated
+    // for KindTest::Any (node()) which returns axis_kinds. For explicit kind
+    // tests like document-node(), the kind test is authoritative — the axis
+    // is synthetic (defaults to child) and shouldn't exclude valid matches.
+    test_kinds
+}
+
+fn extract_node_kinds_from_binary<E>(binary: &pattern::BinaryExpr<E>) -> Vec<NodeKind> {
+    match binary.operator {
+        pattern::Operator::Union => {
+            // Union of kinds from both branches
+            let mut kinds = extract_node_kinds_from_expr(&binary.left);
+            let right_kinds = extract_node_kinds_from_expr(&binary.right);
+            for k in right_kinds {
+                if !kinds.contains(&k) {
+                    kinds.push(k);
+                }
+            }
+            kinds
+        }
+        pattern::Operator::Intersect => {
+            // Intersection — use left branch
+            extract_node_kinds_from_expr(&binary.left)
+        }
+        pattern::Operator::Except => {
+            // Except — use left branch
+            extract_node_kinds_from_expr(&binary.left)
         }
     }
 }

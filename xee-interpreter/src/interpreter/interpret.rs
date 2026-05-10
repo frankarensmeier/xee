@@ -2605,6 +2605,7 @@ impl<'a> Interpreter<'a> {
         // safely borrow xot immutably — before the `matches` closure captures
         // &mut self.
         let name_id = pattern::pattern_lookup::item_name_id(item, self.xot());
+        let node_kind = pattern::pattern_lookup::item_node_kind(item, self.xot());
         self.runnable
             .program()
             .declarations
@@ -2624,6 +2625,7 @@ impl<'a> Interpreter<'a> {
             .lookup_with_ambiguity(
                 mode,
                 name_id,
+                node_kind,
                 |pattern| self.matches(pattern, item),
                 |a, b| {
                     a.function_id != b.function_id
@@ -2643,6 +2645,7 @@ impl<'a> Interpreter<'a> {
         item: &sequence::Item,
     ) -> Option<function::InlineFunctionId> {
         let name_id = pattern::pattern_lookup::item_name_id(item, self.xot());
+        let node_kind = pattern::pattern_lookup::item_node_kind(item, self.xot());
         self.runnable
             .program()
             .declarations
@@ -2662,6 +2665,7 @@ impl<'a> Interpreter<'a> {
             .lookup_after(
                 mode,
                 name_id,
+                node_kind,
                 |pattern| self.matches(pattern, item),
                 |rule| rule.function_id == current,
             )
@@ -2691,6 +2695,7 @@ impl<'a> Interpreter<'a> {
             .template_module_paths()
             .clone();
         let name_id = pattern::pattern_lookup::item_name_id(item, self.xot());
+        let node_kind = pattern::pattern_lookup::item_node_kind(item, self.xot());
         self.runnable
             .program()
             .declarations
@@ -2710,6 +2715,7 @@ impl<'a> Interpreter<'a> {
             .lookup_after_lower_import_precedence(
                 mode,
                 name_id,
+                node_kind,
                 current_import_precedence,
                 |pattern| self.matches(pattern, item),
                 |rule| rule.function_id == current,

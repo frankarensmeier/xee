@@ -4,6 +4,32 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-09 06:57 CEST — NodeKind-aware pattern indexing (-14.5% bench time, -52% slow-path matches)
+
+Added type-aware wildcard classification to the pattern index. Instead of a
+single `wildcards` list that is always fully checked, wildcard patterns are now
+partitioned by which node kinds they can match (Element, Attribute, Text,
+Comment, ProcessingInstruction, Document, Namespace). At lookup time, only
+wildcards relevant to the current node's kind are checked.
+
+### Key metrics (DocBook NG, ~972 template rules)
+- Benchmark (input-small): 2.13s → 1.82s (-14.5%)
+- Slow-path pattern matches (xlarge): 25.3M → 12.2M (-51.8%)
+- Total pattern match calls (xlarge): 104M → 90M (-13.3%)
+
+### Changes
+- `pattern_lookup.rs`: Added `NodeKind` enum, `extract_anchor_node_kinds()`
+  classification tree, per-kind `wildcards_by_kind` array, `non_node_wildcards`
+  for predicate patterns
+- `mode.rs`: Threading `node_kind: Option<NodeKind>` through ModeLookup methods
+- `interpret.rs`: Computing `node_kind` via `item_node_kind()` at each lookup
+
+### Regressions fixed
+- `document-node()` patterns: axis defaults to `child` but kind test says
+  `Document` — removed incorrect axis/kind intersection
+- Rooted patterns (`$x`, `doc(...)`) with no steps: must match all node kinds
+- Predicate patterns on non-node items: added `non_node_wildcards` fallback
+
 ## 2026-05-08 19:49 CEST — Rc sharing for dynamic XPath programs (RSS 2.7GB → 570MB)
 
 Massive memory reduction by sharing InlineFunction and Declarations via Rc
