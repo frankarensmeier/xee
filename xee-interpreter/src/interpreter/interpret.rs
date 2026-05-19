@@ -2080,7 +2080,7 @@ impl<'a> Interpreter<'a> {
             }
         }
 
-        let function_id = matched_rule.map(|(rule, _)| rule.function_id);
+        let function_id = matched_rule.map(|(id, _)| id);
 
         if let Some(function_id) = function_id {
             let position = position + 1;
@@ -2592,15 +2592,14 @@ impl<'a> Interpreter<'a> {
         mode: pattern::ModeId,
         item: &sequence::Item,
     ) -> Option<function::InlineFunctionId> {
-        self.lookup_template_rule(mode, item)
-            .map(|(rule, _)| rule.function_id)
+        self.lookup_template_rule(mode, item).map(|(id, _)| id)
     }
 
     fn lookup_template_rule(
         &mut self,
         mode: pattern::ModeId,
         item: &sequence::Item,
-    ) -> Option<(crate::declaration::TemplateRule, bool)> {
+    ) -> Option<(function::InlineFunctionId, bool)> {
         // Pre-compute name_id and ensure the name index is built while we can
         // safely borrow xot immutably — before the `matches` closure captures
         // &mut self.
@@ -2633,7 +2632,7 @@ impl<'a> Interpreter<'a> {
                         && a.priority == b.priority
                 },
             )
-            .map(|(rule, ambiguous)| (rule.clone(), ambiguous));
+            .map(|(rule, ambiguous)| (rule.function_id, ambiguous));
         self.name_cache = None;
         result
     }
