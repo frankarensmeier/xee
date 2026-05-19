@@ -59,11 +59,26 @@ static NC_NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 impl atomic::Atomic {
     pub(crate) fn cast_to_string(self) -> atomic::Atomic {
-        atomic::Atomic::String(atomic::StringType::String, self.into_canonical().into())
+        // Untyped and String variants: move the Rc<str> directly, no allocation needed
+        match self {
+            atomic::Atomic::Untyped(s) => {
+                atomic::Atomic::String(atomic::StringType::String, s)
+            }
+            atomic::Atomic::String(_, s) => {
+                atomic::Atomic::String(atomic::StringType::String, s)
+            }
+            other => {
+                atomic::Atomic::String(atomic::StringType::String, other.into_canonical().into())
+            }
+        }
     }
 
     pub(crate) fn cast_to_untyped_atomic(self) -> atomic::Atomic {
-        atomic::Atomic::Untyped(self.into_canonical().into())
+        match self {
+            atomic::Atomic::Untyped(s) => atomic::Atomic::Untyped(s),
+            atomic::Atomic::String(_, s) => atomic::Atomic::Untyped(s),
+            other => atomic::Atomic::Untyped(other.into_canonical().into()),
+        }
     }
 
     pub(crate) fn cast_to_any_uri(self) -> error::Result<atomic::Atomic> {

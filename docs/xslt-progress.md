@@ -4,6 +4,26 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `docs/xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-19 17:51 CEST — cast_to_string/cast_to_untyped_atomic: eliminate allocation for string variants
+
+`cast_to_string` was called ~202K times on the small.xml transform (counter
+measurement). Every call went through `into_canonical()` even for `Untyped` and
+`String` variants where the canonical form is identical to the stored string — no
+work needed, just move the `Rc<str>`.
+
+Fixed both `cast_to_string` and `cast_to_untyped_atomic` to move the `Rc<str>`
+directly for `Untyped` and `String` variants, bypassing `into_canonical()`:
+
+- `Untyped(s).cast_to_string()` → `String(String, s)` — 0 allocations (was 2)
+- `String(_, s).cast_to_string()` → `String(String, s)` — 0 allocations (was 2)
+- Other variants unchanged — still go through `into_canonical()`
+
+Primary hot paths benefiting: `||` (concat instruction, called per every string
+concatenation), general comparison `(Untyped, Untyped)` in `comparison.rs::cast()`.
+
+Conformance maintained: 6019/0/0. Small benchmark unchanged (below 1 s floor);
+improvement will be visible on the xlarge workload.
+
 ## 2026-05-19 — Collation hot path eliminated (-33% on small benchmark)
 
 `Collations::load` was called 253 million times on the xlarge.xml transform.

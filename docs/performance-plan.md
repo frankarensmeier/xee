@@ -81,7 +81,30 @@ allocating a `String` from the URI via `uri.to_string()` even on cache hits. The
 
 ### Phase 2 — Medium effort, high impact
 
-#### 3. Avoid `Atomic` allocation for string comparisons (~4.8 % drop + 2.8 % atomisation = ~7.6 %)
+#### ~~3. Avoid `Atomic` allocation for string comparisons (~4.8 % drop + 2.8 % atomisation = ~7.6 %)~~
+
+**Partially done (2026-05-19).** Counter measurement on small.xml showed:
+- Node atomization (`AtomizedNodeIter`): 59 calls → not a hot path on typical transforms
+- `cast_to_string`: 202,360 calls — very hot
+
+The hot source was not node-to-string atomization but `cast_to_string` being
+called via the `||` concat instruction and `(Untyped, Untyped)` general comparison
+branching. For both `Untyped(Rc<str>)` and `String(_, Rc<str>)` variants,
+`cast_to_string` was going through `into_canonical()` (new String + Rc allocation)
+even though the canonical form is identical to the stored value.
+
+Fix: match on variant first; for `Untyped` and `String` move the `Rc<str>` with 0
+allocations. Same applied to `cast_to_untyped_atomic`.
+
+The profile's "5 % Atomic drop" + "2.8 % atomisation" were a combined symptom;
+this fix addresses the allocation side. Remaining Atomic churn is in the
+allocation pathway for non-string types (integers, datetimes, etc.).
+
+**Remaining work:** The 2.8% for `AtomizedItemIter` may still be meaningful on
+xlarge — instrument `AtomizedItemIter::new` in `sequence/item.rs` (the path used
+by value comparisons) to verify before optimizing further.
+
+---
 
 The dominant atomic churn is text-node and attribute string values being extracted as
 `Rc<str>`, used for one comparison, then dropped. The allocation is pointless when the
