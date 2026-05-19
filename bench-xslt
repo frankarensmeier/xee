@@ -1,31 +1,34 @@
 #!/usr/bin/env bash
 #
 # Quick XSLT performance benchmark.
-# Transforms xslt/input-small.xml with print.xsl and compares against a
-# stored baseline. Flags regressions above a configurable threshold.
+# Transforms xslt/input-small.xml (or --xlarge) with print.xsl and compares
+# against a stored baseline. Flags regressions above a configurable threshold.
 #
 # Usage:
 #   ./bench-xslt              # run benchmark, compare to baseline
 #   ./bench-xslt --save       # run and save result as the new baseline
-#   ./bench-xslt --threshold 30  # set regression threshold to 30%
+#   ./bench-xslt --xlarge     # use input-xlarge.xml (slower, more accurate)
+#   ./bench-xslt --threshold 10  # set regression threshold to 10%
+#   ./bench-xslt --runs 5     # number of iterations to average
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASELINE_FILE="$SCRIPT_DIR/xslt/.bench-baseline"
 THRESHOLD="${THRESHOLD:-20}"  # percent
 SAVE=false
 RUNS=3
+XLARGE=false
 
 usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Quick XSLT performance benchmark. Transforms xslt/input-small.xml with
-print.xsl, averages multiple runs, and compares against a stored baseline.
+XSLT performance benchmark. Transforms an XML file with print.xsl, averages
+multiple runs, and compares against a stored baseline.
 
 Options:
   --save             Save current timing as the new baseline
+  --xlarge           Use input-xlarge.xml instead of input-small.xml
   --threshold PCT    Regression threshold in percent (default: 20)
   --runs N           Number of iterations to average (default: 3)
   --help             Show this help message
@@ -36,6 +39,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --save) SAVE=true; shift ;;
+        --xlarge) XLARGE=true; shift ;;
         --threshold) THRESHOLD="$2"; shift 2 ;;
         --runs) RUNS="$2"; shift 2 ;;
         --help|-h) usage ;;
@@ -50,48 +54,64 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 STYLESHEET="$SCRIPT_DIR/xslt/print.xsl"
-INPUT="$SCRIPT_DIR/xslt/input-small.xml"
+if $XLARGE; then
+    INPUT="$SCRIPT_DIR/xslt/input-xlarge.xml"
+    BASELINE_FILE="$SCRIPT_DIR/xslt/.bench-baseline-xlarge"
+    LABEL="xlarge"
+else
+    INPUT="$SCRIPT_DIR/xslt/input-small.xml"
+    BASELINE_FILE="$SCRIPT_DIR/xslt/.bench-baseline"
+    LABEL="small"
+fi
 
+if [[ ! -f "$INPUT" ]]; then
+    echo "Input file not found: $INPUT"
+    exit 1
+fi
+
+# Time a single run in milliseconds using bash TIMEFORMAT — locale-independent.
+time_ms() {
+    local TIMEFORMAT='%R'
+    local secs
+    # CMD stderr -> /dev/null; time output -> captured via 2>&1 on the group
+    secs=$( { time "$BIN" xslt "$STYLESHEET" "$INPUT" > /dev/null 2>&1; } 2>&1 )
+    echo "scale=0; $secs * 1000 / 1" | bc
+}
+
+echo "Input: $LABEL"
 echo "Running $RUNS iterations..."
-TOTAL=0
+TOTAL_MS=0
 for i in $(seq 1 "$RUNS"); do
-    # Use bash TIMEFORMAT to capture wall-clock seconds
-    T=$( { time "$BIN" xslt "$STYLESHEET" "$INPUT" > /dev/null 2>&1; } 2>&1 )
-    # Extract the "real" / "total" wall-clock time in seconds
-    SECS=$(echo "$T" | grep -oE '[0-9]+\.[0-9]+\s+total' | grep -oE '[0-9]+\.[0-9]+' || true)
-    if [[ -z "$SECS" ]]; then
-        # Fallback: try bash-style "real 0m3.456s"
-        SECS=$(echo "$T" | grep real | sed -E 's/.*real[[:space:]]+([0-9]+)m([0-9.]+)s/\1 \2/' | awk '{print $1*60+$2}')
-    fi
-    printf "  Run %d: %.2fs\n" "$i" "$SECS"
-    TOTAL=$(echo "$TOTAL + $SECS" | bc)
+    MS=$(time_ms)
+    printf "  Run %d: %dms\n" "$i" "$MS"
+    TOTAL_MS=$(( TOTAL_MS + MS ))
 done
 
-AVG=$(echo "scale=2; $TOTAL / $RUNS" | bc)
+AVG_MS=$(( TOTAL_MS / RUNS ))
+AVG=$(echo "scale=3; $AVG_MS / 1000" | bc)
 echo ""
-echo "Average: ${AVG}s ($RUNS runs)"
+echo "Average: ${AVG}s  (${AVG_MS}ms, $RUNS runs)"
 
 if $SAVE; then
-    echo "$AVG" > "$BASELINE_FILE"
-    echo "Baseline saved: ${AVG}s"
+    echo "$AVG_MS" > "$BASELINE_FILE"
+    echo "Baseline saved: ${AVG_MS}ms"
     exit 0
 fi
 
 if [[ -f "$BASELINE_FILE" ]]; then
-    BASELINE=$(cat "$BASELINE_FILE")
-    PCT=$(echo "scale=1; ($AVG - $BASELINE) * 100 / $BASELINE" | bc)
-    echo "Baseline: ${BASELINE}s"
+    BASELINE_MS=$(cat "$BASELINE_FILE")
+    BASELINE=$(echo "scale=3; $BASELINE_MS / 1000" | bc)
+    PCT=$(echo "scale=1; ($AVG_MS - $BASELINE_MS) * 100 / $BASELINE_MS" | bc)
+    echo "Baseline: ${BASELINE}s  (${BASELINE_MS}ms)"
     echo "Change:   ${PCT}%"
 
-    # Check if regression exceeds threshold (compare as integers to avoid bc issues)
-    ABS_PCT=$(echo "$PCT" | tr -d '-')
     IS_REGRESSION=$(echo "$PCT > $THRESHOLD" | bc)
     if [[ "$IS_REGRESSION" -eq 1 ]]; then
         echo ""
-        echo "⚠️  REGRESSION: ${PCT}% exceeds ${THRESHOLD}% threshold!"
+        echo "REGRESSION: ${PCT}% exceeds ${THRESHOLD}% threshold!"
         exit 1
     else
-        echo "✓ Within ${THRESHOLD}% threshold"
+        echo "OK: within ${THRESHOLD}% threshold"
     fi
 else
     echo ""
