@@ -4,7 +4,7 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `xslt-plan.md`
 instead of replacing it.
 
-## 2026-05-09 06:57 CEST — NodeKind-aware pattern indexing (-14.5% bench time, -52% slow-path matches)
+## 2026-05-10 10:44 CEST — NodeKind-aware pattern indexing (-14.5% bench time, -52% slow-path matches)
 
 Added type-aware wildcard classification to the pattern index. Instead of a
 single `wildcards` list that is always fully checked, wildcard patterns are now

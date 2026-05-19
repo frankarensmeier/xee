@@ -4,6 +4,54 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `docs/xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-19 — Performance plan item 1 invalidated by measurement
+
+Attempted Phase 1 item 1 (ASCII fast-path for `fn:string-length`). Added a call
+counter: `string_length` is called fewer than 1,000 times across the full
+xlarge.xml transform. The 1.8 % attributed to `unicode_segmentation::grapheme`
+in the profile was a misidentification — those addresses belong to
+`libsystem_platform.dylib`, not our string functions. Item struck from the plan;
+moving directly to item 2 (variable lookup by numeric index).
+
+## 2026-05-19 — FastDocument removed; performance plan written
+
+Profiled the `input-xlarge.xml` workload with samply. The profile showed that
+indextree axis traversal (2.4 %) and `node_test` (1.1 %) — the targets of the
+FastDocument prototype — account for only ~3.5 % of runtime. The dominant costs are
+sequence Vec machinery (~16 %), Atomic heap churn (~7.6 % combined drop + atomisation),
+variable string-hash lookups (~2.4 %), and Unicode grapheme walks (~1.8 %).
+
+The FastDocument module was removed: its fundamental flaw (calling back into xot for
+every node test, negating the fast traversal) meant it regressed performance when
+enabled, and the addressable surface was too small to justify the complexity.
+
+A full performance plan is at `docs/performance-plan.md`.
+
+## 2026-05-11 23:11 CEST — FastDocument step execution splice
+
+Added a first runtime dispatch point for the `FastDocument` prototype in the
+interpreter's `Step` instruction path. After timing the real `print.xsl` /
+`input-small.xml` workload, this dispatch is now opt-in behind
+`XEE_ENABLE_FASTDOC_STEP=1` instead of enabled by default, because the current
+prototype regressed wall-clock time badly despite passing parity tests.
+
+This slice now covers `self`, `parent`, `child`, `descendant`,
+`descendant-or-self`, `ancestor`, `ancestor-or-self`, `following-sibling`,
+`preceding-sibling`, `following`, and `preceding`, with parity tests against
+the current resolver to lock down existing behavior before any cleanup of axis
+ordering semantics.
+
+Also added conservative cache invalidation on mutable Xot access and tracked
+output mutation so the prototype stays correct in the presence of temporary
+tree construction and in-place document rewrites such as
+`fn:strip-space-document()`.
+
+**Validation:** `cargo test -q -p xee-interpreter fastdoc_step`
+
+**Status:** This is still a spike. The fast path currently covers only the
+subset already implemented in `fastdoc/step.rs`; unsupported axes, namespace
+handling, and temporary trees still use the existing runtime.
+
 ## 2026-05-08 16:10 CEST — Output serialization improvements (126→166 tests)
 
 Improved xsl:output conformance from 126/205 (61.5%) to 166/205 (81%) passing
