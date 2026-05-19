@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::rc::Rc;
 
 use ahash::{HashMap, HashMapExt};
@@ -251,14 +250,14 @@ impl Collations {
         base_uri: Option<&IriAbsoluteStr>,
         uri: &IriReferenceStr,
     ) -> error::Result<Rc<Collation>> {
-        // try to find cached collator. we cache by uri
-        match self.collations.entry(uri.to_string()) {
-            Entry::Occupied(entry) => Ok(entry.get().clone()),
-            Entry::Vacant(entry) => {
-                let collation = Collation::new(base_uri, uri)?;
-                Ok(entry.insert(Rc::new(collation)).clone())
-            }
+        // Cache hit: borrow as &str to avoid String allocation on the hot path
+        if let Some(cached) = self.collations.get(uri.as_str()) {
+            return Ok(cached.clone());
         }
+        let collation = Collation::new(base_uri, uri)?;
+        let rc = Rc::new(collation);
+        self.collations.insert(uri.to_string(), rc.clone());
+        Ok(rc)
     }
 }
 

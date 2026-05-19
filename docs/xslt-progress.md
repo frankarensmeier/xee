@@ -4,6 +4,28 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `docs/xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-19 — Collation hot path eliminated (-33% on small benchmark)
+
+`Collations::load` was called 253 million times on the xlarge.xml transform.
+Every call allocated a `String` via `uri.to_string()` for the HashMap key, even
+on cache hits. The fix uses `HashMap::get(&str)` on the fast path and only
+allocates when inserting a new entry (rare — typically 1–3 collations per run).
+
+A second optimisation adds `default_collation_rc: RefCell<Option<Rc<Collation>>>`
+to `StaticContext`. `default_collation()` now returns the cached `Rc` directly
+on all but the first call, skipping the `RefCell<Collations>::borrow_mut()` and
+HashMap probe entirely. The cache is invalidated when `set_default_collation_uri`
+is called.
+
+Measured improvement: 1.79 s → 1.00 s on the small-xml benchmark (−44%
+wall-clock). The small benchmark is at the 1 s timing floor so the second
+optimisation isn't separately visible; both are confirmed correct by the full
+411-test suite.
+
+Performance plan item 2 (originally "variable lookup by numeric index") was
+recast after discovering that all compiled variables already use numeric indices.
+The real item 2 is now this collation fix. `docs/performance-plan.md` updated.
+
 ## 2026-05-19 — Performance plan item 1 invalidated by measurement
 
 Attempted Phase 1 item 1 (ASCII fast-path for `fn:string-length`). Added a call

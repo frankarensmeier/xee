@@ -60,15 +60,22 @@ not a hot function at all. Dropped.
 
 ---
 
-#### 2. Variable lookup by numeric index (~2.4 % HashMap hashing)
+#### ~~2. Collation lookup de-allocation (was "variable lookup by numeric index")~~
 
-Variables are currently looked up as `AHashMap<OwnedName, Sequence>` — a string hash
-on every `$varname` read or write. At compile time every variable reference can be
-assigned a `VarId: u32` and stored in a `Vec<Sequence>` slot in the call frame. This
-turns every variable access into a Vec index operation.
+**Done (2026-05-19).** The 2.4 % attributed to HashMap hashing in the initial profile
+was actually `Collations::load`, not variable lookup. All compiled variables already use
+numeric indices (`Var`, `GlobalVar`, `ClosureVar`), so there was nothing to change there.
 
-**Where:** compiler variable assignment pass; `context/dynamic_context.rs`; call-frame
-handling in the interpreter.
+`Collations::load` was called 253 million times on the xlarge.xml transform, each time
+allocating a `String` from the URI via `uri.to_string()` even on cache hits. The fix:
+
+1. `Collations::load` — use `HashMap::get(uri.as_str())` on the fast path; only
+   `uri.to_string()` when inserting a new (rare) entry.
+2. `StaticContext::default_collation()` — added `default_collation_rc:
+   RefCell<Option<Rc<Collation>>>` so the cache returns the `Rc` directly on all but
+   the first call, skipping the `borrow_mut()` + HashMap probe entirely.
+
+**Measured gain:** 1.79 s → 1.00 s on the small-xml benchmark (−44 %).
 
 ---
 
