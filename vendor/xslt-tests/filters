@@ -59,48 +59,9 @@ accessor-061
 accessor-062
 accessor-063
 = accumulator
-accumulator-001
-accumulator-003
-accumulator-005
-accumulator-007
-accumulator-010
-accumulator-012
-accumulator-014
-accumulator-016
-accumulator-017
-accumulator-020
-accumulator-021
-accumulator-022
-accumulator-023
-accumulator-026
-accumulator-027
-accumulator-034
-accumulator-037
-accumulator-038
-accumulator-039
-accumulator-040
-accumulator-041
-accumulator-042
-accumulator-043
-accumulator-046
-accumulator-047
-accumulator-048
-accumulator-049
 accumulator-050
 accumulator-051
 accumulator-051s
-accumulator-055
-accumulator-055s
-accumulator-056
-accumulator-057
-accumulator-062
-accumulator-063
-accumulator-064
-accumulator-065
-accumulator-066
-accumulator-067
-accumulator-071
-accumulator-072
 accumulator-077
 accumulator-077s
 accumulator-078
@@ -113,7 +74,6 @@ accumulator-087s
 accumulator-088
 = analyze-string
 analyze-string-001
-analyze-string-076
 analyze-string-085
 analyze-string-090b
 analyze-string-091b
@@ -140,16 +100,6 @@ as-1222
 as-1602
 = aspiring
 = assert
-assert-001
-assert-002
-assert-003
-assert-004
-assert-005
-assert-006
-assert-007
-assert-008
-assert-009
-assert-010
 = attribute
 attribute-0301
 attribute-0601
@@ -162,34 +112,20 @@ available-system-properties-001
 available-system-properties-002
 = avt
 avt-0303
-avt-0401
-avt-0701
-avt-0901
-avt-2102
 avt-3201
 = axes
-axes-001
-axes-002
-axes-036
-axes-040
 axes-044
 axes-045
 axes-046
 axes-051
 axes-058
-axes-062
 axes-068
 axes-082
 axes-087
 axes-088
 axes-089
-axes-092
-axes-133
-axes-140
-axes-142
 axes-146
 axes-171
-axes-176
 = backwards
 = base-uri
 base-uri-002
@@ -227,13 +163,10 @@ base-uri-053
 = boolean
 = bug
 bug-0304
-bug-1402
-bug-1405
 bug-2201
 bug-2401
 bug-2502
 bug-2801
-bug-3001
 = built-in-templates
 built-in-templates-0201
 built-in-templates-0202
@@ -255,13 +188,6 @@ catalog-006b
 catalog-007
 catalog-008
 = character-map
-character-map-001
-character-map-002
-character-map-003
-character-map-004
-character-map-005
-character-map-006
-character-map-008
 character-map-010
 character-map-013
 character-map-014
@@ -269,11 +195,7 @@ character-map-015
 character-map-016
 character-map-017
 character-map-018
-character-map-019
-character-map-020
-character-map-021
 character-map-022
-character-map-023
 character-map-025
 character-map-026
 character-map-028
@@ -284,16 +206,13 @@ choose-0107
 choose-1204
 = collation
 = collations
-collations-0103
 collations-0104
 collations-0105
-collations-0106
 collations-0107
 collations-0108
 collations-0109
 collations-0111
 collations-0112
-collations-0113
 collations-0114
 collations-0115
 collations-0116
@@ -304,11 +223,9 @@ collations-0120
 collations-0121
 collations-0122
 collations-0123
-collations-0124
 collations-0125
 collations-0126
 collations-0127
-collations-0503
 collations-1006
 = collection
 collection-001
@@ -316,7 +233,6 @@ collection-002
 collection-003
 collection-004
 collection-005
-collection-006
 = construct-node
 construct-node-007
 construct-node-012
@@ -355,13 +271,9 @@ copy-0624
 copy-0625
 copy-0626
 copy-0627
-copy-1201
-copy-1202
 copy-1211
 copy-1212
 copy-1216
-copy-1220
-copy-1221
 copy-3002
 copy-3003
 copy-3702
@@ -379,7 +291,6 @@ current-output-uri-003
 current-output-uri-004
 current-output-uri-006
 current-output-uri-007
-current-output-uri-008
 current-output-uri-010
 current-output-uri-014
 current-output-uri-901
@@ -395,61 +306,7 @@ date-063
 date-064
 date-074a
 date-075a
-date-094a
-date-094b
-date-094c
-date-094d
-date-094e
-date-094f
-date-094g
-date-094h
-date-094i
-date-094j
-date-094k
-date-094l
-date-094m
-date-094n
-date-094o
-date-094p
-date-094q
-date-095a
-date-095b
-date-095c
-date-095d
-date-095e
-date-095f
-date-095g
-date-095h
-date-095i
-date-095j
-date-095k
-date-095l
-date-095m
-date-095n
-date-095o
-date-095p
-date-095q
-date-095r
-date-095s
-date-095t
-date-095u
-date-095v
-date-095w
 = declared-modes
-declared-modes-001
-declared-modes-002
-declared-modes-003
-declared-modes-004
-declared-modes-005
-declared-modes-006
-declared-modes-007
-declared-modes-008
-declared-modes-009
-declared-modes-010
-declared-modes-011
-declared-modes-012
-declared-modes-013
-declared-modes-014
 = deep-equal
 = disable-output-escaping
 = docbook
@@ -467,8 +324,6 @@ document-1502
 document-2003
 document-2009
 document-2101
-document-2401
-document-2402
 = element
 element-0104
 element-0105
@@ -820,54 +675,35 @@ error-XPTY0020a
 error-XPTY0020b
 = evaluate
 = expand-text
-cvt-013
 cvt-029
 cvt-030
-cvt-033
 = expose
 *
 = expression
-expression-2101
 = extension-functions
 extension-functions-0103
 extension-functions-0104
 extension-functions-0105
 = for
 = for-each-group
-for-each-group-007
 for-each-group-015b
 for-each-group-033
-for-each-group-041
-for-each-group-042
-for-each-group-043
-for-each-group-044
-for-each-group-045
-for-each-group-046a
 for-each-group-047
 for-each-group-048
-for-each-group-049
 for-each-group-050
-for-each-group-051
 for-each-group-052
 for-each-group-053
 for-each-group-054
 for-each-group-055
 for-each-group-056
-for-each-group-059
-for-each-group-060
 for-each-group-061
 for-each-group-062
 for-each-group-064
 for-each-group-065
 for-each-group-068
-for-each-group-069
-for-each-group-070
-for-each-group-072
 for-each-group-078b
 for-each-group-079b
 for-each-group-081b
-for-each-group-086
-for-each-group-087
 for-each-group-089
 for-each-group-090
 = format-date
@@ -877,14 +713,12 @@ for-each-group-090
 forwards-001
 forwards-002
 forwards-003
-forwards-004
 forwards-005
 forwards-006
 forwards-007
 forwards-008
 forwards-009
 forwards-010
-forwards-011
 forwards-101
 forwards-102
 forwards-103
@@ -966,7 +800,6 @@ id-037
 = import-schema
 import-schema-191
 = include
-include-0101
 include-0102
 include-0103
 = initial-function
@@ -1023,14 +856,12 @@ iterate-012
 iterate-013
 iterate-022
 iterate-024
-iterate-025
 iterate-026
 iterate-027
 iterate-029
 iterate-031
 iterate-035
 iterate-036
-iterate-037
 iterate-039
 iterate-042
 iterate-043
@@ -1075,12 +906,8 @@ key-077
 key-083
 key-089
 = load-xquery-module
-load-xquery-module-001
-load-xquery-module-002
-load-xquery-module-003
 load-xquery-module-004
 = lre
-lre-011
 lre-019
 lre-028
 lre-104
@@ -1092,33 +919,6 @@ lre-109
 = maps
 maps-007
 maps-008
-maps-901a
-maps-901b
-maps-901c
-maps-901d
-maps-901e
-maps-902a
-maps-902b
-maps-903a
-maps-903b
-maps-903c
-maps-904a
-maps-904b
-maps-904c
-maps-904d
-maps-905a
-maps-906a
-maps-906b
-maps-906c
-maps-906d
-maps-906e
-maps-906f
-maps-906g
-maps-906h
-maps-906i
-maps-906j
-maps-906k
-maps-906l
 maps-907
 maps-908
 maps-909
@@ -1139,8 +939,6 @@ match-082b
 match-082c
 match-105
 match-129
-match-134
-match-135
 match-233
 match-236
 match-239
@@ -1239,36 +1037,10 @@ message-0005
 message-0006
 message-0009
 message-0010
-message-0101
-message-0102
-message-0103
-message-0201
-message-0202
-message-0301
-message-0302
-message-0303
-message-0304
-message-0305
-message-0306
-message-0307
-message-0308
-message-0309
-message-0310
-message-0311
-message-0312
-message-0313
-message-0314
-message-0315
 message-0316
-message-0401
-message-0402
-message-0403
 message-0404
-message-0410 # assert-message not supported by testrunner
 message-0501
 = mode
-mode-0802
-mode-0804
 mode-1105
 mode-1106a
 mode-1106b
@@ -1282,15 +1054,8 @@ mode-1108
 mode-1403
 mode-1404
 mode-1425
-mode-1427
-mode-1429
 mode-1431
-mode-1435
 mode-1437a
-mode-1440
-mode-1441
-mode-1442
-mode-1443
 mode-1445
 mode-1446
 mode-1503
@@ -1299,7 +1064,6 @@ mode-1505
 mode-1510
 mode-1515
 mode-1516
-mode-1606
 mode-1701
 mode-1701a
 mode-1702
@@ -1320,7 +1084,6 @@ mode-1713
 mode-1714err
 mode-1801
 mode-1802
-mode-1803
 mode-1901
 mode-1902
 = namespace
@@ -1369,11 +1132,7 @@ namespace-alias-1904
 namespace-alias-1905
 namespace-alias-2613
 = next-match
-next-match-036
-next-match-037
-next-match-040
 = node
-node-1802
 node-1906
 = nodetest
 = normalize-unicode
@@ -1392,20 +1151,13 @@ normalize-unicode-012
 normalize-unicode-013
 normalize-unicode-014
 normalize-unicode-015
-normalize-unicode-016
-normalize-unicode-017
 normalize-unicode-018
 = notation
 = number
-number-0202
-number-0403
 number-0804
 number-0808
-number-1004
 number-1701
 number-1702
-number-1902
-number-1903
 number-3405
 = on-empty
 on-empty-003
@@ -1417,15 +1169,11 @@ on-empty-114a
 on-empty-114b
 on-empty-115b
 = on-non-empty
-on-non-empty-007
 on-non-empty-013
 = outermost
 = output
 output-0102c
-output-0102e
-output-0103b
 output-0103c
-output-0103e
 output-0105
 output-0106
 output-0106a
@@ -1448,9 +1196,6 @@ output-0116b
 output-0119
 output-0120
 output-0121
-output-0122
-output-0128
-output-0129
 output-0136
 output-0136a
 output-0136b
@@ -1460,61 +1205,10 @@ output-0137b
 output-0138
 output-0139
 output-0140
-output-0146
 output-0153
-output-0158
-output-0166
-output-0167
-output-0169
-output-0174
-output-0175
-output-0182
-output-0183
-output-0184
-output-0185
-output-0186
-output-0187
-output-0188
-output-0189
-output-0190
-output-0191
-output-0192
 output-0193
-output-0194
-output-0196
-output-0201
-output-0202
-output-0203
-output-0204
-output-0205
-output-0206
-output-0207
-output-0209
-output-0210
-output-0211
-output-0221
-output-0225
-output-0226
-output-0229
-output-0233
-output-0234
-output-0284
-output-0301
-output-0302
-output-0303
-output-0304
-output-0305
-output-0306
-output-0307
-output-0309
-output-0310
 output-0311
-output-0312
-output-0604
 output-0703
-output-0709
-output-0718
-output-0719
 output-0721
 output-0722
 = override
@@ -1527,17 +1221,12 @@ output-0722
 = path
 = position
 position-0103
-position-3901
-position-4001
 position-4104
 position-4105
 position-4901
 position-6101
 position-6302
-position-6802
 position-7101
-position-8201
-position-8202
 = predicate
 predicate-056
 = regex
@@ -1563,31 +1252,17 @@ resolve-uri-022
 resolve-uri-023
 resolve-uri-024
 = result-document
-result-document-0263
-result-document-0264
-result-document-0265
-result-document-0266
-result-document-0267
-result-document-0268
-result-document-0269
 result-document-0277
 result-document-0279
 result-document-0281
 result-document-0283
-result-document-0284
 result-document-0285
-result-document-0286
-result-document-1204
 result-document-1205
 result-document-1206
 result-document-1401
-result-document-1404
-result-document-1405
-result-document-1406
 result-document-1408
 result-document-1409
 result-document-1410
-result-document-1411
 = root
 = select
 select-1401
@@ -1596,7 +1271,6 @@ select-2305
 select-6101
 = seqtor
 seqtor-017
-seqtor-023
 seqtor-040a
 seqtor-040d
 seqtor-043b
@@ -1694,16 +1368,11 @@ snapshot-0110
 snapshot-0111
 snapshot-0112
 = sort
-sort-010
-sort-012
 sort-019
 sort-026
 sort-027
 sort-028
 sort-029
-sort-041
-sort-042
-sort-043
 sort-054
 sort-066
 sort-078
@@ -1712,10 +1381,6 @@ sort-080
 = source-document
 = static
 static-003a
-static-004
-static-004a
-static-005
-static-005a
 static-006
 static-006a
 static-007
@@ -1802,7 +1467,6 @@ system-property-022
 = transform
 transform-002
 transform-003
-transform-004
 transform-005 # xsl:package not planned
 transform-006 # xsl:package not planned
 transform-007 # xsl:package not planned
@@ -1846,13 +1510,11 @@ unparsed-text-lines-006
 = use-package
 *
 = use-when
-use-when-0136
 = validation
 validation-0101
 validation-0104
 = variable
 = version
-version-001
 version-003
 version-004
 version-005
@@ -1860,7 +1522,6 @@ version-007
 version-008
 version-009
 version-010
-version-017
 version-020
 version-022
 version-023a
@@ -1870,34 +1531,10 @@ version-029
 version-031
 version-032
 = where-populated
-coco-001
-coco-002
-coco-003
-coco-004
-coco-005
-coco-006
-coco-007
-coco-008
-coco-009
-coco-010
-coco-011
-coco-012
-coco-013
-coco-014
-coco-015
-coco-016
-coco-017
-coco-018
-coco-019
-coco-020
-coco-021
-coco-022
-coco-023
 coco-100
 coco-102
 coco-103
 = whitespace
-whitespace-028
 = xml-to-json
 xml-to-json-C102
 = xml-version
@@ -1930,7 +1567,5 @@ xml-to-json-C102
 = xpath-default-namespace
 xpath-default-namespace-0201
 = xsl-document
-xsl-document-0402
 xsl-document-0404
-xsl-document-0603
 = xslt-compat

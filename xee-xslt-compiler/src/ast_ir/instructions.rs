@@ -1881,7 +1881,20 @@ impl<'a> IrConverter<'a> {
             }
         }
 
-        let (select_atom, sort_bindings) = self.apply_template_sorts(select_atom, &sorts)?;
+        let (select_atom, sort_bindings) = if sorts.is_empty() {
+            // No xsl:sort: sort nodes in document order (XSLT 3.0 spec §6.3)
+            let doc_order_expr = self.static_function_call_expr(
+                "xslt-document-order-sort",
+                FN_NAMESPACE,
+                1,
+                vec![select_atom],
+            );
+            Bindings::empty()
+                .bind_expr_no_span(&mut self.variables, doc_order_expr)
+                .atom_bindings()
+        } else {
+            self.apply_template_sorts(select_atom, &sorts)?
+        };
 
         let mode = match &apply_templates.mode {
             ast::ApplyTemplatesModeValue::EqName(name) => {

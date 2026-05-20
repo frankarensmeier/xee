@@ -2016,6 +2016,45 @@ fn xslt_sort_descending3(
     )
 }
 
+#[xpath_fn(
+    "fn:xslt-document-order-sort($input as item()*) as item()*",
+    context_first
+)]
+fn xslt_document_order_sort(
+    context: &crate::context::DynamicContext,
+    interpreter: &Interpreter,
+    input: &sequence::Sequence,
+) -> error::Result<sequence::Sequence> {
+    use crate::sequence::Item;
+    // If sequence is empty or has one item, no sorting needed
+    if input.len() <= 1 {
+        return Ok(input.clone());
+    }
+    // If any item is not a node, return as-is (non-node items have no document order)
+    if !input.iter().all(|item| matches!(item, Item::Node(_))) {
+        return Ok(input.clone());
+    }
+    let documents = context.documents();
+    let documents = documents.borrow();
+    let annotations = documents.document_order_access(interpreter.xot());
+    let mut nodes: Vec<xot::Node> = input
+        .iter()
+        .map(|item| match item {
+            Item::Node(n) => n,
+            _ => unreachable!(),
+        })
+        .collect();
+    // Assign document root keys first for stable cross-document ordering
+    nodes.sort_by_key(|n| annotations.xot.root(*n).sort_key());
+    // Populate document order annotations for all nodes
+    for node in &nodes {
+        let _ = annotations.get(*node);
+    }
+    // Sort by document order
+    nodes.sort_by_key(|n| annotations.get(*n));
+    Ok(nodes.into())
+}
+
 pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
     vec![
         wrap_xpath_fn!(simple_content),
@@ -2055,6 +2094,7 @@ pub(crate) fn static_function_descriptions() -> Vec<StaticFunctionDescription> {
         wrap_xpath_fn!(xslt_sort3),
         wrap_xpath_fn!(xslt_sort_descending2),
         wrap_xpath_fn!(xslt_sort_descending3),
+        wrap_xpath_fn!(xslt_document_order_sort),
     ]
 }
 

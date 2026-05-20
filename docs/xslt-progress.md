@@ -4,6 +4,33 @@ This document records concrete progress on XSLT support: what moved forward,
 what blocked us, and what finally worked. It complements `docs/xslt-plan.md`
 instead of replacing it.
 
+## 2026-05-19 22:05 CEST — Fix apply-templates document order (ancestor/preceding axes)
+
+XSLT 3.0 §6.3 requires that `xsl:apply-templates` processes nodes in document
+order by default, regardless of the order in which the select expression returns
+them. The `ancestor::*` and `preceding::*` axes return nodes in reverse document
+order, so `<xsl:apply-templates select="ancestor::*"/>` was processing from
+closest ancestor to root instead of root to closest ancestor.
+
+**Fix:** when the compiler emits an `ApplyTemplates` instruction with no
+`xsl:sort` elements, it now wraps the select expression with a call to a new
+hidden function `fn:xslt-document-order-sort`. That function checks whether all
+items are nodes (non-nodes have no document position and are left as-is), then
+sorts them by document order annotations. When `xsl:sort` is present, the
+compiler continues to use the existing `xslt-sort`/`xslt-sort-descending` path —
+the document-order sort is NOT applied, so user sorts are not double-sorted.
+
+For 0- and 1-item sequences (the vast majority of apply-templates calls), the
+function returns immediately with no allocation or comparison work.
+
+**Files changed:**
+- `xee-interpreter/src/library/hidden_xslt.rs` — new `xslt_document_order_sort`
+- `xee-xslt-compiler/src/ast_ir/instructions.rs` — emit sort in `apply_templates`
+
+**Measured gain:** 10 axes tests fixed (axes-001, -002, -036, -040, -062, -092,
+-133, -140, -142, -176). Conformance: 6019 → 6088 passing (after filter refresh
+captured gains from earlier commits too). Bench: no measurable regression.
+
 ## 2026-05-19 17:51 CEST — cast_to_string/cast_to_untyped_atomic: eliminate allocation for string variants
 
 `cast_to_string` was called ~202K times on the small.xml transform (counter
