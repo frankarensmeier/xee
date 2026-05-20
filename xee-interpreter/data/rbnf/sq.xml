@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE ldml SYSTEM "../../common/dtd/ldml.dtd">
+<!--
+Copyright © 1991-2026 Unicode, Inc.
+CLDR data files are interpreted according to the LDML specification (http://unicode.org/reports/tr35/)
+For terms of use, see http://www.unicode.org/copyright.html
+-->
+<ldml>
+    <identity>
+        <version number="$Revision$"/>
+        <language type="sq"/>
+    </identity>
+    <rbnf>
+        <rulesetGrouping type="SpelloutRules">
+            <rbnfRules><![CDATA[
+%spellout-numbering-year:
+x.x: =0.0=;
+0: =%spellout-numbering=;
+%spellout-numbering:
+0: =%spellout-cardinal-masculine=;
+%spellout-cardinal-masculine:
+-x: minus >>;
+x.x: << presje >>;
+0: zero;
+1: një;
+2: dy;
+3: tre;
+4: katër;
+5: pesë;
+6: gjashtë;
+7: shtatë;
+8: tetë;
+9: nëntë;
+10: dhjetë;
+11: >%spellout-cardinal-masculine>mbëdhjetë;
+20: njëzet[ e >>];
+30: tridhjetë[ e >>];
+40: dyzet[ e >>];
+50: <%spellout-cardinal-feminine<dhjetë[ e >>];
+100: <%spellout-cardinal-masculine<qind[ e >>];
+1000: <%spellout-cardinal-masculine< mijë[ e >>];
+1000000: një milion[ e >>];
+2000000: <%spellout-cardinal-feminine< milionë[ e >>];
+1000000000: një miliar[ e >>];
+2000000000: <%spellout-cardinal-feminine< miliarë[ e >>];
+1000000000000: një bilion[ e >>];
+2000000000000: <%spellout-cardinal-feminine< bilionë[ e >>];
+1000000000000000: një biliar[ e >>];
+2000000000000000: <%spellout-cardinal-feminine< biliarë[ e >>];
+1000000000000000000: =#,##0=;
+%spellout-cardinal-feminine:
+-x: minus >>;
+x.x: << presje >>;
+0: zero;
+1: një;
+2: dy;
+3: tri;
+4: =%spellout-cardinal-masculine=;
+20: njëzet[ e >>];
+30: tridhjetë[ e >>];
+40: dyzet[ e >>];
+50: <%spellout-cardinal-feminine<dhjetë[ e >>];
+100: <%spellout-cardinal-masculine<qind[ e >>];
+1000: <%spellout-cardinal-masculine< mijë[ e >>];
+1000000: një milion[ e >>];
+2000000: <%spellout-cardinal-feminine< milionë[ e >>];
+1000000000: një miliar[ e >>];
+2000000000: <%spellout-cardinal-feminine< miliarë[ e >>];
+1000000000000: një bilion[ e >>];
+2000000000000: <%spellout-cardinal-feminine< bilionë[ e >>];
+1000000000000000: një biliar[ e >>];
+2000000000000000: <%spellout-cardinal-feminine< biliarë[ e >>];
+1000000000000000000: =#,##0=;
+]]></rbnfRules>
+        </rulesetGrouping>
+    </rbnf>
+</ldml>

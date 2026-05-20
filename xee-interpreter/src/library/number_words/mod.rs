@@ -31,9 +31,12 @@ pub(crate) fn number_to_words_lang(
     lang: Option<&str>,
     ordinal: Option<&str>,
 ) -> String {
+    // Convert BCP 47 tag (hyphens) to CLDR key (underscores) for lookup.
+    // The RBNF engine tries the full locale (e.g. "de_CH") first, then
+    // falls back to the base language ("de"), then to English.
     let lang_code = lang
-        .map(|s| s.split('-').next().unwrap_or(s))
-        .unwrap_or("en");
+        .map(|s| s.replace('-', "_"))
+        .unwrap_or_else(|| "en".to_string());
 
     let ruleset = if let Some(ord) = ordinal {
         if ord.starts_with('%') {
@@ -48,7 +51,7 @@ pub(crate) fn number_to_words_lang(
         "%spellout-cardinal-verbose"
     };
 
-    let result = format_with_verbose_fallback(lang_code, ruleset, number);
+    let result = format_with_verbose_fallback(&lang_code, ruleset, number);
 
     // CLDR RBNF uses hyphens and soft hyphens (U+00AD) as word separators.
     // XSLT conformance tests expect spaces ("twenty one"), so replace both.

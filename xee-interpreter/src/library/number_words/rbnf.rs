@@ -10,14 +10,110 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // Embed CLDR RBNF data at compile time.
-// To add a language, download the XML from
+// The full set of CLDR RBNF language files from
 //   https://github.com/unicode-org/cldr/tree/main/common/rbnf
-// and add an entry here.
 const RBNF_DATA: &[(&str, &str)] = &[
-    ("en", include_str!("../../../data/rbnf/en.xml")),
+    ("af", include_str!("../../../data/rbnf/af.xml")),
+    ("ak", include_str!("../../../data/rbnf/ak.xml")),
+    ("am", include_str!("../../../data/rbnf/am.xml")),
+    ("ar", include_str!("../../../data/rbnf/ar.xml")),
+    ("az", include_str!("../../../data/rbnf/az.xml")),
+    ("ba", include_str!("../../../data/rbnf/ba.xml")),
+    ("be", include_str!("../../../data/rbnf/be.xml")),
+    ("bg", include_str!("../../../data/rbnf/bg.xml")),
+    ("bn", include_str!("../../../data/rbnf/bn.xml")),
+    ("bs", include_str!("../../../data/rbnf/bs.xml")),
+    ("ca", include_str!("../../../data/rbnf/ca.xml")),
+    ("ccp", include_str!("../../../data/rbnf/ccp.xml")),
+    ("chr", include_str!("../../../data/rbnf/chr.xml")),
+    ("cs", include_str!("../../../data/rbnf/cs.xml")),
+    ("cv", include_str!("../../../data/rbnf/cv.xml")),
+    ("cy", include_str!("../../../data/rbnf/cy.xml")),
+    ("da", include_str!("../../../data/rbnf/da.xml")),
     ("de", include_str!("../../../data/rbnf/de.xml")),
+    ("de_CH", include_str!("../../../data/rbnf/de_CH.xml")),
+    ("ee", include_str!("../../../data/rbnf/ee.xml")),
+    ("el", include_str!("../../../data/rbnf/el.xml")),
+    ("en", include_str!("../../../data/rbnf/en.xml")),
+    ("en_001", include_str!("../../../data/rbnf/en_001.xml")),
+    ("en_IN", include_str!("../../../data/rbnf/en_IN.xml")),
+    ("eo", include_str!("../../../data/rbnf/eo.xml")),
+    ("es", include_str!("../../../data/rbnf/es.xml")),
+    ("es_419", include_str!("../../../data/rbnf/es_419.xml")),
+    ("et", include_str!("../../../data/rbnf/et.xml")),
+    ("fa", include_str!("../../../data/rbnf/fa.xml")),
+    ("fa_AF", include_str!("../../../data/rbnf/fa_AF.xml")),
+    ("ff", include_str!("../../../data/rbnf/ff.xml")),
+    ("fi", include_str!("../../../data/rbnf/fi.xml")),
+    ("fil", include_str!("../../../data/rbnf/fil.xml")),
+    ("fo", include_str!("../../../data/rbnf/fo.xml")),
     ("fr", include_str!("../../../data/rbnf/fr.xml")),
+    ("fr_BE", include_str!("../../../data/rbnf/fr_BE.xml")),
+    ("fr_CH", include_str!("../../../data/rbnf/fr_CH.xml")),
+    ("ga", include_str!("../../../data/rbnf/ga.xml")),
+    ("gu", include_str!("../../../data/rbnf/gu.xml")),
+    ("he", include_str!("../../../data/rbnf/he.xml")),
+    ("hi", include_str!("../../../data/rbnf/hi.xml")),
+    ("hr", include_str!("../../../data/rbnf/hr.xml")),
+    ("hu", include_str!("../../../data/rbnf/hu.xml")),
+    ("hy", include_str!("../../../data/rbnf/hy.xml")),
+    ("id", include_str!("../../../data/rbnf/id.xml")),
+    ("is", include_str!("../../../data/rbnf/is.xml")),
     ("it", include_str!("../../../data/rbnf/it.xml")),
+    ("ja", include_str!("../../../data/rbnf/ja.xml")),
+    ("ka", include_str!("../../../data/rbnf/ka.xml")),
+    ("kk", include_str!("../../../data/rbnf/kk.xml")),
+    ("kl", include_str!("../../../data/rbnf/kl.xml")),
+    ("km", include_str!("../../../data/rbnf/km.xml")),
+    ("kn", include_str!("../../../data/rbnf/kn.xml")),
+    ("ko", include_str!("../../../data/rbnf/ko.xml")),
+    ("ky", include_str!("../../../data/rbnf/ky.xml")),
+    ("lb", include_str!("../../../data/rbnf/lb.xml")),
+    ("lo", include_str!("../../../data/rbnf/lo.xml")),
+    ("lrc", include_str!("../../../data/rbnf/lrc.xml")),
+    ("lt", include_str!("../../../data/rbnf/lt.xml")),
+    ("lv", include_str!("../../../data/rbnf/lv.xml")),
+    ("mk", include_str!("../../../data/rbnf/mk.xml")),
+    ("ml", include_str!("../../../data/rbnf/ml.xml")),
+    ("mr", include_str!("../../../data/rbnf/mr.xml")),
+    ("ms", include_str!("../../../data/rbnf/ms.xml")),
+    ("mt", include_str!("../../../data/rbnf/mt.xml")),
+    ("my", include_str!("../../../data/rbnf/my.xml")),
+    ("nb", include_str!("../../../data/rbnf/nb.xml")),
+    ("ne", include_str!("../../../data/rbnf/ne.xml")),
+    ("nl", include_str!("../../../data/rbnf/nl.xml")),
+    ("nn", include_str!("../../../data/rbnf/nn.xml")),
+    ("no", include_str!("../../../data/rbnf/no.xml")),
+    ("or", include_str!("../../../data/rbnf/or.xml")),
+    ("pa", include_str!("../../../data/rbnf/pa.xml")),
+    ("pl", include_str!("../../../data/rbnf/pl.xml")),
+    ("pt", include_str!("../../../data/rbnf/pt.xml")),
+    ("pt_PT", include_str!("../../../data/rbnf/pt_PT.xml")),
+    ("qu", include_str!("../../../data/rbnf/qu.xml")),
+    ("ro", include_str!("../../../data/rbnf/ro.xml")),
+    ("root", include_str!("../../../data/rbnf/root.xml")),
+    ("ru", include_str!("../../../data/rbnf/ru.xml")),
+    ("se", include_str!("../../../data/rbnf/se.xml")),
+    ("sk", include_str!("../../../data/rbnf/sk.xml")),
+    ("sl", include_str!("../../../data/rbnf/sl.xml")),
+    ("sq", include_str!("../../../data/rbnf/sq.xml")),
+    ("sr", include_str!("../../../data/rbnf/sr.xml")),
+    ("sr_Latn", include_str!("../../../data/rbnf/sr_Latn.xml")),
+    ("su", include_str!("../../../data/rbnf/su.xml")),
+    ("sv", include_str!("../../../data/rbnf/sv.xml")),
+    ("sw", include_str!("../../../data/rbnf/sw.xml")),
+    ("ta", include_str!("../../../data/rbnf/ta.xml")),
+    ("te", include_str!("../../../data/rbnf/te.xml")),
+    ("th", include_str!("../../../data/rbnf/th.xml")),
+    ("tr", include_str!("../../../data/rbnf/tr.xml")),
+    ("uk", include_str!("../../../data/rbnf/uk.xml")),
+    ("ur", include_str!("../../../data/rbnf/ur.xml")),
+    ("vec", include_str!("../../../data/rbnf/vec.xml")),
+    ("vi", include_str!("../../../data/rbnf/vi.xml")),
+    ("yue", include_str!("../../../data/rbnf/yue.xml")),
+    ("yue_Hans", include_str!("../../../data/rbnf/yue_Hans.xml")),
+    ("zh", include_str!("../../../data/rbnf/zh.xml")),
+    ("zh_Hant", include_str!("../../../data/rbnf/zh_Hant.xml")),
 ];
 
 /// Word case (re-exported from parent module).
@@ -76,11 +172,20 @@ fn global_lang_data() -> &'static HashMap<String, LangData> {
 // ---------------------------------------------------------------------------
 
 /// Format a number using RBNF rules for the given language and ruleset.
-/// Falls back to English if the language is not available.
-/// Falls back to decimal if the ruleset is not found.
+/// Tries the full locale key (e.g. "de_CH"), then the base language ("de"),
+/// then falls back to English. Falls back to decimal if the ruleset is not found.
 pub(super) fn format_number(lang: &str, ruleset: &str, number: i64) -> String {
     let langs = global_lang_data();
-    let data = langs.get(lang).or_else(|| langs.get("en"));
+
+    // Try full locale key first (e.g. "de_CH"), then base language ("de"), then "en".
+    let data = langs
+        .get(lang)
+        .or_else(|| {
+            lang.find('_')
+                .map(|i| &lang[..i])
+                .and_then(|base| langs.get(base))
+        })
+        .or_else(|| langs.get("en"));
     let data = match data {
         Some(d) => d,
         None => return number.to_string(),
