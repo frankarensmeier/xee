@@ -15,8 +15,16 @@ use crate::error;
 use crate::string::Collation;
 
 use super::datetime::{
-    Duration, GDay, GMonth, GMonthDay, GYear, GYearMonth, NaiveDateTimeWithOffset,
-    NaiveDateWithOffset, NaiveTimeWithOffset, YearMonthDuration,
+    Duration,
+    GDay,
+    GMonth,
+    GMonthDay,
+    GYear,
+    GYearMonth,
+    NaiveDateTimeWithOffset,
+    NaiveDateWithOffset,
+    NaiveTimeWithOffset,
+    YearMonthDuration,
 };
 use super::{op_unary, OpEq};
 use super::{AtomicCompare, OpGt};

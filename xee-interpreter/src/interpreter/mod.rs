@@ -8,7 +8,12 @@ mod state;
 
 pub use interpret::Interpreter;
 pub use program::{
-    DynamicXPathEvaluator, DynamicXPathRequest, FunctionInfo, InitialFocusMode, Program,
-    TransformEvaluator, TransformRequest,
+    DynamicXPathEvaluator,
+    DynamicXPathRequest,
+    FunctionInfo,
+    InitialFocusMode,
+    Program,
+    TransformEvaluator,
+    TransformRequest,
 };
 pub use runnable::Runnable;

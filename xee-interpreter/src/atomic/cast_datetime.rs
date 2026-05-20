@@ -10,8 +10,16 @@ use crate::error;
 
 use super::cast::whitespace_collapse;
 use super::datetime::{
-    Duration, GDay, GMonth, GMonthDay, GYear, GYearMonth, NaiveDateTimeWithOffset,
-    NaiveDateWithOffset, NaiveTimeWithOffset, YearMonthDuration,
+    Duration,
+    GDay,
+    GMonth,
+    GMonthDay,
+    GYear,
+    GYearMonth,
+    NaiveDateTimeWithOffset,
+    NaiveDateWithOffset,
+    NaiveTimeWithOffset,
+    YearMonthDuration,
 };
 
 pub(crate) type BoxedParser<'a, 'b, T> = Boxed<'a, 'b, &'a str, T, extra::Default>;
