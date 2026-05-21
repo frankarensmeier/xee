@@ -334,4 +334,16 @@ impl StaticFunctions {
     pub fn get_by_index(&self, static_function_id: function::StaticFunctionId) -> &StaticFunction {
         &self.by_index[static_function_id.0]
     }
+
+    /// Return a name table mapping each function index to a display name
+    /// (e.g. "fn:string-join#2"). Used by the IR dump.
+    pub fn name_table(&self) -> Vec<String> {
+        self.by_index
+            .iter()
+            .map(|f| {
+                let name = f.name.full_name();
+                format!("{}#{}", name, f.arity)
+            })
+            .collect()
+    }
 }

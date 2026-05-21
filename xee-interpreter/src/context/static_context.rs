@@ -20,6 +20,12 @@ use crate::string::{Collation, Collations};
 static STATIC_FUNCTIONS: LazyLock<function::StaticFunctions> =
     LazyLock::new(function::StaticFunctions::new);
 
+/// Return a name table for all built-in static functions, mapping each index
+/// to a display name like `"fn:string-join#2"`. Used by the IR dump.
+pub fn static_function_name_table() -> Vec<String> {
+    STATIC_FUNCTIONS.name_table()
+}
+
 // use lazy static to initialize the default collation
 static DEFAULT_COLLATION: LazyLock<IriAbsoluteString> = LazyLock::new(|| {
     "http://www.w3.org/2005/xpath-functions/collation/codepoint"

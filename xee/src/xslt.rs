@@ -77,6 +77,13 @@ impl Xslt {
             ) {
                 Ok(declarations) => {
                     print!("{}", xee_ir::display::DisplayDeclarations(&declarations));
+
+                    // Print function name table so fn#N references can be resolved
+                    let names = xee_interpreter::context::static_function_name_table();
+                    println!("function-table:");
+                    for (i, name) in names.iter().enumerate() {
+                        println!("  fn#{i} = {name}");
+                    }
                 }
                 Err(e) => {
                     render_error(&self.stylesheet.display().to_string(), &stylesheet, e);
